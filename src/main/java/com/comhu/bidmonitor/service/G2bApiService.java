@@ -34,14 +34,16 @@ public class G2bApiService {
         // ServiceKey가 이미 URL Encoding된 값이므로 RestClient가 다시 인코딩하지 않도록
         // 최종 문자열을 URI 객체로 변환해 그대로 전달한다.
         String requestUrl = baseUrl
-                + "/getBidPblancListInfoServc"
+                + "/getBidPblancListInfoServcPPSSrch"
                 + "?ServiceKey=" + serviceKey
                 + "&numOfRows=10"
                 + "&pageNo=1"
                 + "&type=json"
                 + "&inqryDiv=1"
                 + "&inqryBgnDt=" + inquiryStartDateTime
-                + "&inqryEndDt=" + inquiryEndDateTime;
+                + "&inqryEndDt=" + inquiryEndDateTime
+                // 업종코드 6146에 해당하는 용역 입찰공고만 조회한다.
+                + "&indstrytyCd=6146";
 
         RestClient restClient = RestClient.create();
 
