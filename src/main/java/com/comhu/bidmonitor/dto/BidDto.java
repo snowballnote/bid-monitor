@@ -38,4 +38,28 @@ public class BidDto {
     // 입찰공고 상세조회 URL
     private String bidNtceDtlUrl;
 
+    // 낙찰방법코드
+    private String sucsfbidMthdCd;
+
+    // 기술능력평가비율
+    private String techAbltEvlRt;
+
+    // 입찰가격평가비율
+    private String bidPrceEvlRt;
+
+    // 낙찰방법적용기준
+    private String sucsfbidMthdAppStd;
+
+    // 실적경쟁 여부
+    private String arsltCmptYn;
+
+    // PQ심사 여부
+    private String pqEvalYn;
+
+    // TP심사 여부
+    private String tpEvalYn;
+
+    // 공동수급협정서 접수방식
+    private String cmmnSpldmdAgrmntRcptdocMethd;
+
 }

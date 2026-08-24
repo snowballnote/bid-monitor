@@ -84,7 +84,16 @@ public class G2bApiService {
                         item.path("bidClseDt").asText(),
                         item.path("asignBdgtAmt").asText(),
                         item.path("sucsfbidMthdNm").asText(),
-                        item.path("bidNtceDtlUrl").asText()
+                        item.path("bidNtceDtlUrl").asText(),
+                        // 낙찰방법 및 심사 조건을 자동 판단에 사용할 수 있도록 함께 담는다.
+                        item.path("sucsfbidMthdCd").asText(),
+                        item.path("techAbltEvlRt").asText(),
+                        item.path("bidPrceEvlRt").asText(),
+                        item.path("sucsfbidMthdAppStd").asText(),
+                        item.path("arsltCmptYn").asText(),
+                        item.path("pqEvalYn").asText(),
+                        item.path("tpEvalYn").asText(),
+                        item.path("cmmnSpldmdAgrmntRcptdocMethd").asText()
                 ));
             }
         } catch (JsonProcessingException e) {
