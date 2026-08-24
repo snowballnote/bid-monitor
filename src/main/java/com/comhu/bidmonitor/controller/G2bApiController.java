@@ -1,0 +1,25 @@
+package com.comhu.bidmonitor.controller;
+
+import com.comhu.bidmonitor.service.G2bApiService;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+// 나라장터 API 호출을 테스트하기 위한 REST 컨트롤러
+@RestController
+@RequestMapping("/api")
+public class G2bApiController {
+
+    private final G2bApiService g2bApiService;
+
+    // 생성자 주입으로 나라장터 API 서비스 의존성을 전달받는다.
+    public G2bApiController(G2bApiService g2bApiService) {
+        this.g2bApiService = g2bApiService;
+    }
+
+    // GET /api/bids 요청 시 나라장터 용역 입찰공고 조회 결과를 그대로 반환한다.
+    @GetMapping("/bids")
+    public String getBidList() {
+        return g2bApiService.getBidList();
+    }
+}
