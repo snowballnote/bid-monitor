@@ -5,6 +5,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
 import java.net.URI;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 
 // 나라장터(G2B) OpenAPI 호출을 담당하는 서비스 클래스
 @Service
@@ -23,6 +25,10 @@ public class G2bApiService {
      * 나라장터 용역 입찰공고 목록을 테스트용으로 조회한다.
      */
     public String getBidList() {
+        // 실행 당일의 입찰공고를 조회하기 위해 현재 날짜를 yyyyMMdd 형식으로 만든다.
+        String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+        String inquiryStartDateTime = today + "0000";
+        String inquiryEndDateTime = today + "2359";
 
         // 브라우저에서 정상 호출된 URL과 동일한 형태로 전체 요청 주소를 직접 만든다.
         // ServiceKey가 이미 URL Encoding된 값이므로 RestClient가 다시 인코딩하지 않도록
@@ -34,8 +40,8 @@ public class G2bApiService {
                 + "&pageNo=1"
                 + "&type=json"
                 + "&inqryDiv=1"
-                + "&inqryBgnDt=202608240000"
-                + "&inqryEndDt=202608242359";
+                + "&inqryBgnDt=" + inquiryStartDateTime
+                + "&inqryEndDt=" + inquiryEndDateTime;
 
         RestClient restClient = RestClient.create();
 
