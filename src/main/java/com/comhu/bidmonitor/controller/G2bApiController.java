@@ -1,9 +1,12 @@
 package com.comhu.bidmonitor.controller;
 
+import com.comhu.bidmonitor.dto.BidDto;
 import com.comhu.bidmonitor.service.G2bApiService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 // 나라장터 API 호출을 테스트하기 위한 REST 컨트롤러
 @RestController
@@ -21,5 +24,11 @@ public class G2bApiController {
     @GetMapping("/bids")
     public String getBidList() {
         return g2bApiService.getBidList();
+    }
+
+    // GET /api/bids/dto 요청 시 입찰공고 DTO 목록을 반환한다.
+    @GetMapping("/bids/dto")
+    public List<BidDto> getBidDtoList() {
+        return g2bApiService.getBidDtoList();
     }
 }
