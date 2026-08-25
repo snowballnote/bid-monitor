@@ -47,6 +47,7 @@ public class G2bApiService {
     private static final int BID_LIST_PAGE_SIZE = 100;
     private static final String REQUIRED_LICENSE_CODE = "6146";
     private static final Set<String> DEFAULT_ALLOWED_LICENSE_CODES = Set.of("6146", "1468");
+    private static final Set<String> REFERENCE_SITE_DOMAINS = Set.of("smpp.go.kr");
     private static final Set<String> PDF_ANALYSIS_DOCUMENT_TYPES =
             Set.of("공고문", "과업지시서", "제안요청서");
     private static final Set<String> HWPX_ANALYSIS_DOCUMENT_TYPES =
@@ -370,10 +371,153 @@ public class G2bApiService {
 
             // 조합한 참가조건을 기준으로 자동 검토 상태와 판정 사유를 설정한다.
             applyReviewResult(qualification, normalizeAllowedLicenseCodes(allowedLicenseCodes));
+
+            // 기존 참가조건 판정과 분리하여 첨부파일의 외부사이트 확인 상태를 공고 단위로 계산한다.
+            applyExternalCheckResult(qualification);
             return qualification;
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("참가조건 API 응답을 JSON으로 처리할 수 없습니다.", e);
         }
+    }
+
+    /**
+     * 분석 가능한 첨부파일만 기존 PDF/HWPX 분석 메서드로 처리하고 공고 전체 결과를 계산한다.
+     */
+    private void applyExternalCheckResult(BidQualificationDto qualification) {
+        List<BidAttachmentDto> attachments = qualification.getAttachments();
+        qualification.setExternalSiteUrls(new ArrayList<>());
+
+        if (attachments == null || attachments.isEmpty()) {
+            setUnknownExternalCheckResult(qualification, "분석 가능한 PDF/HWPX 첨부파일이 없음");
+            return;
+        }
+
+        List<BidAttachmentDto> analysisTargets = new ArrayList<>();
+        for (BidAttachmentDto attachment : attachments) {
+            if (attachment == null) {
+                continue;
+            }
+
+            // HWP와 기타 문서는 제외하고 지정된 문서 유형의 PDF/HWPX만 내려받는다.
+            if (isPdfAnalysisTarget(attachment)) {
+                analysisTargets.add(analyzePdfAttachment(attachment));
+            } else if (isHwpxAnalysisTarget(attachment)) {
+                analysisTargets.add(analyzeHwpxAttachment(attachment));
+            }
+        }
+
+        if (analysisTargets.isEmpty()) {
+            setUnknownExternalCheckResult(qualification, "분석 가능한 PDF/HWPX 첨부파일이 없음");
+            return;
+        }
+
+        List<BidAttachmentDto> detectedAttachments = analysisTargets.stream()
+                .filter(attachment -> Boolean.TRUE.equals(attachment.getExternalReferenceDetected()))
+                .toList();
+
+        // 여러 첨부에서 같은 외부 URL이 나온 경우 공고 단위 목록에는 한 번만 보존한다.
+        Set<String> externalUrls = detectedAttachments.stream()
+                .filter(attachment -> attachment.getDetectedExternalUrls() != null)
+                .flatMap(attachment -> attachment.getDetectedExternalUrls().stream())
+                .filter(url -> !getSafeValue(url).isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<String> referenceUrls = externalUrls.stream()
+                .filter(this::isReferenceSiteUrl)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<String> requiredUrls = externalUrls.stream()
+                .filter(url -> !isReferenceSiteUrl(url))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        boolean keywordSignalDetected = detectedAttachments.stream()
+                .anyMatch(this::hasExternalReferenceKeywordSignal);
+
+        // 일반 외부 URL 또는 직접 제출 등의 키워드가 하나라도 있으면 참고사이트 포함 여부와 관계없이 REQUIRED다.
+        if (!requiredUrls.isEmpty() || keywordSignalDetected) {
+            List<String> detectedReasons = detectedAttachments.stream()
+                    .map(this::createAttachmentExternalReason)
+                    .filter(reason -> !reason.isBlank())
+                    .distinct()
+                    .toList();
+            qualification.setExternalCheckStatus("REQUIRED");
+            qualification.setExternalSiteCheckRequired(true);
+            qualification.setExternalSiteUrls(new ArrayList<>(externalUrls));
+            qualification.setExternalCheckReason(detectedReasons.isEmpty()
+                    ? "첨부문서에서 외부사이트 확인 신호가 탐지됨"
+                    : String.join(" | ", detectedReasons));
+            return;
+        }
+
+        List<String> failedFileNames = analysisTargets.stream()
+                .filter(attachment -> "FAILED".equals(attachment.getAnalysisStatus()))
+                .map(attachment -> getSafeValue(attachment.getFileName()).trim())
+                .filter(fileName -> !fileName.isEmpty())
+                .distinct()
+                .toList();
+
+        // 일부라도 분석에 실패하면 실패한 문서에 외부 신호가 있을 수 있어 UNKNOWN으로 둔다.
+        if (!failedFileNames.isEmpty()) {
+            setUnknownExternalCheckResult(
+                    qualification,
+                    "첨부파일 분석 실패로 외부 확인 필요 여부를 판단할 수 없음: "
+                            + String.join(", ", failedFileNames)
+            );
+            return;
+        }
+
+        // smpp.go.kr처럼 자격·제도 확인 목적의 사이트만 있으면 추가 공고 확인 대상으로 보지 않는다.
+        if (!referenceUrls.isEmpty()) {
+            qualification.setExternalCheckStatus("REFERENCE");
+            qualification.setExternalSiteCheckRequired(false);
+            qualification.setExternalSiteUrls(new ArrayList<>(referenceUrls));
+            qualification.setExternalCheckReason(
+                    "자격·제도 확인용 참고사이트가 포함되어 있음: " + String.join(", ", referenceUrls)
+            );
+            return;
+        }
+
+        boolean analyzedAttachmentExists = analysisTargets.stream()
+                .anyMatch(attachment -> "ANALYZED".equals(attachment.getAnalysisStatus()));
+        if (analyzedAttachmentExists) {
+            qualification.setExternalCheckStatus("NOT_DETECTED");
+            qualification.setExternalSiteCheckRequired(false);
+            qualification.setExternalCheckReason("분석된 첨부파일에서 외부 홈페이지 확인 신호가 탐지되지 않음");
+            return;
+        }
+
+        setUnknownExternalCheckResult(qualification, "첨부파일 분석 결과를 확인할 수 없음");
+    }
+
+    /** REQUIRED 사유에 첨부파일명과 해당 파일의 분석 사유를 함께 표시한다. */
+    private String createAttachmentExternalReason(BidAttachmentDto attachment) {
+        String fileName = getSafeValue(attachment.getFileName()).trim();
+        String analysisReason = getSafeValue(attachment.getAnalysisReason()).trim();
+        if (fileName.isEmpty()) {
+            return analysisReason;
+        }
+        return analysisReason.isEmpty() ? fileName : fileName + ": " + analysisReason;
+    }
+
+    /** 첨부 분석 사유에 URL 이외의 외부 확인 키워드가 포함되었는지 확인한다. */
+    private boolean hasExternalReferenceKeywordSignal(BidAttachmentDto attachment) {
+        return getSafeValue(attachment.getAnalysisReason()).contains("탐지 키워드:");
+    }
+
+    /** 지정한 URL이 자격·제도 안내용 참고사이트 또는 그 하위 도메인인지 확인한다. */
+    private boolean isReferenceSiteUrl(String url) {
+        try {
+            String host = getSafeValue(URI.create(url).getHost()).toLowerCase(Locale.ROOT);
+            return REFERENCE_SITE_DOMAINS.stream()
+                    .anyMatch(domain -> domain.equals(host) || host.endsWith("." + domain));
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
+    }
+
+    /** 외부사이트 확인 여부를 판단할 수 없는 공고의 공통 결과를 설정한다. */
+    private void setUnknownExternalCheckResult(BidQualificationDto qualification, String reason) {
+        qualification.setExternalCheckStatus("UNKNOWN");
+        qualification.setExternalSiteCheckRequired(null);
+        qualification.setExternalSiteUrls(new ArrayList<>());
+        qualification.setExternalCheckReason(reason);
     }
 
     /**

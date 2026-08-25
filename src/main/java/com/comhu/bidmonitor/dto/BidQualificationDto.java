@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -39,6 +40,18 @@ public class BidQualificationDto {
 
     // 공고문, 과업지시서, 제안요청서 등 나라장터 첨부문서 목록
     private List<BidAttachmentDto> attachments;
+
+    // 공고 전체 첨부파일을 분석한 외부사이트 확인 상태(REQUIRED, REFERENCE, NOT_DETECTED, UNKNOWN)
+    private String externalCheckStatus = "UNKNOWN";
+
+    // 외부 기관 사이트를 추가로 확인해야 하는지 여부(판단 불가는 null)
+    private Boolean externalSiteCheckRequired;
+
+    // 첨부문서에서 탐지한 나라장터 외부 URL의 중복 제거 목록
+    private List<String> externalSiteUrls = new ArrayList<>();
+
+    // 공고 단위 외부사이트 확인 상태를 결정한 사유
+    private String externalCheckReason = "";
 
     // 면허/업종 제한
     private String licenseLimit;

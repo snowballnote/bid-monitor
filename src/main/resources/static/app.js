@@ -156,6 +156,69 @@ function createCell(value) {
     return cell;
 }
 
+/** 공고 단위 외부확인 상태를 업무 화면용 한글 문구로 변환한다. */
+function getExternalCheckLabel(status) {
+    if (status === "REQUIRED") {
+        return "외부사이트 확인 필요";
+    }
+    if (status === "REFERENCE") {
+        return "참고사이트";
+    }
+    if (status === "NOT_DETECTED") {
+        return "외부참조 미탐지";
+    }
+    return "확인 필요";
+}
+
+/** 외부확인 상태, 판정 사유 및 안전한 HTTP(S) 외부 링크를 한 셀에 표시한다. */
+function createExternalCheckCell(bid) {
+    const cell = document.createElement("td");
+    cell.className = "external-check-cell";
+
+    const status = bid.externalCheckStatus || "UNKNOWN";
+    const statusBadge = document.createElement("span");
+    statusBadge.className = `external-check-status external-check-${status.toLowerCase().replace("_", "-")}`;
+    statusBadge.textContent = getExternalCheckLabel(status);
+    cell.appendChild(statusBadge);
+
+    if (bid.externalCheckReason) {
+        const reason = document.createElement("span");
+        reason.className = "external-check-reason";
+        reason.textContent = bid.externalCheckReason;
+        cell.appendChild(reason);
+    }
+
+    if (["REQUIRED", "REFERENCE"].includes(status) && Array.isArray(bid.externalSiteUrls)) {
+        const linkList = document.createElement("div");
+        linkList.className = "external-link-list";
+
+        bid.externalSiteUrls.forEach((url, index) => {
+            try {
+                const parsedUrl = new URL(url);
+                if (!(["http:", "https:"].includes(parsedUrl.protocol))) {
+                    return;
+                }
+
+                const link = document.createElement("a");
+                link.href = parsedUrl.href;
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+                link.className = "external-site-link";
+                link.textContent = parsedUrl.hostname || `외부 링크 ${index + 1}`;
+                linkList.appendChild(link);
+            } catch (error) {
+                console.warn("표시할 수 없는 외부 URL입니다.", url, error);
+            }
+        });
+
+        if (linkList.childElementCount > 0) {
+            cell.appendChild(linkList);
+        }
+    }
+
+    return cell;
+}
+
 /**
  * API 응답의 각 공고를 안전하게 테이블 행으로 생성한다.
  */
@@ -177,6 +240,7 @@ function createBidRow(bid) {
     row.appendChild(createCell(bid.licenseLimit));
     row.appendChild(createCell(bid.participationRegion));
     row.appendChild(createCell(bid.reviewReason));
+    row.appendChild(createExternalCheckCell(bid));
 
     const detailCell = document.createElement("td");
     if (bid.bidNtceDtlUrl) {

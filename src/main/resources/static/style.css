@@ -233,7 +233,7 @@ h1 {
 
 table {
     width: 100%;
-    min-width: 1250px;
+    min-width: 1450px;
     border-collapse: collapse;
     font-size: 14px;
 }
@@ -267,6 +267,10 @@ td:nth-child(9) {
     min-width: 190px;
 }
 
+td:nth-child(10) {
+    min-width: 230px;
+}
+
 .status {
     display: inline-block;
     min-width: 82px;
@@ -291,6 +295,66 @@ td:nth-child(9) {
 .status-check {
     color: #92400e;
     background: #fef3c7;
+}
+
+.external-check-cell {
+    min-width: 230px;
+}
+
+.external-check-status {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.external-check-required {
+    color: #991b1b;
+    background: #fee2e2;
+}
+
+.external-check-reference {
+    color: #1e40af;
+    background: #dbeafe;
+}
+
+.external-check-not-detected {
+    color: #166534;
+    background: #dcfce7;
+}
+
+.external-check-unknown {
+    color: #92400e;
+    background: #fef3c7;
+}
+
+.external-check-reason {
+    display: block;
+    margin-top: 7px;
+    color: #4b5563;
+    font-size: 12px;
+}
+
+.external-link-list {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    margin-top: 8px;
+}
+
+.external-site-link {
+    color: #1d4ed8;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+    text-decoration: none;
+}
+
+.external-site-link:hover,
+.external-site-link:focus {
+    text-decoration: underline;
 }
 
 .detail-link {
