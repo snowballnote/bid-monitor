@@ -122,10 +122,11 @@ class G2bApiServiceExternalCheckTests {
     }
 
     @Test
-    void marksUnknownWhenOnlyHwpAttachmentExists() throws Exception {
+    void marksUnknownWhenHwpAttachmentAnalysisFails() throws Exception {
+        String attachmentUrl = serveFile("손상된 HWP".getBytes(StandardCharsets.UTF_8), "/notice.hwp");
         BidQualificationDto qualification = qualificationWithAttachment(
                 "입찰공고문.hwp",
-                "https://example.org/notice.hwp",
+                attachmentUrl,
                 "공고문"
         );
 
@@ -133,7 +134,7 @@ class G2bApiServiceExternalCheckTests {
 
         assertEquals("UNKNOWN", qualification.getExternalCheckStatus());
         assertNull(qualification.getExternalSiteCheckRequired());
-        assertEquals("NOT_ANALYZED", qualification.getAttachments().getFirst().getAnalysisStatus());
+        assertEquals("FAILED", qualification.getAttachments().getFirst().getAnalysisStatus());
     }
 
     private BidQualificationDto qualificationWithAttachment(
@@ -153,14 +154,18 @@ class G2bApiServiceExternalCheckTests {
 
     private String serveHwpx(String text) throws Exception {
         byte[] hwpxBytes = createHwpx(text);
+        return serveFile(hwpxBytes, "/notice.hwpx");
+    }
+
+    private String serveFile(byte[] fileBytes, String path) throws Exception {
         httpServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        httpServer.createContext("/notice.hwpx", exchange -> {
-            exchange.sendResponseHeaders(200, hwpxBytes.length);
-            exchange.getResponseBody().write(hwpxBytes);
+        httpServer.createContext(path, exchange -> {
+            exchange.sendResponseHeaders(200, fileBytes.length);
+            exchange.getResponseBody().write(fileBytes);
             exchange.close();
         });
         httpServer.start();
-        return "http://127.0.0.1:" + httpServer.getAddress().getPort() + "/notice.hwpx";
+        return "http://127.0.0.1:" + httpServer.getAddress().getPort() + path;
     }
 
     private byte[] createHwpx(String text) throws Exception {

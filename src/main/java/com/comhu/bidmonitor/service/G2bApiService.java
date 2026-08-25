@@ -8,6 +8,10 @@ import com.comhu.bidmonitor.dto.LicenseRequirementGroup;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import kr.dogfoot.hwplib.object.HWPFile;
+import kr.dogfoot.hwplib.reader.HWPReader;
+import kr.dogfoot.hwplib.tool.textextractor.TextExtractMethod;
+import kr.dogfoot.hwplib.tool.textextractor.TextExtractor;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -21,6 +25,8 @@ import javax.xml.stream.XMLStreamReader;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
@@ -34,6 +40,12 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -52,7 +64,33 @@ public class G2bApiService {
             Set.of("공고문", "과업지시서", "제안요청서");
     private static final Set<String> HWPX_ANALYSIS_DOCUMENT_TYPES =
             Set.of("공고문", "과업지시서", "제안요청서");
+    private static final Set<String> HWP_ANALYSIS_DOCUMENT_TYPES =
+            Set.of("공고문", "과업지시서", "제안요청서");
     private static final int MAX_HWPX_SECTION_XML_BYTES = 25 * 1024 * 1024;
+    private static final int MAX_HWP_DOWNLOAD_BYTES = 20 * 1024 * 1024;
+    private static final int MAX_HWP_EXTRACTED_TEXT_LENGTH = 2_000_000;
+    private static final int HWP_CONNECT_TIMEOUT_MILLIS = 10_000;
+    private static final int HWP_READ_TIMEOUT_MILLIS = 30_000;
+    private static final int HWP_ANALYSIS_TIMEOUT_SECONDS = 30;
+    private static final byte[] OLE_COMPOUND_FILE_SIGNATURE = {
+            (byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0,
+            (byte) 0xA1, (byte) 0xB1, 0x1A, (byte) 0xE1
+    };
+    private static final byte[] HWP_DOCUMENT_FILE_SIGNATURE =
+            "HWP Document File".getBytes(StandardCharsets.US_ASCII);
+    private static final ThreadPoolExecutor HWP_ANALYSIS_EXECUTOR = new ThreadPoolExecutor(
+            1,
+            2,
+            30,
+            TimeUnit.SECONDS,
+            new ArrayBlockingQueue<>(10),
+            runnable -> {
+                Thread thread = new Thread(runnable, "hwp-attachment-analysis");
+                thread.setDaemon(true);
+                return thread;
+            },
+            new ThreadPoolExecutor.AbortPolicy()
+    );
     private static final Pattern HWPX_SECTION_XML_PATTERN =
             Pattern.compile("(?i)^Contents/section\\d+\\.xml$");
     private static final List<String> EXTERNAL_REFERENCE_KEYWORDS = List.of(
@@ -309,6 +347,58 @@ public class G2bApiService {
     }
 
     /**
+     * 분석 대상 HWP 첨부파일 한 건의 HWP 5.x 본문을 읽어 외부 홈페이지 확인 신호를 탐지한다.
+     * 파일 하나의 실패가 공고 전체 조회를 중단하지 않도록 실패 결과는 해당 첨부에만 기록한다.
+     */
+    public BidAttachmentDto analyzeHwpAttachment(BidAttachmentDto attachment) {
+        if (attachment == null) {
+            throw new IllegalArgumentException("분석할 첨부파일 정보가 없습니다.");
+        }
+        if (!isHwpAnalysisTarget(attachment)) {
+            return attachment;
+        }
+
+        attachment.setExternalReferenceDetected(false);
+        attachment.setDetectedExternalUrls(new ArrayList<>());
+        attachment.setAnalysisReason("");
+
+        try {
+            // 응답을 제한된 크기로 내려받고 HWP 5.x의 OLE 및 내부 파일 서명을 먼저 확인한다.
+            byte[] hwpBytes = downloadHwpAttachment(attachment.getFileUrl());
+            validateHwpSignature(hwpBytes);
+
+            // 표와 컨트롤의 텍스트도 가능한 범위에서 본문 사이에 포함해 추출한다.
+            String hwpText = extractHwpTextWithTimeout(hwpBytes);
+            if (hwpText.isBlank()) {
+                throw new IllegalStateException("HWP 본문에서 텍스트를 추출하지 못했습니다.");
+            }
+
+            // PDF/HWPX와 같은 키워드 및 URL 탐지 기준을 그대로 재사용한다.
+            List<String> detectedKeywords = findExternalReferenceKeywords(hwpText);
+            List<String> detectedExternalUrls = findExternalUrls(hwpText);
+            boolean externalReferenceDetected =
+                    !detectedKeywords.isEmpty() || !detectedExternalUrls.isEmpty();
+
+            attachment.setAnalysisStatus("ANALYZED");
+            attachment.setExternalReferenceDetected(externalReferenceDetected);
+            attachment.setDetectedExternalUrls(detectedExternalUrls);
+            attachment.setAnalysisReason(createHwpAnalysisReason(
+                    detectedKeywords,
+                    detectedExternalUrls
+            ));
+        } catch (Exception e) {
+            attachment.setAnalysisStatus("FAILED");
+            attachment.setExternalReferenceDetected(false);
+            attachment.setDetectedExternalUrls(new ArrayList<>());
+            String failureMessage = getSafeValue(e.getMessage()).trim();
+            attachment.setAnalysisReason("HWP 분석 실패"
+                    + (failureMessage.isEmpty() ? "" : ": " + failureMessage));
+        }
+
+        return attachment;
+    }
+
+    /**
      * 입찰공고의 면허, 참가가능지역 및 낙찰 관련 참가조건을 하나의 DTO로 조합한다.
      */
     public BidQualificationDto getBidQualification(String bidNtceNo) {
@@ -380,15 +470,13 @@ public class G2bApiService {
         }
     }
 
-    /**
-     * 분석 가능한 첨부파일만 기존 PDF/HWPX 분석 메서드로 처리하고 공고 전체 결과를 계산한다.
-     */
+    /** 분석 가능한 PDF/HWPX/HWP 첨부만 처리하고 기존 기준으로 공고 전체 결과를 계산한다. */
     private void applyExternalCheckResult(BidQualificationDto qualification) {
         List<BidAttachmentDto> attachments = qualification.getAttachments();
         qualification.setExternalSiteUrls(new ArrayList<>());
 
         if (attachments == null || attachments.isEmpty()) {
-            setUnknownExternalCheckResult(qualification, "분석 가능한 PDF/HWPX 첨부파일이 없음");
+            setUnknownExternalCheckResult(qualification, "분석 가능한 PDF/HWPX/HWP 첨부파일이 없음");
             return;
         }
 
@@ -398,16 +486,18 @@ public class G2bApiService {
                 continue;
             }
 
-            // HWP와 기타 문서는 제외하고 지정된 문서 유형의 PDF/HWPX만 내려받는다.
+            // 지정된 문서 유형의 PDF/HWPX/HWP만 내려받아 형식별 기존 분석 메서드로 처리한다.
             if (isPdfAnalysisTarget(attachment)) {
                 analysisTargets.add(analyzePdfAttachment(attachment));
             } else if (isHwpxAnalysisTarget(attachment)) {
                 analysisTargets.add(analyzeHwpxAttachment(attachment));
+            } else if (isHwpAnalysisTarget(attachment)) {
+                analysisTargets.add(analyzeHwpAttachment(attachment));
             }
         }
 
         if (analysisTargets.isEmpty()) {
-            setUnknownExternalCheckResult(qualification, "분석 가능한 PDF/HWPX 첨부파일이 없음");
+            setUnknownExternalCheckResult(qualification, "분석 가능한 PDF/HWPX/HWP 첨부파일이 없음");
             return;
         }
 
@@ -874,6 +964,121 @@ public class G2bApiService {
                 && HWPX_ANALYSIS_DOCUMENT_TYPES.contains(documentType);
     }
 
+    /** HWP이면서 공고문·과업지시서·제안요청서로 분류된 첨부만 분석 대상으로 선택한다. */
+    private boolean isHwpAnalysisTarget(BidAttachmentDto attachment) {
+        String fileName = getSafeValue(attachment.getFileName()).trim();
+        String fileUrl = getSafeValue(attachment.getFileUrl()).trim();
+        String documentType = getSafeValue(attachment.getDocumentType()).trim();
+        return !fileUrl.isEmpty()
+                && fileName.toLowerCase(Locale.ROOT).endsWith(".hwp")
+                && HWP_ANALYSIS_DOCUMENT_TYPES.contains(documentType);
+    }
+
+    /** 연결·응답 시간과 최대 크기를 제한해 분석할 HWP 파일을 안전하게 내려받는다. */
+    private byte[] downloadHwpAttachment(String fileUrl) throws IOException {
+        HttpURLConnection connection = (HttpURLConnection) URI.create(fileUrl).toURL().openConnection();
+        connection.setConnectTimeout(HWP_CONNECT_TIMEOUT_MILLIS);
+        connection.setReadTimeout(HWP_READ_TIMEOUT_MILLIS);
+        connection.setInstanceFollowRedirects(true);
+        connection.setRequestMethod("GET");
+
+        try {
+            int statusCode = connection.getResponseCode();
+            if (statusCode < 200 || statusCode >= 300) {
+                throw new IOException("HWP 다운로드 응답 코드가 정상 범위가 아닙니다: " + statusCode);
+            }
+
+            long contentLength = connection.getContentLengthLong();
+            if (contentLength > MAX_HWP_DOWNLOAD_BYTES) {
+                throw new IOException("HWP 파일 크기가 분석 허용 범위를 초과했습니다.");
+            }
+
+            try (InputStream inputStream = connection.getInputStream();
+                 ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+                byte[] buffer = new byte[8192];
+                int totalBytes = 0;
+                int readBytes;
+                while ((readBytes = inputStream.read(buffer)) != -1) {
+                    totalBytes += readBytes;
+                    if (totalBytes > MAX_HWP_DOWNLOAD_BYTES) {
+                        throw new IOException("HWP 파일 크기가 분석 허용 범위를 초과했습니다.");
+                    }
+                    outputStream.write(buffer, 0, readBytes);
+                }
+                if (totalBytes == 0) {
+                    throw new IOException("다운로드한 HWP 파일이 비어 있습니다.");
+                }
+                return outputStream.toByteArray();
+            }
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    /** 확장자만 신뢰하지 않고 OLE 복합문서 및 HWP 5.x 내부 서명을 함께 검증한다. */
+    private void validateHwpSignature(byte[] hwpBytes) throws IOException {
+        if (!hasByteSequenceAt(hwpBytes, OLE_COMPOUND_FILE_SIGNATURE, 0)
+                || !containsByteSequence(hwpBytes, HWP_DOCUMENT_FILE_SIGNATURE)) {
+            throw new IOException("HWP 5.x 파일 서명을 확인할 수 없습니다.");
+        }
+    }
+
+    private boolean hasByteSequenceAt(byte[] source, byte[] expected, int offset) {
+        if (source == null || expected == null || offset < 0 || source.length - offset < expected.length) {
+            return false;
+        }
+        for (int index = 0; index < expected.length; index++) {
+            if (source[offset + index] != expected[index]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean containsByteSequence(byte[] source, byte[] expected) {
+        if (source == null || expected == null || source.length < expected.length) {
+            return false;
+        }
+        for (int offset = 0; offset <= source.length - expected.length; offset++) {
+            if (hasByteSequenceAt(source, expected, offset)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** hwplib 분석을 제한된 작업 스레드에서 실행해 비정상 문서가 요청을 무기한 점유하지 않게 한다. */
+    private String extractHwpTextWithTimeout(byte[] hwpBytes) throws Exception {
+        Future<String> extractionTask = HWP_ANALYSIS_EXECUTOR.submit(() -> {
+            HWPFile hwpFile = HWPReader.fromInputStream(new ByteArrayInputStream(hwpBytes));
+            String extractedText = TextExtractor.extract(
+                    hwpFile,
+                    TextExtractMethod.InsertControlTextBetweenParagraphText
+            );
+            if (extractedText.length() > MAX_HWP_EXTRACTED_TEXT_LENGTH) {
+                throw new IOException("HWP 추출 텍스트 길이가 분석 허용 범위를 초과했습니다.");
+            }
+            return extractedText;
+        });
+
+        try {
+            return extractionTask.get(HWP_ANALYSIS_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            extractionTask.cancel(true);
+            throw new IOException("HWP 본문 분석 제한 시간을 초과했습니다.", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof Exception exception) {
+                throw exception;
+            }
+            throw new IOException("HWP 본문 분석 중 알 수 없는 오류가 발생했습니다.", cause);
+        } catch (InterruptedException e) {
+            extractionTask.cancel(true);
+            Thread.currentThread().interrupt();
+            throw new IOException("HWP 본문 분석이 중단되었습니다.", e);
+        }
+    }
+
     /** HWPX ZIP의 Contents/section*.xml 본문을 순회하며 텍스트를 추출한다. */
     private String extractHwpxText(byte[] hwpxBytes) throws Exception {
         StringBuilder extractedText = new StringBuilder();
@@ -1042,6 +1247,25 @@ public class G2bApiService {
 
     /** HWPX에서 탐지된 키워드와 외부 URL을 사람이 확인하기 쉬운 사유로 만든다. */
     private String createHwpxAnalysisReason(
+            List<String> detectedKeywords,
+            List<String> detectedExternalUrls
+    ) {
+        if (detectedKeywords.isEmpty() && detectedExternalUrls.isEmpty()) {
+            return "외부 홈페이지 확인 신호가 탐지되지 않음";
+        }
+
+        List<String> reasons = new ArrayList<>();
+        if (!detectedKeywords.isEmpty()) {
+            reasons.add("탐지 키워드: " + String.join(", ", detectedKeywords));
+        }
+        if (!detectedExternalUrls.isEmpty()) {
+            reasons.add("외부 URL: " + String.join(", ", detectedExternalUrls));
+        }
+        return String.join(" / ", reasons);
+    }
+
+    /** HWP에서 탐지된 키워드와 외부 URL을 기존 형식과 같은 분석 사유로 만든다. */
+    private String createHwpAnalysisReason(
             List<String> detectedKeywords,
             List<String> detectedExternalUrls
     ) {
