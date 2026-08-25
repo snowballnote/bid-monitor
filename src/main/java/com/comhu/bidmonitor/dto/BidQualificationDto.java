@@ -17,6 +17,24 @@ public class BidQualificationDto {
     // 입찰공고번호
     private String bidNtceNo;
 
+    // 입찰공고명
+    private String bidNtceNm;
+
+    // 공고기관명
+    private String ntceInsttNm;
+
+    // 입찰공고일시
+    private String bidNtceDt;
+
+    // 입찰마감일시
+    private String bidClseDt;
+
+    // 배정예산금액
+    private String asignBdgtAmt;
+
+    // 나라장터 입찰공고 상세 URL
+    private String bidNtceDtlUrl;
+
     // 면허/업종 제한
     private String licenseLimit;
 

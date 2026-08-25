@@ -147,6 +147,14 @@ public class G2bApiService {
                     bidDto.getCmmnSpldmdAgrmntRcptdocMethd()
             );
 
+            // 이미 직접조회한 BidDto의 기본 공고정보를 함께 설정한다.
+            qualification.setBidNtceNm(bidDto.getBidNtceNm());
+            qualification.setNtceInsttNm(bidDto.getNtceInsttNm());
+            qualification.setBidNtceDt(bidDto.getBidNtceDt());
+            qualification.setBidClseDt(bidDto.getBidClseDt());
+            qualification.setAsignBdgtAmt(bidDto.getAsignBdgtAmt());
+            qualification.setBidNtceDtlUrl(bidDto.getBidNtceDtlUrl());
+
             // 조합한 참가조건을 기준으로 자동 검토 상태와 판정 사유를 설정한다.
             applyReviewResult(qualification);
             return qualification;
