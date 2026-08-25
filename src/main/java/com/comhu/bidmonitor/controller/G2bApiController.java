@@ -3,6 +3,7 @@ package com.comhu.bidmonitor.controller;
 import com.comhu.bidmonitor.dto.BidDto;
 import com.comhu.bidmonitor.service.G2bApiService;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -36,5 +37,11 @@ public class G2bApiController {
     @GetMapping("/bids/target")
     public List<BidDto> getTargetBidList() {
         return g2bApiService.getTargetBidList();
+    }
+
+    // 특정 입찰공고의 면허제한정보를 테스트로 확인하기 위한 API이다.
+    @GetMapping("/bids/{bidNtceNo}/license")
+    public String getLicenseLimit(@PathVariable String bidNtceNo) {
+        return g2bApiService.getLicenseLimit(bidNtceNo);
     }
 }

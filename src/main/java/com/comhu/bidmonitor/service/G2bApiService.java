@@ -61,6 +61,29 @@ public class G2bApiService {
     }
 
     /**
+     * 특정 입찰공고의 면허제한정보를 테스트 용도로 조회한다.
+     */
+    public String getLicenseLimit(String bidNtceNo) {
+        // 면허제한정보는 해당 공고에 참여하기 위해 필요한 업종·면허 자격을 확인하는 데 사용한다.
+        String requestUrl = baseUrl
+                + "/getBidPblancListInfoLicenseLimit"
+                + "?ServiceKey=" + serviceKey
+                + "&numOfRows=10"
+                + "&pageNo=1"
+                + "&type=json"
+                + "&inqryDiv=2"
+                + "&bidNtceNo=" + bidNtceNo
+                + "&bidNtceOrd=000";
+
+        RestClient restClient = RestClient.create();
+
+        return restClient.get()
+                .uri(URI.create(requestUrl))
+                .retrieve()
+                .body(String.class);
+    }
+
+    /**
      * 나라장터 응답의 입찰공고 항목만 BidDto 목록으로 변환한다.
      */
     public List<BidDto> getBidDtoList() {
