@@ -2,6 +2,8 @@ package com.comhu.bidmonitor.service;
 
 import com.comhu.bidmonitor.dto.BidDto;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
+import com.comhu.bidmonitor.dto.LicenseRequirement;
+import com.comhu.bidmonitor.dto.LicenseRequirementGroup;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,7 +15,10 @@ import java.net.URI;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 // 나라장터(G2B) OpenAPI 호출을 담당하는 서비스 클래스
@@ -182,6 +187,9 @@ public class G2bApiService {
             qualification.setAsignBdgtAmt(bidDto.getAsignBdgtAmt());
             qualification.setBidNtceDtlUrl(bidDto.getBidNtceDtlUrl());
 
+            // 제한그룹번호를 보존하고 각 그룹의 항목을 제한순번 오름차순으로 정렬한다.
+            qualification.setLicenseGroups(createLicenseGroups(licenseBody.path("items")));
+
             // 조합한 참가조건을 기준으로 자동 검토 상태와 판정 사유를 설정한다.
             applyReviewResult(qualification);
             return qualification;
@@ -257,6 +265,65 @@ public class G2bApiService {
      */
     private String getSafeValue(String value) {
         return value == null ? "" : value;
+    }
+
+    /**
+     * 면허제한 API 항목을 제한그룹번호별 구조로 변환한다.
+     */
+    private List<LicenseRequirementGroup> createLicenseGroups(JsonNode items) {
+        // 숫자 형태의 그룹번호가 자연스러운 오름차순으로 정렬되도록 TreeMap을 사용한다.
+        Map<String, List<LicenseRequirement>> requirementsByGroup =
+                new TreeMap<>(this::compareNumericText);
+
+        for (JsonNode item : items) {
+            String groupNo = item.path("lmtGrpNo").asText();
+            String sequence = item.path("lmtSno").asText();
+            String rawLicenseLimitName = item.path("lcnsLmtNm").asText();
+
+            // 마지막 슬래시를 기준으로 면허명과 업종·면허 코드를 분리한다.
+            int codeSeparatorIndex = rawLicenseLimitName.lastIndexOf('/');
+            String licenseName = codeSeparatorIndex < 0
+                    ? rawLicenseLimitName.trim()
+                    : rawLicenseLimitName.substring(0, codeSeparatorIndex).trim();
+            String licenseCode = codeSeparatorIndex < 0
+                    ? ""
+                    : rawLicenseLimitName.substring(codeSeparatorIndex + 1).trim();
+
+            LicenseRequirement requirement = new LicenseRequirement(
+                    sequence,
+                    licenseCode,
+                    licenseName,
+                    rawLicenseLimitName
+            );
+            requirementsByGroup.computeIfAbsent(groupNo, key -> new ArrayList<>())
+                    .add(requirement);
+        }
+
+        List<LicenseRequirementGroup> licenseGroups = new ArrayList<>();
+        for (Map.Entry<String, List<LicenseRequirement>> entry : requirementsByGroup.entrySet()) {
+            // API 배열 순서와 관계없이 각 그룹 내부를 lmtSno 기준으로 정렬한다.
+            entry.getValue().sort(Comparator.comparing(
+                    LicenseRequirement::getSequence,
+                    this::compareNumericText
+            ));
+            licenseGroups.add(new LicenseRequirementGroup(entry.getKey(), entry.getValue()));
+        }
+
+        return licenseGroups;
+    }
+
+    /**
+     * 숫자로 표현된 그룹번호와 순번을 숫자 기준으로 비교하고, 숫자가 아니면 문자열로 비교한다.
+     */
+    private int compareNumericText(String left, String right) {
+        String safeLeft = getSafeValue(left);
+        String safeRight = getSafeValue(right);
+
+        try {
+            return Integer.compare(Integer.parseInt(safeLeft), Integer.parseInt(safeRight));
+        } catch (NumberFormatException e) {
+            return safeLeft.compareTo(safeRight);
+        }
     }
 
     /**

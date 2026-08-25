@@ -5,6 +5,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.util.List;
+
 /**
  * 입찰공고의 참가조건 정보를 한 번에 담는 DTO
  */
@@ -37,6 +39,9 @@ public class BidQualificationDto {
 
     // 면허/업종 제한
     private String licenseLimit;
+
+    // 제한그룹번호와 제한순번을 유지한 구조화된 면허 조건 목록
+    private List<LicenseRequirementGroup> licenseGroups;
 
     // 참가가능지역
     private String participationRegion;
