@@ -13,6 +13,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 // 나라장터(G2B) OpenAPI 호출을 담당하는 서비스 클래스
 @Service
@@ -101,5 +102,21 @@ public class G2bApiService {
         }
 
         return bidList;
+    }
+
+    /**
+     * 대리님 요청 조건에 맞는 낙찰방법의 공고만 조회한다.
+     */
+    public List<BidDto> getTargetBidList() {
+        return getBidDtoList().stream()
+                // 협상에 의한 계약(낙030005)은 대상에서 제외한다.
+                .filter(bid -> !"낙030005".equals(bid.getSucsfbidMthdCd()))
+                // 소액수의견적: 코드가 낙030029이거나 낙찰방법명에 소액수의견적이 포함된 공고
+                .filter(bid -> "낙030029".equals(bid.getSucsfbidMthdCd())
+                        || bid.getSucsfbidMthdNm().contains("소액수의견적")
+                        // 적격심사제: 코드가 낙030001이면서 낙찰방법명에 적격심사가 포함된 공고
+                        || ("낙030001".equals(bid.getSucsfbidMthdCd())
+                        && bid.getSucsfbidMthdNm().contains("적격심사")))
+                .collect(Collectors.toList());
     }
 }

@@ -31,4 +31,10 @@ public class G2bApiController {
     public List<BidDto> getBidDtoList() {
         return g2bApiService.getBidDtoList();
     }
+
+    // 대리님 요청 조건에 맞는 공고만 반환한다.
+    @GetMapping("/bids/target")
+    public List<BidDto> getTargetBidList() {
+        return g2bApiService.getTargetBidList();
+    }
 }
