@@ -35,6 +35,7 @@ public class G2bApiService {
     public String getBidList() {
         // 실행 당일의 입찰공고를 조회하기 위해 현재 날짜를 yyyyMMdd 형식으로 만든다.
         String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+        //String today = "20260713";
         String inquiryStartDateTime = today + "0000";
         String inquiryEndDateTime = today + "2359";
 
@@ -355,6 +356,18 @@ public class G2bApiService {
                         // 적격심사제: 코드가 낙030001이면서 낙찰방법명에 적격심사가 포함된 공고
                         || ("낙030001".equals(bid.getSucsfbidMthdCd())
                         && bid.getSucsfbidMthdNm().contains("적격심사")))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 오늘의 대상 공고에 참가조건 자동 판정을 적용한 결과를 반환한다.
+     */
+    public List<BidQualificationDto> getTargetBidQualificationList() {
+        // 기존 대상 필터로 소액수의견적 및 적격심사제 공고만 먼저 조회한다.
+        return getTargetBidList().stream()
+                // 공고별 상세 참가조건 조회와 기존 자동 판정 로직을 재사용한다.
+                .map(BidDto::getBidNtceNo)
+                .map(this::getBidQualification)
                 .collect(Collectors.toList());
     }
 }

@@ -57,4 +57,10 @@ public class G2bApiController {
     public BidQualificationDto getBidQualification(@PathVariable String bidNtceNo) {
         return g2bApiService.getBidQualification(bidNtceNo);
     }
+
+    // 오늘 대상 공고 전체의 참가조건 자동 판정 결과를 확인하기 위한 API이다.
+    @GetMapping("/bids/target/qualification")
+    public List<BidQualificationDto> getTargetBidQualificationList() {
+        return g2bApiService.getTargetBidQualificationList();
+    }
 }
