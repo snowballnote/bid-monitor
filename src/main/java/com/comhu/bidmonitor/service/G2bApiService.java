@@ -15,7 +15,14 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamReader;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -30,6 +37,8 @@ import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 // 나라장터(G2B) OpenAPI 호출을 담당하는 서비스 클래스
 @Service
@@ -40,6 +49,11 @@ public class G2bApiService {
     private static final Set<String> DEFAULT_ALLOWED_LICENSE_CODES = Set.of("6146", "1468");
     private static final Set<String> PDF_ANALYSIS_DOCUMENT_TYPES =
             Set.of("공고문", "과업지시서", "제안요청서");
+    private static final Set<String> HWPX_ANALYSIS_DOCUMENT_TYPES =
+            Set.of("공고문", "과업지시서", "제안요청서");
+    private static final int MAX_HWPX_SECTION_XML_BYTES = 25 * 1024 * 1024;
+    private static final Pattern HWPX_SECTION_XML_PATTERN =
+            Pattern.compile("(?i)^Contents/section\\d+\\.xml$");
     private static final List<String> EXTERNAL_REFERENCE_KEYWORDS = List.of(
             "기관 홈페이지 참조",
             "홈페이지 참조",
@@ -229,6 +243,64 @@ public class G2bApiService {
             attachment.setDetectedExternalUrls(new ArrayList<>());
             String failureMessage = getSafeValue(e.getMessage()).trim();
             attachment.setAnalysisReason("PDF 분석 실패"
+                    + (failureMessage.isEmpty() ? "" : ": " + failureMessage));
+        }
+
+        return attachment;
+    }
+
+    /**
+     * 분석 대상 HWPX 첨부파일 한 건의 ZIP 내부 본문 XML을 읽어 외부 홈페이지 확인 신호를 탐지한다.
+     * 기존 공고 자동판정에는 연결하지 않고 BidAttachmentDto의 분석 결과만 갱신한다.
+     */
+    public BidAttachmentDto analyzeHwpxAttachment(BidAttachmentDto attachment) {
+        if (attachment == null) {
+            throw new IllegalArgumentException("분석할 첨부파일 정보가 없습니다.");
+        }
+        if (!isHwpxAnalysisTarget(attachment)) {
+            return attachment;
+        }
+
+        // 재분석 시 이전 파일의 탐지 결과가 남지 않도록 분석 필드를 초기화한다.
+        attachment.setExternalReferenceDetected(false);
+        attachment.setDetectedExternalUrls(new ArrayList<>());
+        attachment.setAnalysisReason("");
+
+        try {
+            byte[] hwpxBytes = RestClient.create()
+                    .get()
+                    .uri(URI.create(attachment.getFileUrl()))
+                    .retrieve()
+                    .body(byte[].class);
+            if (hwpxBytes == null || hwpxBytes.length == 0) {
+                throw new IllegalStateException("다운로드한 HWPX 파일이 비어 있습니다.");
+            }
+
+            String hwpxText = extractHwpxText(hwpxBytes);
+            if (hwpxText.isBlank()) {
+                throw new IllegalStateException("HWPX 본문에서 텍스트를 추출하지 못했습니다.");
+            }
+
+            // PDF 분석과 동일한 키워드 및 외부 URL 탐지 기준을 재사용한다.
+            List<String> detectedKeywords = findExternalReferenceKeywords(hwpxText);
+            List<String> detectedExternalUrls = findExternalUrls(hwpxText);
+            boolean externalReferenceDetected =
+                    !detectedKeywords.isEmpty() || !detectedExternalUrls.isEmpty();
+
+            attachment.setAnalysisStatus("ANALYZED");
+            attachment.setExternalReferenceDetected(externalReferenceDetected);
+            attachment.setDetectedExternalUrls(detectedExternalUrls);
+            attachment.setAnalysisReason(createHwpxAnalysisReason(
+                    detectedKeywords,
+                    detectedExternalUrls
+            ));
+        } catch (Exception e) {
+            // 다운로드·압축 해제·XML 파싱 실패는 해당 첨부파일의 분석 상태에만 기록한다.
+            attachment.setAnalysisStatus("FAILED");
+            attachment.setExternalReferenceDetected(false);
+            attachment.setDetectedExternalUrls(new ArrayList<>());
+            String failureMessage = getSafeValue(e.getMessage()).trim();
+            attachment.setAnalysisReason("HWPX 분석 실패"
                     + (failureMessage.isEmpty() ? "" : ": " + failureMessage));
         }
 
@@ -648,6 +720,106 @@ public class G2bApiService {
                 && PDF_ANALYSIS_DOCUMENT_TYPES.contains(documentType);
     }
 
+    /** HWPX이면서 공고문·과업지시서·제안요청서로 분류된 첨부만 분석 대상으로 선택한다. */
+    private boolean isHwpxAnalysisTarget(BidAttachmentDto attachment) {
+        String fileName = getSafeValue(attachment.getFileName()).trim();
+        String fileUrl = getSafeValue(attachment.getFileUrl()).trim();
+        String documentType = getSafeValue(attachment.getDocumentType()).trim();
+        return !fileUrl.isEmpty()
+                && fileName.toLowerCase(Locale.ROOT).endsWith(".hwpx")
+                && HWPX_ANALYSIS_DOCUMENT_TYPES.contains(documentType);
+    }
+
+    /** HWPX ZIP의 Contents/section*.xml 본문을 순회하며 텍스트를 추출한다. */
+    private String extractHwpxText(byte[] hwpxBytes) throws Exception {
+        StringBuilder extractedText = new StringBuilder();
+        int totalSectionXmlBytes = 0;
+        int sectionCount = 0;
+
+        try (ZipInputStream zipInputStream = new ZipInputStream(new ByteArrayInputStream(hwpxBytes))) {
+            ZipEntry zipEntry;
+            while ((zipEntry = zipInputStream.getNextEntry()) != null) {
+                String entryName = zipEntry.getName().replace('\\', '/');
+                if (!zipEntry.isDirectory() && HWPX_SECTION_XML_PATTERN.matcher(entryName).matches()) {
+                    byte[] sectionXml = readHwpxSectionXml(zipInputStream);
+                    totalSectionXmlBytes += sectionXml.length;
+                    if (totalSectionXmlBytes > MAX_HWPX_SECTION_XML_BYTES) {
+                        throw new IOException("HWPX 본문 XML 크기가 분석 허용 범위를 초과했습니다.");
+                    }
+                    extractedText.append(extractHwpxSectionText(sectionXml)).append('\n');
+                    sectionCount++;
+                }
+                zipInputStream.closeEntry();
+            }
+        }
+
+        if (sectionCount == 0) {
+            throw new IOException("HWPX 압축파일에서 Contents/section XML을 찾지 못했습니다.");
+        }
+        return extractedText.toString();
+    }
+
+    /** 비정상적으로 큰 압축 항목으로 인한 메모리 사용을 막으며 현재 section XML을 읽는다. */
+    private byte[] readHwpxSectionXml(ZipInputStream zipInputStream) throws IOException {
+        try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[8192];
+            int readBytes;
+            int sectionBytes = 0;
+            while ((readBytes = zipInputStream.read(buffer)) != -1) {
+                sectionBytes += readBytes;
+                if (sectionBytes > MAX_HWPX_SECTION_XML_BYTES) {
+                    throw new IOException("HWPX section XML 크기가 분석 허용 범위를 초과했습니다.");
+                }
+                outputStream.write(buffer, 0, readBytes);
+            }
+            return outputStream.toByteArray();
+        }
+    }
+
+    /** XML 외부 엔티티를 차단한 StAX 파서로 hp:t 요소의 본문 문자열을 읽는다. */
+    private String extractHwpxSectionText(byte[] sectionXml) throws Exception {
+        XMLInputFactory inputFactory = XMLInputFactory.newFactory();
+        inputFactory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+        inputFactory.setProperty("javax.xml.stream.isSupportingExternalEntities", false);
+
+        StringBuilder sectionText = new StringBuilder();
+        try (ByteArrayInputStream inputStream = new ByteArrayInputStream(sectionXml)) {
+            XMLStreamReader reader = inputFactory.createXMLStreamReader(
+                    inputStream,
+                    StandardCharsets.UTF_8.name()
+            );
+            boolean insideTextElement = false;
+            try {
+                while (reader.hasNext()) {
+                    int event = reader.next();
+                    if (event == XMLStreamConstants.START_ELEMENT) {
+                        String localName = reader.getLocalName();
+                        if ("t".equals(localName)) {
+                            insideTextElement = true;
+                        } else if (insideTextElement && "tab".equals(localName)) {
+                            sectionText.append(' ');
+                        } else if (insideTextElement && "lineBreak".equals(localName)) {
+                            sectionText.append('\n');
+                        }
+                    } else if ((event == XMLStreamConstants.CHARACTERS
+                            || event == XMLStreamConstants.CDATA) && insideTextElement) {
+                        sectionText.append(reader.getText());
+                    } else if (event == XMLStreamConstants.END_ELEMENT) {
+                        String localName = reader.getLocalName();
+                        if ("t".equals(localName)) {
+                            insideTextElement = false;
+                        } else if ("p".equals(localName)) {
+                            sectionText.append('\n');
+                        }
+                    }
+                }
+            } finally {
+                reader.close();
+            }
+        }
+        return sectionText.toString();
+    }
+
     /** PDF 본문에서 외부 확인 가능성을 나타내는 한글 표현을 찾는다. */
     private List<String> findExternalReferenceKeywords(String pdfText) {
         String safePdfText = getSafeValue(pdfText);
@@ -710,6 +882,25 @@ public class G2bApiService {
         if (getSafeValue(pdfText).isBlank()) {
             return "PDF에서 텍스트를 추출하지 못해 외부 확인 신호를 판정할 수 없음";
         }
+        if (detectedKeywords.isEmpty() && detectedExternalUrls.isEmpty()) {
+            return "외부 홈페이지 확인 신호가 탐지되지 않음";
+        }
+
+        List<String> reasons = new ArrayList<>();
+        if (!detectedKeywords.isEmpty()) {
+            reasons.add("탐지 키워드: " + String.join(", ", detectedKeywords));
+        }
+        if (!detectedExternalUrls.isEmpty()) {
+            reasons.add("외부 URL: " + String.join(", ", detectedExternalUrls));
+        }
+        return String.join(" / ", reasons);
+    }
+
+    /** HWPX에서 탐지된 키워드와 외부 URL을 사람이 확인하기 쉬운 사유로 만든다. */
+    private String createHwpxAnalysisReason(
+            List<String> detectedKeywords,
+            List<String> detectedExternalUrls
+    ) {
         if (detectedKeywords.isEmpty() && detectedExternalUrls.isEmpty()) {
             return "외부 홈페이지 확인 신호가 탐지되지 않음";
         }
