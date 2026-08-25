@@ -1,5 +1,6 @@
 package com.comhu.bidmonitor.service;
 
+import com.comhu.bidmonitor.dto.BidAttachmentDto;
 import com.comhu.bidmonitor.dto.BidDto;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
 import com.comhu.bidmonitor.dto.LicenseRequirement;
@@ -170,7 +171,8 @@ public class G2bApiService {
      */
     public BidQualificationDto getBidQualification(String bidNtceNo, Set<String> allowedLicenseCodes) {
         // 공고번호 직접조회로 과거 공고를 포함한 기본 입찰정보를 가져온다.
-        BidDto bidDto = getBidDtoByBidNtceNo(bidNtceNo);
+        BidDetail bidDetail = getBidDetailByBidNtceNo(bidNtceNo);
+        BidDto bidDto = bidDetail.bidDto();
 
         ObjectMapper objectMapper = new ObjectMapper();
 
@@ -211,6 +213,9 @@ public class G2bApiService {
             qualification.setBidClseDt(bidDto.getBidClseDt());
             qualification.setAsignBdgtAmt(bidDto.getAsignBdgtAmt());
             qualification.setBidNtceDtlUrl(bidDto.getBidNtceDtlUrl());
+
+            // 공고 직접조회 응답에 포함된 첨부파일 정보를 DTO에 함께 보존한다.
+            qualification.setAttachments(bidDetail.attachments());
 
             // 제한그룹번호를 보존하고 각 그룹의 항목을 제한순번 오름차순으로 정렬한다.
             qualification.setLicenseGroups(createLicenseGroups(licenseBody.path("items")));
@@ -437,9 +442,9 @@ public class G2bApiService {
     }
 
     /**
-     * 용역 입찰공고를 공고번호로 직접 조회해 BidDto로 변환한다.
+     * 용역 입찰공고를 공고번호로 직접 조회해 기본정보와 첨부파일 목록으로 변환한다.
      */
-    private BidDto getBidDtoByBidNtceNo(String bidNtceNo) {
+    private BidDetail getBidDetailByBidNtceNo(String bidNtceNo) {
         // inqryDiv=2는 나라장터 명세에서 입찰공고번호 기준 조회를 의미한다.
         String requestUrl = baseUrl
                 + "/getBidPblancListInfoServc"
@@ -468,7 +473,7 @@ public class G2bApiService {
             // 직접조회 결과에서 요청한 공고번호와 일치하는 공고를 선택한다.
             for (JsonNode item : items) {
                 if (bidNtceNo.equals(item.path("bidNtceNo").asText())) {
-                    return new BidDto(
+                    BidDto bidDto = new BidDto(
                             item.path("bidNtceNo").asText(),
                             item.path("bidNtceNm").asText(),
                             item.path("ntceInsttNm").asText(),
@@ -486,6 +491,7 @@ public class G2bApiService {
                             item.path("tpEvalYn").asText(),
                             item.path("cmmnSpldmdAgrmntRcptdocMethd").asText()
                     );
+                    return new BidDetail(bidDto, createBidAttachments(item));
                 }
             }
         } catch (JsonProcessingException e) {
@@ -493,6 +499,67 @@ public class G2bApiService {
         }
 
         throw new IllegalArgumentException("입력한 공고번호에 해당하는 입찰공고를 찾을 수 없습니다: " + bidNtceNo);
+    }
+
+    /**
+     * 공고 직접조회 응답의 표준공고서와 공고규격서 정보를 첨부파일 목록으로 변환한다.
+     */
+    private List<BidAttachmentDto> createBidAttachments(JsonNode item) {
+        // URL을 키로 사용해 표준공고서와 공고규격서에 중복 등록된 파일을 한 번만 보존한다.
+        Map<String, BidAttachmentDto> attachmentsByUrl = new LinkedHashMap<>();
+
+        for (int index = 1; index <= 10; index++) {
+            String fileName = item.path("ntceSpecFileNm" + index).asText().trim();
+            String fileUrl = item.path("ntceSpecDocUrl" + index).asText().trim();
+
+            // 파일명과 URL이 모두 있는 정상적인 첨부 항목만 저장한다.
+            if (fileName.isEmpty() || fileUrl.isEmpty()) {
+                continue;
+            }
+
+            attachmentsByUrl.putIfAbsent(
+                    fileUrl,
+                    new BidAttachmentDto(
+                            fileName,
+                            fileUrl,
+                            classifyDocumentType(fileName),
+                            "NOT_ANALYZED"
+                    )
+            );
+        }
+
+        String standardNoticeDocumentUrl = item.path("stdNtceDocUrl").asText().trim();
+        if (!standardNoticeDocumentUrl.isEmpty()) {
+            // 표준공고서에는 별도 파일명 필드가 없으므로 고정 표시명을 사용한다.
+            attachmentsByUrl.putIfAbsent(
+                    standardNoticeDocumentUrl,
+                    new BidAttachmentDto(
+                            "표준공고서",
+                            standardNoticeDocumentUrl,
+                            "공고문",
+                            "NOT_ANALYZED"
+                    )
+            );
+        }
+
+        return new ArrayList<>(attachmentsByUrl.values());
+    }
+
+    /**
+     * 첨부파일명에 포함된 대표 문서명을 기준으로 문서 종류를 우선 분류한다.
+     */
+    private String classifyDocumentType(String fileName) {
+        String safeFileName = getSafeValue(fileName);
+        if (safeFileName.contains("과업지시")) {
+            return "과업지시서";
+        }
+        if (safeFileName.contains("제안요청")) {
+            return "제안요청서";
+        }
+        if (safeFileName.contains("공고")) {
+            return "공고문";
+        }
+        return "기타";
     }
 
     /**
@@ -776,5 +843,9 @@ public class G2bApiService {
 
     /** 면허 그룹 판정 결과와 추가 확인 사유를 함께 보관한다. */
     private record LicenseReviewResult(boolean satisfied, String reason) {
+    }
+
+    /** 공고 직접조회에서 변환한 기본정보와 첨부파일 목록을 함께 보관한다. */
+    private record BidDetail(BidDto bidDto, List<BidAttachmentDto> attachments) {
     }
 }

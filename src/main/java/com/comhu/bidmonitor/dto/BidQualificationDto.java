@@ -37,6 +37,9 @@ public class BidQualificationDto {
     // 나라장터 입찰공고 상세 URL
     private String bidNtceDtlUrl;
 
+    // 공고문, 과업지시서, 제안요청서 등 나라장터 첨부문서 목록
+    private List<BidAttachmentDto> attachments;
+
     // 면허/업종 제한
     private String licenseLimit;
 
