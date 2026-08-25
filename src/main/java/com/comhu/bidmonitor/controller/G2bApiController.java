@@ -11,12 +11,16 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 // 나라장터 API 호출을 테스트하기 위한 REST 컨트롤러
 @RestController
 @RequestMapping("/api")
 public class G2bApiController {
+
+    private static final Set<String> DEFAULT_ALLOWED_LICENSE_CODES = Set.of("6146", "1468");
 
     private final G2bApiService g2bApiService;
 
@@ -57,22 +61,50 @@ public class G2bApiController {
 
     // 특정 입찰공고의 참가조건을 한 번에 확인하기 위한 통합 테스트 API이다.
     @GetMapping("/bids/{bidNtceNo}/qualification")
-    public BidQualificationDto getBidQualification(@PathVariable String bidNtceNo) {
-        return g2bApiService.getBidQualification(bidNtceNo);
+    public BidQualificationDto getBidQualification(
+            @PathVariable String bidNtceNo,
+            @RequestParam(required = false) String allowedLicenseCodes
+    ) {
+        return g2bApiService.getBidQualification(bidNtceNo, parseAllowedLicenseCodes(allowedLicenseCodes));
     }
 
     // 오늘 대상 공고 전체의 참가조건 자동 판정 결과를 확인하기 위한 API이다.
     @GetMapping("/bids/target/qualification")
-    public List<BidQualificationDto> getTargetBidQualificationList() {
-        return g2bApiService.getTargetBidQualificationList();
+    public List<BidQualificationDto> getTargetBidQualificationList(
+            @RequestParam(required = false) String allowedLicenseCodes
+    ) {
+        return g2bApiService.getTargetBidQualificationList(parseAllowedLicenseCodes(allowedLicenseCodes));
     }
 
     // 지정한 기간의 대상 공고에 대한 참가조건 자동 판정 결과를 조회하는 API이다.
     @GetMapping("/bids/target/qualification/range")
     public List<BidQualificationDto> getTargetBidQualificationListByRange(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(required = false) String allowedLicenseCodes
     ) {
-        return g2bApiService.getTargetBidQualificationList(startDate, endDate);
+        return g2bApiService.getTargetBidQualificationList(
+                startDate,
+                endDate,
+                parseAllowedLicenseCodes(allowedLicenseCodes)
+        );
+    }
+
+    /**
+     * 쉼표로 전달된 허용 업종코드를 중복 없는 Set으로 변환하고, 값이 없으면 기본값을 사용한다.
+     */
+    private Set<String> parseAllowedLicenseCodes(String allowedLicenseCodes) {
+        if (allowedLicenseCodes == null || allowedLicenseCodes.isBlank()) {
+            return DEFAULT_ALLOWED_LICENSE_CODES;
+        }
+
+        Set<String> parsedCodes = new LinkedHashSet<>();
+        for (String code : allowedLicenseCodes.split(",")) {
+            String trimmedCode = code.trim();
+            if (!trimmedCode.isEmpty()) {
+                parsedCodes.add(trimmedCode);
+            }
+        }
+        return parsedCodes.isEmpty() ? DEFAULT_ALLOWED_LICENSE_CODES : parsedCodes;
     }
 }

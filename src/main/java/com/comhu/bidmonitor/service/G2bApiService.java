@@ -17,8 +17,10 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
@@ -27,6 +29,8 @@ import java.util.stream.Collectors;
 public class G2bApiService {
 
     private static final int BID_LIST_PAGE_SIZE = 100;
+    private static final String REQUIRED_LICENSE_CODE = "6146";
+    private static final Set<String> DEFAULT_ALLOWED_LICENSE_CODES = Set.of("6146", "1468");
 
     // application.properties에 설정한 나라장터 API 기본 주소를 가져옴
     @Value("${g2b.api.base-url}")
@@ -158,6 +162,13 @@ public class G2bApiService {
      * 입찰공고의 면허, 참가가능지역 및 낙찰 관련 참가조건을 하나의 DTO로 조합한다.
      */
     public BidQualificationDto getBidQualification(String bidNtceNo) {
+        return getBidQualification(bidNtceNo, DEFAULT_ALLOWED_LICENSE_CODES);
+    }
+
+    /**
+     * 브라우저에서 전달한 허용 업종코드를 기준으로 특정 공고의 참가조건을 자동 판정한다.
+     */
+    public BidQualificationDto getBidQualification(String bidNtceNo, Set<String> allowedLicenseCodes) {
         // 공고번호 직접조회로 과거 공고를 포함한 기본 입찰정보를 가져온다.
         BidDto bidDto = getBidDtoByBidNtceNo(bidNtceNo);
 
@@ -205,7 +216,7 @@ public class G2bApiService {
             qualification.setLicenseGroups(createLicenseGroups(licenseBody.path("items")));
 
             // 조합한 참가조건을 기준으로 자동 검토 상태와 판정 사유를 설정한다.
-            applyReviewResult(qualification);
+            applyReviewResult(qualification, normalizeAllowedLicenseCodes(allowedLicenseCodes));
             return qualification;
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("참가조건 API 응답을 JSON으로 처리할 수 없습니다.", e);
@@ -215,7 +226,7 @@ public class G2bApiService {
     /**
      * 참가조건을 기준으로 공고의 자동 검토 상태와 사람이 확인할 판정 사유를 설정한다.
      */
-    private void applyReviewResult(BidQualificationDto qualification) {
+    private void applyReviewResult(BidQualificationDto qualification, Set<String> allowedLicenseCodes) {
         String sucsfbidMthdCd = getSafeValue(qualification.getSucsfbidMthdCd());
         String sucsfbidMthdNm = getSafeValue(qualification.getSucsfbidMthdNm());
 
@@ -239,14 +250,15 @@ public class G2bApiService {
         }
 
         List<String> additionalCheckReasons = new ArrayList<>();
-        String licenseLimit = getSafeValue(qualification.getLicenseLimit());
         String participationRegion = getSafeValue(qualification.getParticipationRegion());
 
         // 검토대상 공고라도 면허, 지역 및 심사 조건이 있으면 추가 확인이 필요하다.
-        if (!licenseLimit.contains("6146")) {
-            additionalCheckReasons.add(licenseLimit.isEmpty()
-                    ? "6146 면허조건 확인 필요"
-                    : "6146 면허조건 확인 필요: " + licenseLimit);
+        LicenseReviewResult licenseReviewResult = reviewLicenseGroups(
+                qualification.getLicenseGroups(),
+                allowedLicenseCodes
+        );
+        if (!licenseReviewResult.satisfied()) {
+            additionalCheckReasons.add(licenseReviewResult.reason());
         }
         if (!"제한없음".equals(participationRegion)) {
             additionalCheckReasons.add(participationRegion.isEmpty()
@@ -271,7 +283,91 @@ public class G2bApiService {
 
         qualification.setReviewStatus("검토대상");
         qualification.setReviewReason((smallAmountEstimate ? "소액수의견적" : "적격심사제")
-                + ", 6146 면허조건, 지역제한 없음");
+                + ", 허용 면허조건 충족, 지역제한 없음");
+    }
+
+    /**
+     * 같은 그룹의 면허는 모두 충족(AND), 여러 그룹 중 하나만 충족하면 통과(OR)하도록 판정한다.
+     * 감리 대상 판정이므로 통과 그룹에는 필수 업종코드 6146이 반드시 포함되어야 한다.
+     */
+    private LicenseReviewResult reviewLicenseGroups(
+            List<LicenseRequirementGroup> licenseGroups,
+            Set<String> allowedLicenseCodes
+    ) {
+        List<LicenseRequirementGroup> safeGroups = licenseGroups == null ? List.of() : licenseGroups;
+        List<String> closestMissingCodes = null;
+        boolean hasRequiredLicense = false;
+        boolean hasUnknownLicenseCode = false;
+
+        for (LicenseRequirementGroup group : safeGroups) {
+            List<LicenseRequirement> requirements = group == null || group.getRequirements() == null
+                    ? List.of()
+                    : group.getRequirements();
+            boolean groupHasRequiredLicense = requirements.stream()
+                    .filter(requirement -> requirement != null)
+                    .map(LicenseRequirement::getLicenseCode)
+                    .map(this::getSafeValue)
+                    .anyMatch(REQUIRED_LICENSE_CODE::equals);
+
+            hasRequiredLicense |= groupHasRequiredLicense;
+            if (!groupHasRequiredLicense || requirements.isEmpty()) {
+                continue;
+            }
+
+            // 한 그룹 안에서 허용되지 않은 코드를 모두 모아 AND 조건 충족 여부를 확인한다.
+            LinkedHashSet<String> missingCodes = new LinkedHashSet<>();
+            boolean groupHasUnknownLicenseCode = false;
+            for (LicenseRequirement requirement : requirements) {
+                String licenseCode = requirement == null
+                        ? ""
+                        : getSafeValue(requirement.getLicenseCode()).trim();
+                if (licenseCode.isEmpty()) {
+                    groupHasUnknownLicenseCode = true;
+                } else if (!allowedLicenseCodes.contains(licenseCode)) {
+                    missingCodes.add(licenseCode);
+                }
+            }
+
+            if (missingCodes.isEmpty() && !groupHasUnknownLicenseCode) {
+                return new LicenseReviewResult(true, "");
+            }
+
+            hasUnknownLicenseCode |= groupHasUnknownLicenseCode;
+            if (!missingCodes.isEmpty()
+                    && (closestMissingCodes == null || missingCodes.size() < closestMissingCodes.size())) {
+                closestMissingCodes = new ArrayList<>(missingCodes);
+            }
+        }
+
+        if (!hasRequiredLicense) {
+            return new LicenseReviewResult(false, "6146 면허조건 확인 필요");
+        }
+        if (closestMissingCodes != null) {
+            return new LicenseReviewResult(
+                    false,
+                    "추가 면허조건 확인 필요: " + String.join(", ", closestMissingCodes)
+            );
+        }
+        if (hasUnknownLicenseCode) {
+            return new LicenseReviewResult(false, "면허조건 코드 확인 필요");
+        }
+        return new LicenseReviewResult(false, "허용 면허조건 확인 필요");
+    }
+
+    /**
+     * 전달값이 없으면 기본 허용코드를 사용하고, 공백값과 중복값은 제거한다.
+     */
+    private Set<String> normalizeAllowedLicenseCodes(Set<String> allowedLicenseCodes) {
+        if (allowedLicenseCodes == null || allowedLicenseCodes.isEmpty()) {
+            return DEFAULT_ALLOWED_LICENSE_CODES;
+        }
+
+        Set<String> normalizedCodes = allowedLicenseCodes.stream()
+                .map(this::getSafeValue)
+                .map(String::trim)
+                .filter(code -> !code.isEmpty())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        return normalizedCodes.isEmpty() ? DEFAULT_ALLOWED_LICENSE_CODES : normalizedCodes;
     }
 
     /**
@@ -633,11 +729,19 @@ public class G2bApiService {
      * 오늘의 대상 공고에 참가조건 자동 판정을 적용한 결과를 반환한다.
      */
     public List<BidQualificationDto> getTargetBidQualificationList() {
+        return getTargetBidQualificationList(DEFAULT_ALLOWED_LICENSE_CODES);
+    }
+
+    /**
+     * 오늘의 대상 공고를 브라우저에서 전달한 허용 업종코드로 자동 판정한다.
+     */
+    public List<BidQualificationDto> getTargetBidQualificationList(Set<String> allowedLicenseCodes) {
+        Set<String> normalizedCodes = normalizeAllowedLicenseCodes(allowedLicenseCodes);
         // 기존 대상 필터로 소액수의견적 및 적격심사제 공고만 먼저 조회한다.
         return getTargetBidList().stream()
-                // 공고별 상세 참가조건 조회와 기존 자동 판정 로직을 재사용한다.
+                // 공고별 구조화 면허조건을 현재 허용 코드와 비교해 자동 판정한다.
                 .map(BidDto::getBidNtceNo)
-                .map(this::getBidQualification)
+                .map(bidNtceNo -> getBidQualification(bidNtceNo, normalizedCodes))
                 .collect(Collectors.toList());
     }
 
@@ -645,10 +749,22 @@ public class G2bApiService {
      * 지정한 기간의 대상 공고에 기존 참가조건 자동 판정을 적용해 반환한다.
      */
     public List<BidQualificationDto> getTargetBidQualificationList(LocalDate startDate, LocalDate endDate) {
+        return getTargetBidQualificationList(startDate, endDate, DEFAULT_ALLOWED_LICENSE_CODES);
+    }
+
+    /**
+     * 지정한 기간의 대상 공고를 브라우저에서 전달한 허용 업종코드로 자동 판정한다.
+     */
+    public List<BidQualificationDto> getTargetBidQualificationList(
+            LocalDate startDate,
+            LocalDate endDate,
+            Set<String> allowedLicenseCodes
+    ) {
+        Set<String> normalizedCodes = normalizeAllowedLicenseCodes(allowedLicenseCodes);
         // 기간별 대상 공고마다 기존 통합조회 및 자동 판정 로직을 재사용한다.
         return getTargetBidList(startDate, endDate).stream()
                 .map(BidDto::getBidNtceNo)
-                .map(this::getBidQualification)
+                .map(bidNtceNo -> getBidQualification(bidNtceNo, normalizedCodes))
                 .collect(Collectors.toList());
     }
 
@@ -656,5 +772,9 @@ public class G2bApiService {
      * 한 페이지의 공고 목록과 해당 조회 구간의 전체 건수를 함께 보관한다.
      */
     private record BidListPage(List<BidDto> bidList, int totalCount) {
+    }
+
+    /** 면허 그룹 판정 결과와 추가 확인 사유를 함께 보관한다. */
+    private record LicenseReviewResult(boolean satisfied, String reason) {
     }
 }

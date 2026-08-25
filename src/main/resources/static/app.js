@@ -237,6 +237,15 @@ function setSelectedPeriod(startDate, endDate) {
     currentPeriod.textContent = `조회기간: ${startDate} ~ ${endDate}`;
 }
 
+/**
+ * 조회 시점의 localStorage 허용 업종코드를 백엔드 판정 파라미터에 포함한다.
+ */
+function createBidRequestUrl(url) {
+    const requestUrl = new URL(url, window.location.origin);
+    requestUrl.searchParams.set("allowedLicenseCodes", allowedLicenseCodes.join(","));
+    return `${requestUrl.pathname}${requestUrl.search}`;
+}
+
 /** 공통 오류 처리를 유지하면서 전달받은 API에서 공고를 조회한다. */
 async function fetchBids(url, startDate, endDate) {
     setSelectedPeriod(startDate, endDate);
@@ -244,7 +253,8 @@ async function fetchBids(url, startDate, endDate) {
     validationMessage.classList.add("hidden");
 
     try {
-        const response = await fetch(url);
+        // 코드 추가·삭제 후 다시 조회하면 현재 화면의 최신 허용 코드가 즉시 판정에 사용된다.
+        const response = await fetch(createBidRequestUrl(url));
         if (!response.ok) {
             throw new Error(`공고 조회 실패: ${response.status}`);
         }
