@@ -44,4 +44,10 @@ public class G2bApiController {
     public String getLicenseLimit(@PathVariable String bidNtceNo) {
         return g2bApiService.getLicenseLimit(bidNtceNo);
     }
+
+    // 특정 입찰공고의 참가가능지역정보를 테스트로 확인하기 위한 API이다.
+    @GetMapping("/bids/{bidNtceNo}/region")
+    public String getParticipationRegion(@PathVariable String bidNtceNo) {
+        return g2bApiService.getParticipationRegion(bidNtceNo);
+    }
 }

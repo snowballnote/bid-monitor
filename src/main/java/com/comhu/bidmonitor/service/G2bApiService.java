@@ -84,6 +84,29 @@ public class G2bApiService {
     }
 
     /**
+     * 특정 입찰공고의 참가가능지역정보를 테스트 용도로 조회한다.
+     */
+    public String getParticipationRegion(String bidNtceNo) {
+        // 참가가능지역정보는 입찰 참여가 허용되는 지역을 확인하여 지역 제한 여부를 판단하는 데 사용한다.
+        String requestUrl = baseUrl
+                + "/getBidPblancListInfoPrtcptPsblRgn"
+                + "?ServiceKey=" + serviceKey
+                + "&numOfRows=10"
+                + "&pageNo=1"
+                + "&type=json"
+                + "&inqryDiv=2"
+                + "&bidNtceNo=" + bidNtceNo
+                + "&bidNtceOrd=000";
+
+        RestClient restClient = RestClient.create();
+
+        return restClient.get()
+                .uri(URI.create(requestUrl))
+                .retrieve()
+                .body(String.class);
+    }
+
+    /**
      * 나라장터 응답의 입찰공고 항목만 BidDto 목록으로 변환한다.
      */
     public List<BidDto> getBidDtoList() {
