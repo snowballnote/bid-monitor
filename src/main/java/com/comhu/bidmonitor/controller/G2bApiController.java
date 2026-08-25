@@ -1,6 +1,7 @@
 package com.comhu.bidmonitor.controller;
 
 import com.comhu.bidmonitor.dto.BidDto;
+import com.comhu.bidmonitor.dto.BidQualificationDto;
 import com.comhu.bidmonitor.service.G2bApiService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -49,5 +50,11 @@ public class G2bApiController {
     @GetMapping("/bids/{bidNtceNo}/region")
     public String getParticipationRegion(@PathVariable String bidNtceNo) {
         return g2bApiService.getParticipationRegion(bidNtceNo);
+    }
+
+    // 특정 입찰공고의 참가조건을 한 번에 확인하기 위한 통합 테스트 API이다.
+    @GetMapping("/bids/{bidNtceNo}/qualification")
+    public BidQualificationDto getBidQualification(@PathVariable String bidNtceNo) {
+        return g2bApiService.getBidQualification(bidNtceNo);
     }
 }

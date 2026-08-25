@@ -1,6 +1,7 @@
 package com.comhu.bidmonitor.service;
 
 import com.comhu.bidmonitor.dto.BidDto;
+import com.comhu.bidmonitor.dto.BidQualificationDto;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -104,6 +105,124 @@ public class G2bApiService {
                 .uri(URI.create(requestUrl))
                 .retrieve()
                 .body(String.class);
+    }
+
+    /**
+     * 입찰공고의 면허, 참가가능지역 및 낙찰 관련 참가조건을 하나의 DTO로 조합한다.
+     */
+    public BidQualificationDto getBidQualification(String bidNtceNo) {
+        // 공고번호 직접조회로 과거 공고를 포함한 기본 입찰정보를 가져온다.
+        BidDto bidDto = getBidDtoByBidNtceNo(bidNtceNo);
+
+        ObjectMapper objectMapper = new ObjectMapper();
+
+        try {
+            // 면허제한 응답의 면허제한명들을 쉼표로 연결하며, 제한이 없으면 빈 문자열로 둔다.
+            JsonNode licenseBody = objectMapper.readTree(getLicenseLimit(bidNtceNo))
+                    .path("response")
+                    .path("body");
+            String licenseLimit = licenseBody.path("totalCount").asInt() == 0
+                    ? ""
+                    : getJoinedItemValues(licenseBody.path("items"), "lcnsLmtNm");
+
+            // 명세의 참가가능지역명(prtcptPsblRgnNm)을 읽어 여러 지역은 쉼표로 연결한다.
+            JsonNode regionBody = objectMapper.readTree(getParticipationRegion(bidNtceNo))
+                    .path("response")
+                    .path("body");
+            String participationRegion = regionBody.path("totalCount").asInt() == 0
+                    ? "제한없음"
+                    : getJoinedItemValues(regionBody.path("items"), "prtcptPsblRgnNm");
+
+            // 기본 공고정보와 상세 참가조건을 함께 담아 반환한다.
+            return new BidQualificationDto(
+                    bidNtceNo,
+                    licenseLimit,
+                    participationRegion,
+                    bidDto.getSucsfbidMthdNm(),
+                    bidDto.getSucsfbidMthdCd(),
+                    bidDto.getArsltCmptYn(),
+                    bidDto.getPqEvalYn(),
+                    bidDto.getTpEvalYn(),
+                    bidDto.getCmmnSpldmdAgrmntRcptdocMethd()
+            );
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("참가조건 API 응답을 JSON으로 처리할 수 없습니다.", e);
+        }
+    }
+
+    /**
+     * 용역 입찰공고를 공고번호로 직접 조회해 BidDto로 변환한다.
+     */
+    private BidDto getBidDtoByBidNtceNo(String bidNtceNo) {
+        // inqryDiv=2는 나라장터 명세에서 입찰공고번호 기준 조회를 의미한다.
+        String requestUrl = baseUrl
+                + "/getBidPblancListInfoServc"
+                + "?ServiceKey=" + serviceKey
+                + "&numOfRows=10"
+                + "&pageNo=1"
+                + "&type=json"
+                + "&inqryDiv=2"
+                + "&bidNtceNo=" + bidNtceNo
+                + "&bidNtceOrd=000";
+
+        RestClient restClient = RestClient.create();
+        String responseBody = restClient.get()
+                .uri(URI.create(requestUrl))
+                .retrieve()
+                .body(String.class);
+
+        ObjectMapper objectMapper = new ObjectMapper();
+
+        try {
+            JsonNode items = objectMapper.readTree(responseBody)
+                    .path("response")
+                    .path("body")
+                    .path("items");
+
+            // 직접조회 결과에서 요청한 공고번호와 일치하는 공고를 선택한다.
+            for (JsonNode item : items) {
+                if (bidNtceNo.equals(item.path("bidNtceNo").asText())) {
+                    return new BidDto(
+                            item.path("bidNtceNo").asText(),
+                            item.path("bidNtceNm").asText(),
+                            item.path("ntceInsttNm").asText(),
+                            item.path("bidNtceDt").asText(),
+                            item.path("bidClseDt").asText(),
+                            item.path("asignBdgtAmt").asText(),
+                            item.path("sucsfbidMthdNm").asText(),
+                            item.path("bidNtceDtlUrl").asText(),
+                            item.path("sucsfbidMthdCd").asText(),
+                            item.path("techAbltEvlRt").asText(),
+                            item.path("bidPrceEvlRt").asText(),
+                            item.path("sucsfbidMthdAppStd").asText(),
+                            item.path("arsltCmptYn").asText(),
+                            item.path("pqEvalYn").asText(),
+                            item.path("tpEvalYn").asText(),
+                            item.path("cmmnSpldmdAgrmntRcptdocMethd").asText()
+                    );
+                }
+            }
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("입찰공고 직접조회 응답을 JSON으로 처리할 수 없습니다.", e);
+        }
+
+        throw new IllegalArgumentException("입력한 공고번호에 해당하는 입찰공고를 찾을 수 없습니다: " + bidNtceNo);
+    }
+
+    /**
+     * 응답 items 배열의 지정한 필드값을 빈 값 없이 쉼표로 연결한다.
+     */
+    private String getJoinedItemValues(JsonNode items, String fieldName) {
+        List<String> values = new ArrayList<>();
+
+        for (JsonNode item : items) {
+            String value = item.path(fieldName).asText();
+            if (!value.isEmpty()) {
+                values.add(value);
+            }
+        }
+
+        return String.join(",", values);
     }
 
     /**
