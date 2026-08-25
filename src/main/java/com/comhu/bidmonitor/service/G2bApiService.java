@@ -16,6 +16,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -24,6 +25,8 @@ import java.util.stream.Collectors;
 // 나라장터(G2B) OpenAPI 호출을 담당하는 서비스 클래스
 @Service
 public class G2bApiService {
+
+    private static final int BID_LIST_PAGE_SIZE = 100;
 
     // application.properties에 설정한 나라장터 API 기본 주소를 가져옴
     @Value("${g2b.api.base-url}")
@@ -71,15 +74,26 @@ public class G2bApiService {
      * 사용자가 지정한 기간의 용역 감리 입찰공고 목록을 조회한다.
      */
     public String getBidList(LocalDate startDate, LocalDate endDate) {
+        String responseBody = requestBidListPage(startDate, endDate, 1);
+
+        // 공개 메서드를 직접 호출한 경우에도 나라장터 오류 응답을 정상 결과로 오인하지 않는다.
+        parseBidListPage(responseBody);
+        return responseBody;
+    }
+
+    /**
+     * 지정한 기간과 페이지 번호로 나라장터 용역 감리 공고를 조회한다.
+     */
+    private String requestBidListPage(LocalDate startDate, LocalDate endDate, int pageNo) {
         String inquiryStartDateTime = startDate.format(DateTimeFormatter.ofPattern("yyyyMMdd")) + "0000";
         String inquiryEndDateTime = endDate.format(DateTimeFormatter.ofPattern("yyyyMMdd")) + "2359";
 
-        // 기존 목록 조회와 같은 용역 공고 오퍼레이션에서 기간만 사용자 입력값으로 지정한다.
+        // 기존 목록 조회와 같은 오퍼레이션에서 구간과 페이지 번호만 변경해 호출한다.
         String requestUrl = baseUrl
                 + "/getBidPblancListInfoServcPPSSrch"
                 + "?ServiceKey=" + serviceKey
-                + "&numOfRows=100"
-                + "&pageNo=1"
+                + "&numOfRows=" + BID_LIST_PAGE_SIZE
+                + "&pageNo=" + pageNo
                 + "&type=json"
                 + "&inqryDiv=1"
                 + "&inqryBgnDt=" + inquiryStartDateTime
@@ -449,48 +463,130 @@ public class G2bApiService {
      * 지정한 기간의 입찰공고 응답을 BidDto 목록으로 변환한다.
      */
     public List<BidDto> getBidDtoList(LocalDate startDate, LocalDate endDate) {
-        // 날짜 범위로 조회한 API 응답을 기존 DTO와 동일한 필드 구성으로 변환한다.
-        return parseBidDtoList(getBidList(startDate, endDate));
+        if (startDate == null || endDate == null) {
+            throw new IllegalArgumentException("조회 시작일과 종료일을 모두 입력해야 합니다.");
+        }
+        if (startDate.isAfter(endDate)) {
+            throw new IllegalArgumentException("조회 시작일은 종료일보다 늦을 수 없습니다.");
+        }
+
+        // 공고번호 삽입 순서를 유지하면서 구간 경계 등에서 발생할 수 있는 중복을 제거한다.
+        Map<String, BidDto> uniqueBids = new LinkedHashMap<>();
+        LocalDate chunkStartDate = startDate;
+
+        while (!chunkStartDate.isAfter(endDate)) {
+            // 나라장터의 조회 허용 범위에 맞춰 시작일 기준 한 달 이내 구간으로 나눈다.
+            LocalDate chunkEndDate = chunkStartDate.plusMonths(1).minusDays(1);
+            if (chunkEndDate.isAfter(endDate)) {
+                chunkEndDate = endDate;
+            }
+
+            BidListPage firstPage = fetchBidListPage(chunkStartDate, chunkEndDate, 1);
+            addUniqueBids(uniqueBids, firstPage.bidList());
+
+            // 첫 페이지의 totalCount로 전체 페이지 수를 계산해 나머지 페이지를 모두 조회한다.
+            int totalPages = (firstPage.totalCount() + BID_LIST_PAGE_SIZE - 1) / BID_LIST_PAGE_SIZE;
+            for (int pageNo = 2; pageNo <= totalPages; pageNo++) {
+                BidListPage page = fetchBidListPage(chunkStartDate, chunkEndDate, pageNo);
+                addUniqueBids(uniqueBids, page.bidList());
+            }
+
+            chunkStartDate = chunkEndDate.plusDays(1);
+        }
+
+        return new ArrayList<>(uniqueBids.values());
     }
 
     /**
-     * 나라장터 목록 응답의 items 배열을 BidDto 목록으로 변환한다.
+     * 지정한 구간의 한 페이지를 조회하고 응답 상태와 공고 목록을 함께 해석한다.
      */
-    private List<BidDto> parseBidDtoList(String responseBody) {
+    private BidListPage fetchBidListPage(LocalDate startDate, LocalDate endDate, int pageNo) {
+        return parseBidListPage(requestBidListPage(startDate, endDate, pageNo));
+    }
+
+    /**
+     * 나라장터 응답의 resultCode를 검증하고 한 페이지의 공고와 전체 건수를 반환한다.
+     */
+    private BidListPage parseBidListPage(String responseBody) {
         ObjectMapper objectMapper = new ObjectMapper();
         List<BidDto> bidList = new ArrayList<>();
 
         try {
-            JsonNode items = objectMapper.readTree(responseBody)
-                    .path("response")
-                    .path("body")
-                    .path("items");
+            JsonNode root = objectMapper.readTree(responseBody);
+            JsonNode response = root.path("response");
+            JsonNode header = response.path("header");
+
+            // 입력범위 초과 등의 오류는 별도 ResponseError 루트로 내려오므로 함께 확인한다.
+            if (response.isMissingNode()) {
+                header = root.path("nkoneps.com.response.ResponseError").path("header");
+            }
+
+            String resultCode = header.path("resultCode").asText();
+            String resultMsg = header.path("resultMsg").asText();
+            if (!"00".equals(resultCode)) {
+                String errorCode = resultCode.isEmpty() ? "알 수 없는 코드" : resultCode;
+                String errorMessage = resultMsg.isEmpty() ? "응답 메시지 없음" : resultMsg;
+                throw new IllegalStateException(
+                        "나라장터 입찰공고 조회에 실패했습니다. [" + errorCode + "] " + errorMessage);
+            }
+
+            JsonNode body = response.path("body");
+            if (body.isMissingNode()) {
+                throw new IllegalStateException("나라장터 입찰공고 응답에 body가 없습니다.");
+            }
+
+            int totalCount = body.path("totalCount").asInt();
+            JsonNode items = body.path("items");
+            // 일부 응답 형식에서 items.item으로 내려오는 경우도 처리한다.
+            if (items.isObject() && items.has("item")) {
+                items = items.path("item");
+            }
 
             for (JsonNode item : items) {
-                bidList.add(new BidDto(
-                        item.path("bidNtceNo").asText(),
-                        item.path("bidNtceNm").asText(),
-                        item.path("ntceInsttNm").asText(),
-                        item.path("bidNtceDt").asText(),
-                        item.path("bidClseDt").asText(),
-                        item.path("asignBdgtAmt").asText(),
-                        item.path("sucsfbidMthdNm").asText(),
-                        item.path("bidNtceDtlUrl").asText(),
-                        item.path("sucsfbidMthdCd").asText(),
-                        item.path("techAbltEvlRt").asText(),
-                        item.path("bidPrceEvlRt").asText(),
-                        item.path("sucsfbidMthdAppStd").asText(),
-                        item.path("arsltCmptYn").asText(),
-                        item.path("pqEvalYn").asText(),
-                        item.path("tpEvalYn").asText(),
-                        item.path("cmmnSpldmdAgrmntRcptdocMethd").asText()
-                ));
+                bidList.add(createBidDto(item));
             }
+
+            return new BidListPage(bidList, totalCount);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("나라장터 API 응답을 JSON으로 변환할 수 없습니다.", e);
         }
+    }
 
-        return bidList;
+    /**
+     * 공고번호를 기준으로 중복을 제거해 병합 결과에 추가한다.
+     */
+    private void addUniqueBids(Map<String, BidDto> uniqueBids, List<BidDto> bids) {
+        for (BidDto bid : bids) {
+            String bidNtceNo = getSafeValue(bid.getBidNtceNo());
+            if (bidNtceNo.isEmpty()) {
+                throw new IllegalStateException("나라장터 입찰공고 응답에 공고번호가 없는 항목이 있습니다.");
+            }
+            uniqueBids.putIfAbsent(bidNtceNo, bid);
+        }
+    }
+
+    /**
+     * 나라장터 공고 항목을 기존과 동일한 필드 구성의 BidDto로 변환한다.
+     */
+    private BidDto createBidDto(JsonNode item) {
+        return new BidDto(
+                item.path("bidNtceNo").asText(),
+                item.path("bidNtceNm").asText(),
+                item.path("ntceInsttNm").asText(),
+                item.path("bidNtceDt").asText(),
+                item.path("bidClseDt").asText(),
+                item.path("asignBdgtAmt").asText(),
+                item.path("sucsfbidMthdNm").asText(),
+                item.path("bidNtceDtlUrl").asText(),
+                item.path("sucsfbidMthdCd").asText(),
+                item.path("techAbltEvlRt").asText(),
+                item.path("bidPrceEvlRt").asText(),
+                item.path("sucsfbidMthdAppStd").asText(),
+                item.path("arsltCmptYn").asText(),
+                item.path("pqEvalYn").asText(),
+                item.path("tpEvalYn").asText(),
+                item.path("cmmnSpldmdAgrmntRcptdocMethd").asText()
+        );
     }
 
     /**
@@ -554,5 +650,11 @@ public class G2bApiService {
                 .map(BidDto::getBidNtceNo)
                 .map(this::getBidQualification)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 한 페이지의 공고 목록과 해당 조회 구간의 전체 건수를 함께 보관한다.
+     */
+    private record BidListPage(List<BidDto> bidList, int totalCount) {
     }
 }

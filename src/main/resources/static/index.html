@@ -28,6 +28,7 @@
                 <label for="end-date">종료일</label>
                 <input type="date" id="end-date" name="endDate">
                 <button type="submit" class="search-button">조회</button>
+                <p id="current-period" class="current-period" aria-live="polite"></p>
             </form>
 
             <p id="validation-message" class="validation-message hidden" role="alert"></p>
@@ -54,7 +55,6 @@
                 <p id="license-code-message" class="validation-message hidden" role="alert"></p>
             </div>
 
-            <p id="current-period" class="current-period" aria-live="polite"></p>
         </div>
 
         <div id="loading-message" class="message">공고 목록을 불러오는 중입니다.</div>
