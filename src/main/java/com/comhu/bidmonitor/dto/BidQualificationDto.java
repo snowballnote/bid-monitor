@@ -40,4 +40,35 @@ public class BidQualificationDto {
 
     // 공동수급협정서 접수방식
     private String cmmnSpldmdAgrmntRcptdocMethd;
+
+    // 공고 검토 상태(검토대상, 제외, 추가확인필요)
+    private String reviewStatus;
+
+    // 검토 상태를 판정한 사유
+    private String reviewReason;
+
+    /**
+     * 자동 판정 필드 추가 전의 기존 생성 호출과의 호환을 유지한다.
+     */
+    public BidQualificationDto(
+            String bidNtceNo,
+            String licenseLimit,
+            String participationRegion,
+            String sucsfbidMthdNm,
+            String sucsfbidMthdCd,
+            String arsltCmptYn,
+            String pqEvalYn,
+            String tpEvalYn,
+            String cmmnSpldmdAgrmntRcptdocMethd
+    ) {
+        this.bidNtceNo = bidNtceNo;
+        this.licenseLimit = licenseLimit;
+        this.participationRegion = participationRegion;
+        this.sucsfbidMthdNm = sucsfbidMthdNm;
+        this.sucsfbidMthdCd = sucsfbidMthdCd;
+        this.arsltCmptYn = arsltCmptYn;
+        this.pqEvalYn = pqEvalYn;
+        this.tpEvalYn = tpEvalYn;
+        this.cmmnSpldmdAgrmntRcptdocMethd = cmmnSpldmdAgrmntRcptdocMethd;
+    }
 }

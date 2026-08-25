@@ -133,8 +133,8 @@ public class G2bApiService {
                     ? "제한없음"
                     : getJoinedItemValues(regionBody.path("items"), "prtcptPsblRgnNm");
 
-            // 기본 공고정보와 상세 참가조건을 함께 담아 반환한다.
-            return new BidQualificationDto(
+            // 기본 공고정보와 상세 참가조건을 함께 담는다.
+            BidQualificationDto qualification = new BidQualificationDto(
                     bidNtceNo,
                     licenseLimit,
                     participationRegion,
@@ -145,9 +145,82 @@ public class G2bApiService {
                     bidDto.getTpEvalYn(),
                     bidDto.getCmmnSpldmdAgrmntRcptdocMethd()
             );
+
+            // 조합한 참가조건을 기준으로 자동 검토 상태와 판정 사유를 설정한다.
+            applyReviewResult(qualification);
+            return qualification;
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("참가조건 API 응답을 JSON으로 처리할 수 없습니다.", e);
         }
+    }
+
+    /**
+     * 참가조건을 기준으로 공고의 자동 검토 상태와 사람이 확인할 판정 사유를 설정한다.
+     */
+    private void applyReviewResult(BidQualificationDto qualification) {
+        String sucsfbidMthdCd = getSafeValue(qualification.getSucsfbidMthdCd());
+        String sucsfbidMthdNm = getSafeValue(qualification.getSucsfbidMthdNm());
+
+        // 협상에 의한 계약은 다른 조건과 관계없이 검토 대상에서 제외한다.
+        if ("낙030005".equals(sucsfbidMthdCd) || sucsfbidMthdNm.contains("협상")) {
+            qualification.setReviewStatus("제외");
+            qualification.setReviewReason("협상에 의한 계약으로 대상 제외");
+            return;
+        }
+
+        boolean smallAmountEstimate = "낙030029".equals(sucsfbidMthdCd)
+                || sucsfbidMthdNm.contains("소액수의견적");
+        boolean qualificationReview = "낙030001".equals(sucsfbidMthdCd)
+                && sucsfbidMthdNm.contains("적격심사");
+
+        // 소액수의견적 또는 적격심사제에 해당하지 않으면 자동 판정만으로는 검토 여부를 확정할 수 없다.
+        if (!smallAmountEstimate && !qualificationReview) {
+            qualification.setReviewStatus("추가확인필요");
+            qualification.setReviewReason("낙찰방법이 검토대상 기준에 해당하는지 확인 필요");
+            return;
+        }
+
+        List<String> additionalCheckReasons = new ArrayList<>();
+        String licenseLimit = getSafeValue(qualification.getLicenseLimit());
+        String participationRegion = getSafeValue(qualification.getParticipationRegion());
+
+        // 검토대상 공고라도 면허, 지역 및 심사 조건이 있으면 추가 확인이 필요하다.
+        if (!licenseLimit.contains("6146")) {
+            additionalCheckReasons.add(licenseLimit.isEmpty()
+                    ? "6146 면허조건 확인 필요"
+                    : "6146 면허조건 확인 필요: " + licenseLimit);
+        }
+        if (!"제한없음".equals(participationRegion)) {
+            additionalCheckReasons.add(participationRegion.isEmpty()
+                    ? "지역제한 조건 확인 필요"
+                    : "지역제한 조건 확인 필요: " + participationRegion);
+        }
+        if ("Y".equals(getSafeValue(qualification.getArsltCmptYn()))) {
+            additionalCheckReasons.add("실적경쟁 조건 확인 필요");
+        }
+        if ("Y".equals(getSafeValue(qualification.getPqEvalYn()))) {
+            additionalCheckReasons.add("PQ심사 조건 확인 필요");
+        }
+        if ("Y".equals(getSafeValue(qualification.getTpEvalYn()))) {
+            additionalCheckReasons.add("TP심사 조건 확인 필요");
+        }
+
+        if (!additionalCheckReasons.isEmpty()) {
+            qualification.setReviewStatus("추가확인필요");
+            qualification.setReviewReason(String.join(", ", additionalCheckReasons));
+            return;
+        }
+
+        qualification.setReviewStatus("검토대상");
+        qualification.setReviewReason((smallAmountEstimate ? "소액수의견적" : "적격심사제")
+                + ", 6146 면허조건, 지역제한 없음");
+    }
+
+    /**
+     * API 응답의 누락값을 빈 문자열로 바꿔 null 비교와 문자열 검사 시 예외를 방지한다.
+     */
+    private String getSafeValue(String value) {
+        return value == null ? "" : value;
     }
 
     /**
