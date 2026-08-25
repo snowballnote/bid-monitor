@@ -3,11 +3,14 @@ package com.comhu.bidmonitor.controller;
 import com.comhu.bidmonitor.dto.BidDto;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
 import com.comhu.bidmonitor.service.G2bApiService;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.util.List;
 
 // 나라장터 API 호출을 테스트하기 위한 REST 컨트롤러
@@ -62,5 +65,14 @@ public class G2bApiController {
     @GetMapping("/bids/target/qualification")
     public List<BidQualificationDto> getTargetBidQualificationList() {
         return g2bApiService.getTargetBidQualificationList();
+    }
+
+    // 지정한 기간의 대상 공고에 대한 참가조건 자동 판정 결과를 조회하는 API이다.
+    @GetMapping("/bids/target/qualification/range")
+    public List<BidQualificationDto> getTargetBidQualificationListByRange(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate
+    ) {
+        return g2bApiService.getTargetBidQualificationList(startDate, endDate);
     }
 }

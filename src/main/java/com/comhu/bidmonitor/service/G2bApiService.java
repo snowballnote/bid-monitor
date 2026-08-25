@@ -34,8 +34,8 @@ public class G2bApiService {
      */
     public String getBidList() {
         // 실행 당일의 입찰공고를 조회하기 위해 현재 날짜를 yyyyMMdd 형식으로 만든다.
-        //String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-        String today = "20260713";
+        String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+        //String today = "20260713"; // 테스트
         String inquiryStartDateTime = today + "0000";
         String inquiryEndDateTime = today + "2359";
 
@@ -52,6 +52,33 @@ public class G2bApiService {
                 + "&inqryBgnDt=" + inquiryStartDateTime
                 + "&inqryEndDt=" + inquiryEndDateTime
                 // 업종코드 6146에 해당하는 용역 입찰공고만 조회한다.
+                + "&indstrytyCd=6146";
+
+        RestClient restClient = RestClient.create();
+
+        return restClient.get()
+                .uri(URI.create(requestUrl))
+                .retrieve()
+                .body(String.class);
+    }
+
+    /**
+     * 사용자가 지정한 기간의 용역 감리 입찰공고 목록을 조회한다.
+     */
+    public String getBidList(LocalDate startDate, LocalDate endDate) {
+        String inquiryStartDateTime = startDate.format(DateTimeFormatter.ofPattern("yyyyMMdd")) + "0000";
+        String inquiryEndDateTime = endDate.format(DateTimeFormatter.ofPattern("yyyyMMdd")) + "2359";
+
+        // 기존 목록 조회와 같은 용역 공고 오퍼레이션에서 기간만 사용자 입력값으로 지정한다.
+        String requestUrl = baseUrl
+                + "/getBidPblancListInfoServcPPSSrch"
+                + "?ServiceKey=" + serviceKey
+                + "&numOfRows=100"
+                + "&pageNo=1"
+                + "&type=json"
+                + "&inqryDiv=1"
+                + "&inqryBgnDt=" + inquiryStartDateTime
+                + "&inqryEndDt=" + inquiryEndDateTime
                 + "&indstrytyCd=6146";
 
         RestClient restClient = RestClient.create();
@@ -352,6 +379,54 @@ public class G2bApiService {
     }
 
     /**
+     * 지정한 기간의 입찰공고 응답을 BidDto 목록으로 변환한다.
+     */
+    public List<BidDto> getBidDtoList(LocalDate startDate, LocalDate endDate) {
+        // 날짜 범위로 조회한 API 응답을 기존 DTO와 동일한 필드 구성으로 변환한다.
+        return parseBidDtoList(getBidList(startDate, endDate));
+    }
+
+    /**
+     * 나라장터 목록 응답의 items 배열을 BidDto 목록으로 변환한다.
+     */
+    private List<BidDto> parseBidDtoList(String responseBody) {
+        ObjectMapper objectMapper = new ObjectMapper();
+        List<BidDto> bidList = new ArrayList<>();
+
+        try {
+            JsonNode items = objectMapper.readTree(responseBody)
+                    .path("response")
+                    .path("body")
+                    .path("items");
+
+            for (JsonNode item : items) {
+                bidList.add(new BidDto(
+                        item.path("bidNtceNo").asText(),
+                        item.path("bidNtceNm").asText(),
+                        item.path("ntceInsttNm").asText(),
+                        item.path("bidNtceDt").asText(),
+                        item.path("bidClseDt").asText(),
+                        item.path("asignBdgtAmt").asText(),
+                        item.path("sucsfbidMthdNm").asText(),
+                        item.path("bidNtceDtlUrl").asText(),
+                        item.path("sucsfbidMthdCd").asText(),
+                        item.path("techAbltEvlRt").asText(),
+                        item.path("bidPrceEvlRt").asText(),
+                        item.path("sucsfbidMthdAppStd").asText(),
+                        item.path("arsltCmptYn").asText(),
+                        item.path("pqEvalYn").asText(),
+                        item.path("tpEvalYn").asText(),
+                        item.path("cmmnSpldmdAgrmntRcptdocMethd").asText()
+                ));
+            }
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("나라장터 API 응답을 JSON으로 변환할 수 없습니다.", e);
+        }
+
+        return bidList;
+    }
+
+    /**
      * 대리님 요청 조건에 맞는 낙찰방법의 공고만 조회한다.
      */
     public List<BidDto> getTargetBidList() {
@@ -368,12 +443,47 @@ public class G2bApiService {
     }
 
     /**
+     * 지정한 기간의 공고 중 소액수의견적 또는 적격심사제 대상 공고만 반환한다.
+     */
+    public List<BidDto> getTargetBidList(LocalDate startDate, LocalDate endDate) {
+        // 기간 조회 결과에 기존과 동일한 대상 공고 조건을 적용한다.
+        return getBidDtoList(startDate, endDate).stream()
+                .filter(this::isTargetBid)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 기존 대상 공고 필터와 같은 소액수의견적 및 적격심사제 조건을 판단한다.
+     */
+    private boolean isTargetBid(BidDto bid) {
+        String sucsfbidMthdCd = getSafeValue(bid.getSucsfbidMthdCd());
+        String sucsfbidMthdNm = getSafeValue(bid.getSucsfbidMthdNm());
+
+        return !"낙030005".equals(sucsfbidMthdCd)
+                && ("낙030029".equals(sucsfbidMthdCd)
+                || sucsfbidMthdNm.contains("소액수의견적")
+                || ("낙030001".equals(sucsfbidMthdCd)
+                && sucsfbidMthdNm.contains("적격심사")));
+    }
+
+    /**
      * 오늘의 대상 공고에 참가조건 자동 판정을 적용한 결과를 반환한다.
      */
     public List<BidQualificationDto> getTargetBidQualificationList() {
         // 기존 대상 필터로 소액수의견적 및 적격심사제 공고만 먼저 조회한다.
         return getTargetBidList().stream()
                 // 공고별 상세 참가조건 조회와 기존 자동 판정 로직을 재사용한다.
+                .map(BidDto::getBidNtceNo)
+                .map(this::getBidQualification)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 지정한 기간의 대상 공고에 기존 참가조건 자동 판정을 적용해 반환한다.
+     */
+    public List<BidQualificationDto> getTargetBidQualificationList(LocalDate startDate, LocalDate endDate) {
+        // 기간별 대상 공고마다 기존 통합조회 및 자동 판정 로직을 재사용한다.
+        return getTargetBidList(startDate, endDate).stream()
                 .map(BidDto::getBidNtceNo)
                 .map(this::getBidQualification)
                 .collect(Collectors.toList());

@@ -14,8 +14,28 @@
     </header>
 
     <section class="notice-board" aria-label="감리 입찰공고 목록">
+        <div class="search-area">
+            <div class="quick-search" aria-label="빠른 기간 조회">
+                <span class="search-label">빠른 조회</span>
+                <button type="button" class="quick-button" data-days="1">오늘</button>
+                <button type="button" class="quick-button" data-days="3">최근 3일</button>
+                <button type="button" class="quick-button" data-days="7">최근 7일</button>
+            </div>
+
+            <form id="range-search-form" class="range-search">
+                <label for="start-date">시작일</label>
+                <input type="date" id="start-date" name="startDate">
+                <label for="end-date">종료일</label>
+                <input type="date" id="end-date" name="endDate">
+                <button type="submit" class="search-button">조회</button>
+            </form>
+
+            <p id="validation-message" class="validation-message hidden" role="alert"></p>
+            <p id="current-period" class="current-period" aria-live="polite"></p>
+        </div>
+
         <div id="loading-message" class="message">공고 목록을 불러오는 중입니다.</div>
-        <div id="empty-message" class="message hidden">오늘 검토할 대상 공고가 없습니다.</div>
+        <div id="empty-message" class="message hidden">선택한 기간에 검토할 대상 공고가 없습니다.</div>
         <div id="error-message" class="message error hidden">공고 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</div>
 
         <div id="table-wrapper" class="table-wrapper hidden">
