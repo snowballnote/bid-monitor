@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>오늘의 감리 입찰공고</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="page-container">
+    <header class="page-header">
+        <h1>오늘의 감리 입찰공고</h1>
+        <p>자동 판정된 대상 공고의 참가조건을 확인합니다.</p>
+    </header>
+
+    <section class="notice-board" aria-label="감리 입찰공고 목록">
+        <div id="loading-message" class="message">공고 목록을 불러오는 중입니다.</div>
+        <div id="empty-message" class="message hidden">오늘 검토할 대상 공고가 없습니다.</div>
+        <div id="error-message" class="message error hidden">공고 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</div>
+
+        <div id="table-wrapper" class="table-wrapper hidden">
+            <table>
+                <thead>
+                <tr>
+                    <th>검토상태</th>
+                    <th>공고명</th>
+                    <th>공고기관</th>
+                    <th>배정예산</th>
+                    <th>입찰마감일시</th>
+                    <th>낙찰방법</th>
+                    <th>면허조건</th>
+                    <th>지역제한</th>
+                    <th>판정사유</th>
+                    <th>상세보기</th>
+                </tr>
+                </thead>
+                <tbody id="bid-list"></tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

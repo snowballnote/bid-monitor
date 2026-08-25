@@ -1,0 +1,144 @@
+:root {
+    color: #1f2937;
+    background: #f3f5f8;
+    font-family: "Malgun Gothic", "Noto Sans KR", Arial, sans-serif;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+}
+
+.page-container {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 40px 24px;
+}
+
+.page-header {
+    margin-bottom: 24px;
+}
+
+h1 {
+    margin: 0 0 8px;
+    color: #111827;
+    font-size: 28px;
+}
+
+.page-header p {
+    margin: 0;
+    color: #6b7280;
+}
+
+.notice-board {
+    overflow: hidden;
+    background: #ffffff;
+    border: 1px solid #dbe1e8;
+    border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.table-wrapper {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    min-width: 1250px;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+th,
+td {
+    padding: 14px 12px;
+    border-bottom: 1px solid #e5e7eb;
+    text-align: left;
+    vertical-align: top;
+    line-height: 1.5;
+}
+
+th {
+    color: #374151;
+    background: #f8fafc;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+tbody tr:hover {
+    background: #f9fafb;
+}
+
+td:nth-child(2),
+td:nth-child(9) {
+    min-width: 190px;
+}
+
+.status {
+    display: inline-block;
+    min-width: 82px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 700;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.status-review {
+    color: #166534;
+    background: #dcfce7;
+}
+
+.status-excluded {
+    color: #991b1b;
+    background: #fee2e2;
+}
+
+.status-check {
+    color: #92400e;
+    background: #fef3c7;
+}
+
+.detail-link {
+    color: #1d4ed8;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.detail-link:hover,
+.detail-link:focus {
+    text-decoration: underline;
+}
+
+.message {
+    padding: 36px 24px;
+    color: #4b5563;
+    text-align: center;
+}
+
+.message.error {
+    color: #b91c1c;
+}
+
+.hidden {
+    display: none;
+}
+
+@media (max-width: 640px) {
+    .page-container {
+        padding: 24px 16px;
+    }
+
+    h1 {
+        font-size: 24px;
+    }
+}

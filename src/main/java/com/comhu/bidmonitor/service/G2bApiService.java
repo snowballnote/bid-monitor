@@ -34,8 +34,8 @@ public class G2bApiService {
      */
     public String getBidList() {
         // 실행 당일의 입찰공고를 조회하기 위해 현재 날짜를 yyyyMMdd 형식으로 만든다.
-        String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-        //String today = "20260713";
+        //String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+        String today = "20260713";
         String inquiryStartDateTime = today + "0000";
         String inquiryEndDateTime = today + "2359";
 
