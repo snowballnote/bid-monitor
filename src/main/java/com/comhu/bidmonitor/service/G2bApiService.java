@@ -8,6 +8,9 @@ import com.comhu.bidmonitor.dto.LicenseRequirementGroup;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -20,10 +23,13 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 // 나라장터(G2B) OpenAPI 호출을 담당하는 서비스 클래스
 @Service
@@ -32,6 +38,18 @@ public class G2bApiService {
     private static final int BID_LIST_PAGE_SIZE = 100;
     private static final String REQUIRED_LICENSE_CODE = "6146";
     private static final Set<String> DEFAULT_ALLOWED_LICENSE_CODES = Set.of("6146", "1468");
+    private static final Set<String> PDF_ANALYSIS_DOCUMENT_TYPES =
+            Set.of("공고문", "과업지시서", "제안요청서");
+    private static final List<String> EXTERNAL_REFERENCE_KEYWORDS = List.of(
+            "기관 홈페이지 참조",
+            "홈페이지 참조",
+            "자세한 내용은 홈페이지",
+            "별도 사이트",
+            "직접 제출",
+            "외부 사이트"
+    );
+    private static final Pattern HTTP_URL_PATTERN =
+            Pattern.compile("(?i)https?://[^\\s<>\\[\\]{}\\\"']+");
 
     // application.properties에 설정한 나라장터 API 기본 주소를 가져옴
     @Value("${g2b.api.base-url}")
@@ -157,6 +175,64 @@ public class G2bApiService {
                 .uri(URI.create(requestUrl))
                 .retrieve()
                 .body(String.class);
+    }
+
+    /**
+     * 분석 대상 PDF 첨부파일 한 건을 내려받아 외부 홈페이지 확인 신호를 탐지한다.
+     * 공고 전체 판정과는 연결하지 않고 BidAttachmentDto의 분석 결과만 갱신한다.
+     */
+    public BidAttachmentDto analyzePdfAttachment(BidAttachmentDto attachment) {
+        if (attachment == null) {
+            throw new IllegalArgumentException("분석할 첨부파일 정보가 없습니다.");
+        }
+        if (!isPdfAnalysisTarget(attachment)) {
+            return attachment;
+        }
+
+        // 재분석할 때 이전 결과가 남지 않도록 분석 관련 필드를 먼저 초기화한다.
+        attachment.setExternalReferenceDetected(false);
+        attachment.setDetectedExternalUrls(new ArrayList<>());
+        attachment.setAnalysisReason("");
+
+        try {
+            byte[] pdfBytes = RestClient.create()
+                    .get()
+                    .uri(URI.create(attachment.getFileUrl()))
+                    .retrieve()
+                    .body(byte[].class);
+            if (pdfBytes == null || pdfBytes.length == 0) {
+                throw new IllegalStateException("다운로드한 PDF 파일이 비어 있습니다.");
+            }
+
+            String pdfText;
+            try (PDDocument document = Loader.loadPDF(pdfBytes)) {
+                pdfText = new PDFTextStripper().getText(document);
+            }
+
+            List<String> detectedKeywords = findExternalReferenceKeywords(pdfText);
+            List<String> detectedExternalUrls = findExternalUrls(pdfText);
+            boolean externalReferenceDetected =
+                    !detectedKeywords.isEmpty() || !detectedExternalUrls.isEmpty();
+
+            attachment.setAnalysisStatus("ANALYZED");
+            attachment.setExternalReferenceDetected(externalReferenceDetected);
+            attachment.setDetectedExternalUrls(detectedExternalUrls);
+            attachment.setAnalysisReason(createPdfAnalysisReason(
+                    pdfText,
+                    detectedKeywords,
+                    detectedExternalUrls
+            ));
+        } catch (Exception e) {
+            // 한 파일의 다운로드 또는 텍스트 추출 실패가 기존 공고 판정에 영향을 주지 않도록 상태만 기록한다.
+            attachment.setAnalysisStatus("FAILED");
+            attachment.setExternalReferenceDetected(false);
+            attachment.setDetectedExternalUrls(new ArrayList<>());
+            String failureMessage = getSafeValue(e.getMessage()).trim();
+            attachment.setAnalysisReason("PDF 분석 실패"
+                    + (failureMessage.isEmpty() ? "" : ": " + failureMessage));
+        }
+
+        return attachment;
     }
 
     /**
@@ -560,6 +636,92 @@ public class G2bApiService {
             return "공고문";
         }
         return "기타";
+    }
+
+    /** PDF이면서 공고문·과업지시서·제안요청서로 분류된 첨부만 분석 대상으로 선택한다. */
+    private boolean isPdfAnalysisTarget(BidAttachmentDto attachment) {
+        String fileName = getSafeValue(attachment.getFileName()).trim();
+        String fileUrl = getSafeValue(attachment.getFileUrl()).trim();
+        String documentType = getSafeValue(attachment.getDocumentType()).trim();
+        return !fileUrl.isEmpty()
+                && fileName.toLowerCase(Locale.ROOT).endsWith(".pdf")
+                && PDF_ANALYSIS_DOCUMENT_TYPES.contains(documentType);
+    }
+
+    /** PDF 본문에서 외부 확인 가능성을 나타내는 한글 표현을 찾는다. */
+    private List<String> findExternalReferenceKeywords(String pdfText) {
+        String safePdfText = getSafeValue(pdfText);
+        List<String> detectedKeywords = new ArrayList<>();
+
+        for (String keyword : EXTERNAL_REFERENCE_KEYWORDS) {
+            if (safePdfText.contains(keyword)) {
+                // 긴 표현이 이미 탐지된 경우 그 안에 포함된 짧은 표현은 중복 사유로 기록하지 않는다.
+                boolean includedInDetectedKeyword = detectedKeywords.stream()
+                        .anyMatch(detectedKeyword -> detectedKeyword.contains(keyword));
+                if (!includedInDetectedKeyword) {
+                    detectedKeywords.add(keyword);
+                }
+            }
+        }
+        return detectedKeywords;
+    }
+
+    /** PDF 본문의 HTTP URL 중 나라장터 도메인을 제외한 외부 URL만 중복 없이 수집한다. */
+    private List<String> findExternalUrls(String pdfText) {
+        Matcher matcher = HTTP_URL_PATTERN.matcher(getSafeValue(pdfText));
+        Set<String> externalUrls = new LinkedHashSet<>();
+
+        while (matcher.find()) {
+            String detectedUrl = removeTrailingUrlPunctuation(matcher.group());
+            try {
+                String host = getSafeValue(URI.create(detectedUrl).getHost()).toLowerCase(Locale.ROOT);
+                if (!host.isEmpty() && !isG2bHost(host)) {
+                    externalUrls.add(detectedUrl);
+                }
+            } catch (IllegalArgumentException ignored) {
+                // PDF 줄바꿈 등으로 손상된 URL은 외부 주소 목록에 포함하지 않는다.
+            }
+        }
+        return new ArrayList<>(externalUrls);
+    }
+
+    /** URL 뒤에 문장부호가 붙어 추출되는 경우 주소 부분만 남긴다. */
+    private String removeTrailingUrlPunctuation(String url) {
+        String trimmedUrl = getSafeValue(url);
+        String trailingPunctuation = ".,;:!?)]}>\"'”’";
+        while (!trimmedUrl.isEmpty()
+                && trailingPunctuation.indexOf(trimmedUrl.charAt(trimmedUrl.length() - 1)) >= 0) {
+            trimmedUrl = trimmedUrl.substring(0, trimmedUrl.length() - 1);
+        }
+        return trimmedUrl;
+    }
+
+    /** 나라장터 자체 URL은 외부 확인 주소에서 제외한다. */
+    private boolean isG2bHost(String host) {
+        return "g2b.go.kr".equals(host) || host.endsWith(".g2b.go.kr");
+    }
+
+    /** 탐지 결과를 사람이 바로 이해할 수 있는 분석 사유로 만든다. */
+    private String createPdfAnalysisReason(
+            String pdfText,
+            List<String> detectedKeywords,
+            List<String> detectedExternalUrls
+    ) {
+        if (getSafeValue(pdfText).isBlank()) {
+            return "PDF에서 텍스트를 추출하지 못해 외부 확인 신호를 판정할 수 없음";
+        }
+        if (detectedKeywords.isEmpty() && detectedExternalUrls.isEmpty()) {
+            return "외부 홈페이지 확인 신호가 탐지되지 않음";
+        }
+
+        List<String> reasons = new ArrayList<>();
+        if (!detectedKeywords.isEmpty()) {
+            reasons.add("탐지 키워드: " + String.join(", ", detectedKeywords));
+        }
+        if (!detectedExternalUrls.isEmpty()) {
+            reasons.add("외부 URL: " + String.join(", ", detectedExternalUrls));
+        }
+        return String.join(" / ", reasons);
     }
 
     /**
