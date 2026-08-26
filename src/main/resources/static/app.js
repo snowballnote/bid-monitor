@@ -235,6 +235,11 @@ function hasDocumentAnalysis(attachments) {
         && attachments.some((attachment) => getDocumentAnalysisStatus(attachment) !== "NOT_ANALYZED");
 }
 
+/** 공백·줄바꿈만 다른 같은 문자열을 비교하기 위한 키를 만든다. 표시값은 원문을 유지한다. */
+function createAnalysisComparisonKey(value) {
+    return value.replace(/\s+/g, " ").trim();
+}
+
 /** 여러 첨부파일에서 같은 문구를 한 번만 보여주도록 항목별 결과를 합친다. */
 function mergeDocumentAnalysis(attachments) {
     const result = {
@@ -246,7 +251,7 @@ function mergeDocumentAnalysis(attachments) {
     };
 
     Object.keys(result).forEach((fieldName) => {
-        const uniqueValues = new Set();
+        const uniqueValues = new Map();
         (Array.isArray(attachments) ? attachments : []).forEach((attachment) => {
             const values = attachment?.documentAnalysis?.[fieldName];
             if (!Array.isArray(values)) {
@@ -254,11 +259,15 @@ function mergeDocumentAnalysis(attachments) {
             }
             values.forEach((value) => {
                 if (typeof value === "string" && value.trim() !== "") {
-                    uniqueValues.add(value.trim());
+                    const originalValue = value.trim();
+                    const comparisonKey = createAnalysisComparisonKey(originalValue);
+                    if (!uniqueValues.has(comparisonKey)) {
+                        uniqueValues.set(comparisonKey, originalValue);
+                    }
                 }
             });
         });
-        result[fieldName] = [...uniqueValues];
+        result[fieldName] = [...uniqueValues.values()];
     });
 
     return result;
@@ -302,19 +311,103 @@ function appendSummaryItem(parent, label, value, wide = false) {
     parent.appendChild(item);
 }
 
-function createAnalysisResultSection(title, values) {
+/** 긴 원문은 처음에는 두 줄만 보이고 같은 자리에서 전체 내용을 펼쳐볼 수 있게 한다. */
+function createExpandableAnalysisItem(value) {
+    const item = document.createElement("li");
+    if (value.length <= 120) {
+        item.classList.add("analysis-text-direct");
+        item.textContent = value;
+        return item;
+    }
+
+    const details = document.createElement("details");
+    details.className = "analysis-text-details";
+    const summary = appendTextElement(details, "summary", "analysis-text-preview", value);
+    summary.title = "전체 문장 펼쳐보기";
+    appendTextElement(details, "p", "analysis-text-full", value);
+    item.appendChild(details);
+    return item;
+}
+
+/** 카테고리별 추출 결과를 카드로 만들고, 제출서류는 저장 없는 체크리스트로 표시한다. */
+function createAnalysisResultSection(title, values, options = {}) {
     const section = document.createElement("section");
-    section.className = "analysis-result-section";
-    appendTextElement(section, "h4", "", title);
+    const variant = options.variant ? ` analysis-result-${options.variant}` : "";
+    const compact = options.compact ? " analysis-result-compact" : "";
+    section.className = `analysis-result-section${variant}${compact}`;
+
+    const heading = document.createElement("div");
+    heading.className = "analysis-card-heading";
+    let headingToggle = null;
+    if (options.headingToggle) {
+        headingToggle = document.createElement("button");
+        headingToggle.type = "button";
+        headingToggle.className = "collapsed-section-heading";
+        appendTextElement(headingToggle, "span", "", `${title} ${values.length}건`);
+        appendTextElement(headingToggle, "span", "collapsed-section-action", "펼쳐보기");
+        headingToggle.setAttribute("aria-expanded", "false");
+        heading.appendChild(headingToggle);
+    } else {
+        appendTextElement(heading, "h4", "", title);
+        appendTextElement(heading, "span", "analysis-item-count", `${values.length}건`);
+    }
+    section.appendChild(heading);
 
     if (values.length === 0) {
-        appendTextElement(section, "p", "analysis-empty-text", "추출된 내용이 없습니다.");
+        appendTextElement(section, "p", "analysis-empty-text", "탐지된 내용 없음");
         return section;
     }
 
-    const list = document.createElement("ul");
-    values.forEach((value) => appendTextElement(list, "li", "", value));
+    const list = document.createElement(options.checklist ? "div" : "ul");
+    list.className = options.checklist ? "document-checklist" : "analysis-item-list";
+    const previewLimit = Number.isInteger(options.previewLimit) ? options.previewLimit : values.length;
+    values.forEach((value, index) => {
+        let renderedItem;
+        if (!options.checklist) {
+            renderedItem = createExpandableAnalysisItem(value);
+            list.appendChild(renderedItem);
+        } else {
+            const label = document.createElement("label");
+            label.className = "document-check-item";
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.setAttribute("aria-label", `${index + 1}번째 제출서류 확인`);
+            label.appendChild(checkbox);
+            appendTextElement(label, "span", "document-check-text", value);
+            list.appendChild(label);
+            renderedItem = label;
+        }
+
+        if (index >= previewLimit) {
+            renderedItem.classList.add("analysis-collapsed-item");
+        }
+    });
     section.appendChild(list);
+
+    if (headingToggle) {
+        headingToggle.addEventListener("click", () => {
+            const expanded = section.classList.toggle("analysis-section-expanded");
+            headingToggle.lastElementChild.textContent = expanded ? "접기" : "펼쳐보기";
+            headingToggle.setAttribute("aria-expanded", String(expanded));
+        });
+        return section;
+    }
+
+    if (previewLimit < values.length || options.startCollapsed) {
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "analysis-section-toggle";
+        const collapsedText = options.toggleText || `전체 ${values.length}건 보기`;
+        const expandedText = options.expandedText || "접기";
+        toggle.textContent = collapsedText;
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.addEventListener("click", () => {
+            const expanded = section.classList.toggle("analysis-section-expanded");
+            toggle.textContent = expanded ? expandedText : collapsedText;
+            toggle.setAttribute("aria-expanded", String(expanded));
+        });
+        section.appendChild(toggle);
+    }
     return section;
 }
 
@@ -323,12 +416,92 @@ function getDocumentStatusLabel(status) {
         return "분석완료";
     }
     if (status === "FAILED") {
-        return "분석실패";
+        return "분석실패 / 원문 확인 필요";
     }
     if (status === "UNKNOWN") {
         return "확인 필요";
     }
     return "미분석";
+}
+
+/** 기존 검토상태와 판정사유를 가공하지 않고 상세보기 최상단에 강조한다. */
+function appendReviewPriority(parent, bid) {
+    const section = document.createElement("section");
+    section.className = `review-priority ${getStatusClass(bid.reviewStatus)}`;
+
+    const heading = document.createElement("div");
+    heading.className = "review-priority-heading";
+    appendTextElement(heading, "span", "review-priority-label", "핵심 확인");
+    const badge = appendTextElement(heading, "strong", "status", displayValue(bid.reviewStatus));
+    badge.classList.add(getStatusClass(bid.reviewStatus));
+    section.appendChild(heading);
+
+    appendTextElement(section, "p", "review-priority-reason", displayValue(bid.reviewReason));
+    parent.appendChild(section);
+}
+
+/** 기존 판정값과 공고 진행정보를 해석 없이 한눈에 볼 수 있는 상단 요약으로 표시한다. */
+function appendPracticalSummary(parent, bid, merged) {
+    const summary = document.createElement("section");
+    summary.className = "practical-summary";
+
+    const review = document.createElement("div");
+    review.className = `practical-review ${getStatusClass(bid.reviewStatus)}`;
+    const status = appendTextElement(review, "strong", "status", displayValue(bid.reviewStatus));
+    status.classList.add(getStatusClass(bid.reviewStatus));
+    appendTextElement(review, "span", "practical-review-reason", displayValue(bid.reviewReason));
+    summary.appendChild(review);
+
+    const facts = document.createElement("div");
+    facts.className = "practical-fact-grid";
+    const appendFact = (label, value, className = "") => {
+        const fact = document.createElement("div");
+        fact.className = `practical-fact ${className}`.trim();
+        appendTextElement(fact, "span", "practical-fact-label", label);
+        appendTextElement(fact, "strong", "practical-fact-value", value);
+        facts.appendChild(fact);
+        return fact;
+    };
+
+    appendFact("마감일", displayValue(bid.bidClseDt), "practical-fact-deadline");
+    const methods = merged.submissionMethods.length > 0
+        ? merged.submissionMethods[0]
+        : "탐지된 내용 없음";
+    appendFact("제출방법", methods, "practical-fact-method");
+
+    const externalFact = appendFact(
+        "외부확인",
+        getExternalCheckLabel(bid.externalCheckStatus || "UNKNOWN"),
+        "practical-fact-external"
+    );
+    if (bid.externalCheckReason) {
+        const reasonDetails = document.createElement("details");
+        reasonDetails.className = "practical-external-details";
+        appendTextElement(reasonDetails, "summary", "practical-external-toggle", "설명 보기");
+        appendTextElement(reasonDetails, "p", "practical-external-reason", bid.externalCheckReason);
+        externalFact.appendChild(reasonDetails);
+    }
+    const urls = Array.isArray(bid.externalSiteUrls) ? [...new Set(bid.externalSiteUrls)] : [];
+    const links = document.createElement("div");
+    links.className = "external-link-list practical-external-links";
+    urls.forEach((url, index) => {
+        let label = `외부 링크 ${index + 1}`;
+        try {
+            label = new URL(url).hostname || label;
+        } catch (error) {
+            console.warn("표시할 수 없는 외부 URL입니다.", url, error);
+        }
+        const link = createSafeLink(url, label, "external-site-link");
+        if (link) {
+            links.appendChild(link);
+        }
+    });
+    if (links.childElementCount > 0) {
+        externalFact.appendChild(links);
+    }
+
+    summary.appendChild(facts);
+    parent.appendChild(summary);
 }
 
 /** 공고 단위 외부확인 상태와 탐지 URL을 상세 영역에 표시한다. */
@@ -367,22 +540,79 @@ function appendExternalCheckDetail(parent, bid) {
     parent.appendChild(box);
 }
 
-/** 분석된 첨부와 실패·미분석 상태를 파일별로 보여준다. */
+/** 첨부 한 건의 전체 추출 결과를 원문 확인용 접기 영역으로 만든다. */
+function createAttachmentAnalysisBody(attachment) {
+    const body = document.createElement("div");
+    body.className = "attachment-analysis-body";
+    const status = getDocumentAnalysisStatus(attachment);
+    const analysis = attachment?.documentAnalysis;
+
+    if (status === "FAILED") {
+        appendTextElement(body, "p", "attachment-failure-text", analysis?.analysisNote || "분석에 실패했습니다.");
+        return body;
+    }
+    if (status !== "ANALYZED") {
+        appendTextElement(body, "p", "analysis-empty-text", "탐지된 내용 없음");
+        return body;
+    }
+
+    const categories = [
+        ["참가자격", analysis?.qualificationRequirements],
+        ["제출 필요 서류", analysis?.requiredDocuments],
+        ["제출방법", analysis?.submissionMethods],
+        ["제출기한", analysis?.submissionDeadlines],
+        ["공동수급", analysis?.jointContractRequirements]
+    ];
+    categories.forEach(([title, values]) => {
+        const group = document.createElement("section");
+        group.className = "attachment-analysis-group";
+        appendTextElement(group, "h5", "", title);
+        const safeValues = Array.isArray(values) ? values : [];
+        if (safeValues.length === 0) {
+            appendTextElement(group, "p", "analysis-empty-text", "탐지된 내용 없음");
+        } else {
+            const list = document.createElement("ul");
+            safeValues.forEach((value) => appendTextElement(list, "li", "", value));
+            group.appendChild(list);
+        }
+        body.appendChild(group);
+    });
+    return body;
+}
+
+/** 분석된 첨부와 실패·미분석 상태를 파일별로 보여주고 전체 결과를 접어 둔다. */
 function appendAttachmentDetails(parent, attachments) {
-    appendTextElement(parent, "h3", "analysis-section-title", "첨부파일별 분석 정보");
+    const section = document.createElement("section");
+    section.className = "attachment-summary-section";
+    const heading = document.createElement("div");
+    heading.className = "analysis-card-heading attachment-summary-heading";
+    appendTextElement(heading, "h3", "", "첨부문서");
+    section.appendChild(heading);
 
     if (attachments.length === 0) {
-        appendTextElement(parent, "p", "analysis-empty-text", "등록된 첨부파일이 없습니다.");
+        appendTextElement(section, "p", "analysis-empty-text", "등록된 첨부파일이 없습니다.");
+        parent.appendChild(section);
         return;
     }
 
     const statuses = attachments.map(getDocumentAnalysisStatus);
+    const analyzedCount = statuses.filter((status) => status === "ANALYZED").length;
+    const failedCount = statuses.filter((status) => status === "FAILED").length;
+    const notAnalyzedCount = statuses.length - analyzedCount - failedCount;
+    const countParts = [`분석완료 ${analyzedCount}건`, `미분석 ${notAnalyzedCount}건`];
+    if (failedCount > 0) {
+        countParts.push(`분석실패 ${failedCount}건`);
+    }
+    appendTextElement(heading, "span", "attachment-count-summary", countParts.join(" / "));
+
+    const collapsible = document.createElement("div");
+    collapsible.className = "attachment-collapsible hidden";
     if (statuses.includes("FAILED")) {
-        appendTextElement(parent, "p", "attachment-warning", "일부 첨부파일을 분석하지 못했습니다.");
+        appendTextElement(collapsible, "p", "attachment-warning", "일부 첨부파일을 분석하지 못했습니다.");
     }
     if (statuses.every((status) => ["NOT_ANALYZED", "UNKNOWN"].includes(status))) {
         appendTextElement(
-            parent,
+            collapsible,
             "p",
             "attachment-warning",
             "분석 가능한 PDF/HWPX/HWP가 없거나 아직 분석되지 않아 추출 결과를 확인할 수 없습니다."
@@ -391,20 +621,18 @@ function appendAttachmentDetails(parent, attachments) {
 
     const list = document.createElement("div");
     list.className = "attachment-list";
-    attachments.forEach((attachment) => {
-        const item = document.createElement("div");
+    attachments.forEach((attachment, index) => {
+        const item = document.createElement("article");
         item.className = "attachment-item";
 
         const fileInfo = document.createElement("div");
+        fileInfo.className = "attachment-file-info";
         appendTextElement(fileInfo, "span", "attachment-name", displayValue(attachment.fileName));
-        const analysisNote = attachment?.documentAnalysis?.analysisNote;
-        if (analysisNote) {
-            appendTextElement(fileInfo, "span", "attachment-note", analysisNote);
-        }
+        appendTextElement(fileInfo, "span", "attachment-type", displayValue(attachment.documentType));
         item.appendChild(fileInfo);
-        appendTextElement(item, "span", "", displayValue(attachment.documentType));
 
         const action = document.createElement("div");
+        action.className = "attachment-actions";
         const status = getDocumentAnalysisStatus(attachment);
         const statusBadge = appendTextElement(
             action,
@@ -417,14 +645,39 @@ function appendAttachmentDetails(parent, attachments) {
         if (attachment.fileUrl) {
             const link = createSafeLink(attachment.fileUrl, "원본 첨부 열기", "attachment-link");
             if (link) {
-                action.appendChild(document.createElement("br"));
                 action.appendChild(link);
             }
         }
         item.appendChild(action);
+
+        if (["ANALYZED", "FAILED"].includes(status)) {
+            const details = document.createElement("details");
+            details.className = "attachment-analysis-details";
+            const summaryLabel = status === "FAILED" ? "실패내용 보기" : "분석내용 보기";
+            const summary = appendTextElement(details, "summary", "attachment-analysis-toggle", summaryLabel);
+            summary.setAttribute("aria-label", `${index + 1}번째 첨부 ${summaryLabel}`);
+            details.appendChild(createAttachmentAnalysisBody(attachment));
+            item.appendChild(details);
+        } else {
+            appendTextElement(item, "span", "attachment-no-analysis", "미분석");
+        }
         list.appendChild(item);
     });
-    parent.appendChild(list);
+    collapsible.appendChild(list);
+    section.appendChild(collapsible);
+
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "analysis-section-toggle attachment-section-toggle";
+    toggle.textContent = "첨부문서 보기";
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.addEventListener("click", () => {
+        const expanded = collapsible.classList.toggle("hidden") === false;
+        toggle.textContent = expanded ? "첨부문서 접기" : "첨부문서 보기";
+        toggle.setAttribute("aria-expanded", String(expanded));
+    });
+    section.appendChild(toggle);
+    parent.appendChild(section);
 }
 
 /** 선택한 공고의 첨부문서 분석 결과를 비우고 새로 구성해 모달을 연다. */
@@ -432,37 +685,72 @@ function openDocumentAnalysisModal(bid, triggerButton) {
     lastAnalysisTrigger = triggerButton;
     analysisModalContent.replaceChildren();
 
+    const identity = document.createElement("div");
+    identity.className = "practical-bid-identity";
+    appendTextElement(identity, "strong", "practical-bid-name", displayValue(bid.bidNtceNm));
     appendTextElement(
-        analysisModalContent,
-        "p",
-        "analysis-notice",
-        "문서 자동추출 결과입니다. 표 구조, 문서 형식 등에 따라 일부 내용이 누락되거나 잘못 분류될 수 있으므로 최종 제출 전 원문을 확인하세요."
+        identity,
+        "span",
+        "practical-bid-meta",
+        `${displayValue(bid.bidNtceNo)} · ${displayValue(bid.ntceInsttNm)}`
     );
-
-    const summary = document.createElement("div");
-    summary.className = "bid-summary-grid";
-    appendSummaryItem(summary, "공고명", bid.bidNtceNm, true);
-    appendSummaryItem(summary, "공고번호", bid.bidNtceNo);
-    appendSummaryItem(summary, "공고기관", bid.ntceInsttNm);
-    appendSummaryItem(summary, "마감일시", bid.bidClseDt);
-    appendSummaryItem(summary, "검토상태", bid.reviewStatus);
-    appendSummaryItem(summary, "판정사유", bid.reviewReason, true);
-    analysisModalContent.appendChild(summary);
+    analysisModalContent.appendChild(identity);
 
     const attachments = Array.isArray(bid.attachments) ? bid.attachments : [];
     const merged = mergeDocumentAnalysis(attachments);
-    appendTextElement(analysisModalContent, "h3", "analysis-section-title", "문서 핵심정보");
-    const resultGrid = document.createElement("div");
-    resultGrid.className = "analysis-result-grid";
-    resultGrid.appendChild(createAnalysisResultSection("참가자격", merged.qualificationRequirements));
-    resultGrid.appendChild(createAnalysisResultSection("제출 필요 서류", merged.requiredDocuments));
-    resultGrid.appendChild(createAnalysisResultSection("제출방법", merged.submissionMethods));
-    resultGrid.appendChild(createAnalysisResultSection("제출기한", merged.submissionDeadlines));
-    resultGrid.appendChild(createAnalysisResultSection("공동수급 관련 조건", merged.jointContractRequirements));
-    analysisModalContent.appendChild(resultGrid);
+    appendPracticalSummary(analysisModalContent, bid, merged);
 
-    appendExternalCheckDetail(analysisModalContent, bid);
+    const priorityGrid = document.createElement("div");
+    priorityGrid.className = "analysis-priority-grid analysis-priority-grid-compact";
+    priorityGrid.appendChild(createAnalysisResultSection(
+        "제출기한",
+        merged.submissionDeadlines,
+        {variant: "deadline", compact: true}
+    ));
+    priorityGrid.appendChild(createAnalysisResultSection(
+        "제출방법",
+        merged.submissionMethods,
+        {variant: "method", compact: true}
+    ));
+    analysisModalContent.appendChild(priorityGrid);
+
+    analysisModalContent.appendChild(createAnalysisResultSection(
+        "제출서류",
+        merged.requiredDocuments,
+        {
+            checklist: true,
+            variant: "documents",
+            previewLimit: 6,
+            toggleText: `전체 ${merged.requiredDocuments.length}건 보기`
+        }
+    ));
+
+    analysisModalContent.appendChild(createAnalysisResultSection(
+        "참가자격",
+        merged.qualificationRequirements,
+        {
+            previewLimit: 4,
+            toggleText: `전체 ${merged.qualificationRequirements.length}건 보기`
+        }
+    ));
+    analysisModalContent.appendChild(createAnalysisResultSection(
+        "공동수급 조건",
+        merged.jointContractRequirements,
+        {
+            previewLimit: 0,
+            startCollapsed: true,
+            headingToggle: true
+        }
+    ));
+
     appendAttachmentDetails(analysisModalContent, attachments);
+
+    appendTextElement(
+        analysisModalContent,
+        "p",
+        "analysis-notice analysis-notice-bottom",
+        "자동 추출 결과이므로 최종 제출 및 참가 여부는 원문 공고를 확인해 주세요."
+    );
 
     analysisModal.classList.remove("hidden");
     document.body.classList.add("modal-open");
