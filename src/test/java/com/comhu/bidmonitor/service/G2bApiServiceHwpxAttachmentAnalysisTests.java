@@ -60,6 +60,9 @@ class G2bApiServiceHwpxAttachmentAnalysisTests {
         assertTrue(attachment.getAnalysisReason().contains("기관 홈페이지 참조"));
         assertTrue(attachment.getAnalysisReason().contains("직접 제출"));
         assertFalse(attachment.getAnalysisReason().contains("g2b.go.kr"));
+        assertEquals("ANALYZED", attachment.getDocumentAnalysis().getAnalysisStatus());
+        assertTrue(attachment.getDocumentAnalysis().getSubmissionMethods().stream()
+                .anyMatch(value -> value.contains("직접 제출")));
     }
 
     @Test

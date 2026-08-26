@@ -38,6 +38,9 @@ public class BidAttachmentDto {
     // 탐지된 키워드, URL 또는 분석 실패 사유
     private String analysisReason = "";
 
+    // 첨부문서 본문에서 구조화해 추출한 입찰 검토 핵심정보
+    private BidDocumentAnalysisDto documentAnalysis = new BidDocumentAnalysisDto();
+
     /**
      * 기존 첨부파일 생성 코드와 호환하면서 분석 결과는 기본값으로 초기화한다.
      */

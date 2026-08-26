@@ -135,6 +135,8 @@ class G2bApiServiceExternalCheckTests {
         assertEquals("UNKNOWN", qualification.getExternalCheckStatus());
         assertNull(qualification.getExternalSiteCheckRequired());
         assertEquals("FAILED", qualification.getAttachments().getFirst().getAnalysisStatus());
+        assertEquals("FAILED",
+                qualification.getAttachments().getFirst().getDocumentAnalysis().getAnalysisStatus());
     }
 
     private BidQualificationDto qualificationWithAttachment(

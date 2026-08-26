@@ -56,6 +56,8 @@ class G2bApiServicePdfAttachmentAnalysisTests {
         assertEquals(1, attachment.getDetectedExternalUrls().size());
         assertEquals("https://example.org/notice", attachment.getDetectedExternalUrls().getFirst());
         assertFalse(attachment.getAnalysisReason().contains("g2b.go.kr"));
+        assertEquals("ANALYZED", attachment.getDocumentAnalysis().getAnalysisStatus());
+        assertTrue(attachment.getDocumentAnalysis().getRequiredDocuments().isEmpty());
     }
 
     private byte[] createPdf(String text) throws Exception {
