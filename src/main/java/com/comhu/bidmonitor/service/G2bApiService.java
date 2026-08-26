@@ -106,11 +106,27 @@ public class G2bApiService {
             Pattern.compile("(?i)https?://[^\\s<>\\[\\]{}\\\"']+");
     private static final Pattern TOP_LEVEL_SECTION_HEADING_PATTERN =
             Pattern.compile("^\\s*(?:(?:\\d+\\s*[.)])|(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+(?:\\.|\\s)))\\s*.+");
-    private static final Pattern DEADLINE_VALUE_PATTERN = Pattern.compile(
-            ".*(?:[‘’']?\\d{2,4}[.-]\\s*\\d{1,2}(?:[.-]\\s*\\d{1,2})?|\\d{1,2}:\\d{2}|까지|도착분).*"
+    private static final Pattern DATE_OR_TIME_PATTERN = Pattern.compile(
+            ".*(?:20\\d{2}\\s*[./-]\\s*(?:0?[1-9]|1[0-2])"
+                    + "(?:\\s*[./-]\\s*(?:0?[1-9]|[12]\\d|3[01]))?|(?:[01]?\\d|2[0-3]):[0-5]\\d).*"
+    );
+    private static final Pattern PHONE_NUMBER_PATTERN = Pattern.compile(
+            ".*(?<!\\d)(?:0\\d{1,2}[- )]?)?\\d{3,4}-\\d{4}(?!\\d).*"
+    );
+    private static final Pattern REQUIRED_DOCUMENT_ITEM_START_PATTERN = Pattern.compile(
+            "(?i)(?:사업자등록증|법인등기부등본|법인등기사항증명서|등기사항증명서|"
+                    + "법인인감증명서|인감증명서|사용인감계|경쟁입찰참가자격\\s*등록증|"
+                    + "중소기업(?:·소상공인)?\\s*확인서|소기업·소상공인\\s*확인서|"
+                    + "직접생산확인증명서|직접생산\\s*확인증명서|실적증명서|수행실적\\s*총괄표|"
+                    + "사업(?:\\(용역\\))?수행실적표|사업(?:\\(용역\\))?이행\\s*실적증명(?:원)?(?:\\(서\\))?|"
+                    + "실적증명(?:원)?(?:\\(서\\))?|관계증빙서류|신용평가등급\\s*확인서|"
+                    + "소프트웨어\\s*사업자[^,;]{0,30}?(?:관리)?확인서|"
+                    + "제안서|제안요약서|요약서|견적서|입찰참가신청서|입찰서|참가신청서|신청서|"
+                    + "확약서|서약서|자가점검표|산출내역서|재직증명서|USB|유에스비)"
     );
     private static final List<String> REQUIRED_DOCUMENT_HEADINGS =
-            List.of("제출서류", "제출 서류", "구비서류", "구비 서류");
+            List.of("입찰참가 제출서류", "제안서 제출서류", "참가 신청시 제출서류",
+                    "참가신청시 제출서류", "제출서류", "제출 서류", "구비서류", "구비 서류");
     private static final List<String> QUALIFICATION_HEADINGS =
             List.of("입찰 참가자격", "입찰참가자격", "참가자격");
     private static final List<String> SUBMISSION_METHOD_KEYWORDS = List.of(
@@ -120,10 +136,79 @@ public class G2bApiService {
     );
     private static final List<String> SUBMISSION_DEADLINE_KEYWORDS = List.of(
             "제출기한", "제출 기한", "접수기한", "접수 기한",
-            "제출마감", "제출 마감", "접수마감", "접수 마감", "마감일"
+            "제출마감", "제출 마감", "접수마감", "접수 마감", "마감일",
+            "제출기간", "제출 기간", "접수기간", "접수 기간", "제출일시", "접수일시",
+            "입찰서 제출", "입찰서 접수", "제안서 제출", "참가신청 접수", "참가 신청 접수"
     );
     private static final List<String> JOINT_CONTRACT_KEYWORDS =
             List.of("공동수급협정서", "공동수급", "공동도급");
+    private static final List<String> SECTION_BOUNDARY_KEYWORDS = List.of(
+            "입찰보증금", "입찰서 제출", "전자입찰", "개찰", "낙찰자 결정",
+            "계약체결", "청렴계약", "제출서류", "제안서 평가", "공동수급",
+            "하도급", "기타사항", "문의사항", "유의사항", "동반성장 지원사업"
+    );
+    private static final List<String> QUALIFICATION_POSITIVE_KEYWORDS = List.of(
+            "업종코드", "감리법인", "입찰참가 등록", "입찰 참가 등록", "입찰참가자격",
+            "참가자격", "부정당업자", "참가할 수 없", "참여할 수 없", "등록취소",
+            "업무정지", "소프트웨어사업자", "중소기업", "직접생산", "수행실적",
+            "실적을", "지역제한", "소재한", "부도", "파산"
+    );
+    private static final List<String> QUALIFICATION_EXCLUSION_KEYWORDS = List.of(
+            "입찰보증금", "납세증명", "납부증명", "인지세", "대금 청구", "대가 청구",
+            "계약체결 시", "계약체결시", "계약상대자", "청렴계약", "문의하시기",
+            "문의바랍니다", "신고처", "신고하거나", "감사실", "이의제기", "민원",
+            "동반성장", "지원사업 안내", "판로지원", "홈페이지 제작", "제출서류 (",
+            "제출서류(", "인감증명서", "사용인감계", "사본 1부", "원본 1부"
+    );
+    private static final List<String> REQUIRED_DOCUMENT_SIGNALS = List.of(
+            "사업자등록증", "법인등기부등본", "등기사항증명서", "인감증명서", "사용인감계",
+            "경쟁입찰참가자격등록증", "경쟁입찰참가자격 등록증", "중소기업 확인서",
+            "중소기업확인서", "직접생산확인증명서", "직접생산 확인증명서", "실적증명",
+            "제안서", "견적서", "확약서", "서약서",
+            "확인서", "증명서", "신청서", "입찰서", "산출내역서", "USB", "유에스비",
+            "재직증명서", "평가항목 자가점검표", "관계증빙서류", "사본", "원본", "1부", "2부", "3부"
+    );
+    private static final List<String> REQUIRED_DOCUMENT_EXCLUSION_KEYWORDS = List.of(
+            "업종코드", "세부품명", "검사요청", "검사를 요청", "용역수행 결과물",
+            "용역 결과물", "품질보증", "보안 및 안전", "안전교육", "과업 수행",
+            "사후판정", "입찰보증금", "적정성 적합", "계약상대자는",
+            "원본과 사본의 차이", "인감날인)계량"
+    );
+    private static final List<String> SUBMISSION_CONTEXT_KEYWORDS = List.of(
+            "제출", "접수", "입찰서", "참가 신청", "참가신청"
+    );
+    private static final List<String> SUBMISSION_METHOD_SIGNALS = List.of(
+            "나라장터", "전자제출", "전자 제출", "온라인", "이메일", "e-mail", "E-mail",
+            "방문", "우편", "직접", "제출방법", "제출 방법"
+    );
+    private static final List<String> SUBMISSION_EXCLUSION_KEYWORDS = List.of(
+            "신고", "감사실", "이의제기", "민원", "불공정행위", "비리", "금품",
+            "향응", "갑질", "문의", "불편사항", "계약업무", "레드휘슬", "청렴계약",
+            "계약서를 제출", "조세포탈", "유죄판결 비대상자", "입찰보증금", "보증금",
+            "지급각서", "하도급", "직불", "산출물", "결과물", "검사요청", "납품",
+            "착수", "완료보고", "준공", "과업 수행", "과업수행", "입찰참가자격등록",
+            "입찰참가자격 등록", "참가자격등록", "참가자격 등록"
+    );
+    private static final List<String> DEADLINE_ACTION_KEYWORDS = List.of(
+            "입찰서", "제안서", "서류", "제출", "접수", "참가신청", "참가 신청", "투찰"
+    );
+    private static final List<String> DEADLINE_EXCLUSION_KEYWORDS = List.of(
+            "납부기한", "입찰보증금", "참가자격", "참가 등록", "참가등록", "등록한 업체",
+            "업무정지", "신용평가등급", "계약체결", "대금 청구", "개찰", "문의",
+            "전화", "연락처", "대표번호", "고객센터"
+    );
+    private static final List<String> JOINT_CONTRACT_CONDITION_KEYWORDS = List.of(
+            "허용", "불허", "공동이행", "분담이행", "대표사", "주관사업자", "구성원",
+            "개 이하", "지분율", "최소지분", "중복", "협정서", "변경할 수 없", "변경 불가",
+            "단독이행", "단독 이행", "제출"
+    );
+    private static final List<String> JOINT_CONTRACT_EXCLUSION_KEYWORDS = List.of(
+            "평가점수", "배점", "평가요소", "평가한다", "등급별", "수행조직관리",
+            "평가하고", "평가 결과", "점수를", "관리 및 수행방안", "실적은",
+            "참여비율 제시", "참여지분율평가", "이행부분이 구분", "형식적인 공동수급체",
+            "입찰보증금", "보증금", "귀속", "보증서", "연대책임", "변경등록",
+            "상호 및 대표자", "대표자 전원", "당사(공동수급체 구성원", "당사 (공동수급체 구성원"
+    );
 
     // application.properties에 설정한 나라장터 API 기본 주소를 가져옴
     @Value("${g2b.api.base-url}")
@@ -1222,37 +1307,49 @@ public class G2bApiService {
         collectHeadingSections(lines, REQUIRED_DOCUMENT_HEADINGS, requiredDocuments, true);
         collectHeadingSections(lines, QUALIFICATION_HEADINGS, qualificationRequirements, false);
 
-        // 뚜렷한 제목이 없는 문서에서는 키워드가 들어간 원문 줄 자체를 보존한다.
+        // 뚜렷한 제목이 없는 문서는 실제 서류·자격조건 신호가 함께 있는 줄만 보조적으로 수집한다.
         if (requiredDocuments.isEmpty()) {
-            collectKeywordLines(lines, REQUIRED_DOCUMENT_HEADINGS, requiredDocuments);
+            lines.stream()
+                    .filter(line -> containsAnyKeyword(line, REQUIRED_DOCUMENT_HEADINGS))
+                    .forEach(line -> addRequiredDocumentLine(line, requiredDocuments));
         }
         if (qualificationRequirements.isEmpty()) {
-            collectKeywordLines(lines, QUALIFICATION_HEADINGS, qualificationRequirements);
+            lines.stream()
+                    .filter(line -> containsAnyKeyword(line, QUALIFICATION_HEADINGS))
+                    .filter(this::isQualificationRequirement)
+                    .forEach(qualificationRequirements::add);
         }
 
         collectSubmissionMethodLines(lines, submissionMethods);
         collectSubmissionDeadlineLines(lines, submissionDeadlines);
         collectJointContractLines(lines, jointContractRequirements);
 
-        analysis.setRequiredDocuments(new ArrayList<>(requiredDocuments));
-        analysis.setQualificationRequirements(new ArrayList<>(qualificationRequirements));
-        analysis.setSubmissionMethods(new ArrayList<>(submissionMethods));
-        analysis.setSubmissionDeadlines(new ArrayList<>(submissionDeadlines));
-        analysis.setJointContractRequirements(new ArrayList<>(jointContractRequirements));
+        // 공백과 줄바꿈만 다른 동일 원문은 비교용 문자열을 정규화해 한 번만 보존한다.
+        List<String> normalizedRequiredDocuments = deduplicateNormalized(requiredDocuments);
+        List<String> normalizedQualifications = deduplicateNormalized(qualificationRequirements);
+        List<String> normalizedSubmissionMethods = deduplicateNormalized(submissionMethods);
+        List<String> normalizedSubmissionDeadlines = deduplicateNormalized(submissionDeadlines);
+        List<String> normalizedJointRequirements = deduplicateNormalized(jointContractRequirements);
+
+        analysis.setRequiredDocuments(normalizedRequiredDocuments);
+        analysis.setQualificationRequirements(normalizedQualifications);
+        analysis.setSubmissionMethods(normalizedSubmissionMethods);
+        analysis.setSubmissionDeadlines(normalizedSubmissionDeadlines);
+        analysis.setJointContractRequirements(normalizedJointRequirements);
         analysis.setAnalysisStatus("ANALYZED");
 
-        int detectedItemCount = requiredDocuments.size()
-                + qualificationRequirements.size()
-                + submissionMethods.size()
-                + submissionDeadlines.size()
-                + jointContractRequirements.size();
+        int detectedItemCount = normalizedRequiredDocuments.size()
+                + normalizedQualifications.size()
+                + normalizedSubmissionMethods.size()
+                + normalizedSubmissionDeadlines.size()
+                + normalizedJointRequirements.size();
         analysis.setAnalysisNote(detectedItemCount == 0
                 ? "분석은 완료되었으나 지정 핵심정보가 탐지되지 않음"
-                : "문서 핵심정보 추출 완료: 제출서류 " + requiredDocuments.size()
-                        + "건, 참가자격 " + qualificationRequirements.size()
-                        + "건, 제출방법 " + submissionMethods.size()
-                        + "건, 제출기한 " + submissionDeadlines.size()
-                        + "건, 공동수급 " + jointContractRequirements.size() + "건");
+                : "문서 핵심정보 추출 완료: 제출서류 " + normalizedRequiredDocuments.size()
+                        + "건, 참가자격 " + normalizedQualifications.size()
+                        + "건, 제출방법 " + normalizedSubmissionMethods.size()
+                        + "건, 제출기한 " + normalizedSubmissionDeadlines.size()
+                        + "건, 공동수급 " + normalizedJointRequirements.size() + "건");
         return analysis;
     }
 
@@ -1280,7 +1377,7 @@ public class G2bApiService {
             List<String> sectionLines = new ArrayList<>();
             for (int sectionIndex = index + 1; sectionIndex < lines.size(); sectionIndex++) {
                 String sectionLine = lines.get(sectionIndex);
-                if (isTopLevelSectionHeading(sectionLine)) {
+                if (isSectionBoundary(sectionLine)) {
                     break;
                 }
                 sectionLines.add(sectionLine);
@@ -1289,37 +1386,99 @@ public class G2bApiService {
             if (splitDocumentList) {
                 sectionLines.forEach(sectionLine -> addRequiredDocumentLine(sectionLine, destination));
             } else {
-                addGroupedSectionLines(sectionLines, destination);
+                addGroupedQualificationLines(sectionLines, destination);
             }
         }
     }
 
-    /** 표에서 한 줄로 합쳐진 제출서류는 원문의 목록 구분자(･) 단위로만 나누어 저장한다. */
+    /** 표에서 한 줄로 합쳐진 제출서류는 목록기호와 실제 서류명 시작점을 기준으로 나누어 저장한다. */
     private void addRequiredDocumentLine(String line, Set<String> destination) {
-        String[] listItems = line.split("\\s*･\\s*");
-        if (listItems.length == 1) {
-            if (!isRequiredDocumentNoise(line)) {
-                destination.add(line);
-            }
+        String safeLine = getSafeValue(line).trim();
+        if (isRequiredDocumentTableHeader(safeLine)) {
             return;
         }
-        for (int index = 1; index < listItems.length; index++) {
-            String item = listItems[index].trim();
-            if (!item.isEmpty() && !isRequiredDocumentNoise(item)) {
+
+        for (String item : splitRequiredDocumentItems(safeLine)) {
+            if (isRequiredDocument(item)) {
                 destination.add(item);
             }
         }
     }
 
+    /** 목록기호가 사라진 PDF/HWP 표에서도 연속된 서류명을 각각의 준비물로 분리한다. */
+    private List<String> splitRequiredDocumentItems(String line) {
+        List<String> items = new ArrayList<>();
+        for (String listPart : line.split("\\s*[･·•◦▪]\\s*")) {
+            String candidate = listPart.trim();
+            if (candidate.isEmpty()) {
+                continue;
+            }
+
+            Matcher matcher = REQUIRED_DOCUMENT_ITEM_START_PATTERN.matcher(candidate);
+            List<Integer> starts = new ArrayList<>();
+            while (matcher.find()) {
+                if (!isInsideParentheses(candidate, matcher.start())
+                        && !candidate.regionMatches(matcher.start(), "제안서의", 0, "제안서의".length())) {
+                    starts.add(matcher.start());
+                }
+            }
+            if (starts.isEmpty()) {
+                items.add(trimDocumentItem(candidate));
+                continue;
+            }
+            if (starts.size() == 1) {
+                items.add(trimDocumentItem(candidate.substring(starts.getFirst())));
+                continue;
+            }
+            for (int index = 0; index < starts.size(); index++) {
+                int start = starts.get(index);
+                int end = index + 1 < starts.size() ? starts.get(index + 1) : candidate.length();
+                items.add(trimDocumentItem(candidate.substring(start, end)));
+            }
+        }
+        return items;
+    }
+
+    private boolean isInsideParentheses(String value, int position) {
+        int depth = 0;
+        for (int index = 0; index < position; index++) {
+            char character = value.charAt(index);
+            if (character == '(') {
+                depth++;
+            } else if (character == ')' && depth > 0) {
+                depth--;
+            }
+        }
+        return depth > 0;
+    }
+
+    private String trimDocumentItem(String item) {
+        return getSafeValue(item)
+                .replaceFirst("^(?:구분|기타)\\s*[-:]?\\s*", "")
+                .replaceFirst("^(?:\\(?\\d{1,2}\\)|\\d{1,2}[.)-]|[가-하][.)]|[①-⑳])\\s*", "")
+                .replaceFirst("\\s*\\d{1,2}-\\s*(?:최근년도\\s+결산\\s+신고된)?\\s*$", "")
+                .replaceFirst("\\s*\\d{1,2}\\s*평가항목\\s*$", "")
+                .replaceFirst("\\s*\\d{1,2}-\\s*기타\\s+제안서의.+(?:있는|있는\\s*)$", "")
+                .replaceFirst("[”\"']?\\s*\\d{1,2}-\\s*$", "")
+                .replaceAll("\\s+(?:및|,|/)$", "")
+                .trim();
+    }
+
+    private boolean isRequiredDocumentTableHeader(String line) {
+        String compactLine = getSafeValue(line).replaceAll("\\s+", "");
+        return compactLine.startsWith("구분제출서류")
+                || Set.of("구분", "제출서류", "구분제출서류", "구분내용수량").contains(compactLine);
+    }
+
     /** PDF에서 줄바꿈된 하나의 자격 문장을 목록 기호 기준으로 다시 연결한다. */
-    private void addGroupedSectionLines(List<String> sectionLines, Set<String> destination) {
+    private void addGroupedQualificationLines(List<String> sectionLines, Set<String> destination) {
         StringBuilder currentItem = new StringBuilder();
         for (String line : sectionLines) {
             if (isPageNumberLine(line)) {
                 continue;
             }
             if (isListItemStart(line) && currentItem.length() > 0) {
-                destination.add(currentItem.toString());
+                addQualificationIfRelevant(currentItem.toString(), destination);
                 currentItem.setLength(0);
             }
             if (currentItem.length() > 0) {
@@ -1328,58 +1487,116 @@ public class G2bApiService {
             currentItem.append(line);
         }
         if (currentItem.length() > 0) {
-            destination.add(currentItem.toString());
+            addQualificationIfRelevant(currentItem.toString(), destination);
+        }
+    }
+
+    private void addQualificationIfRelevant(String line, Set<String> destination) {
+        if (isQualificationRequirement(line)) {
+            destination.add(line);
         }
     }
 
     private boolean isListItemStart(String line) {
         String safeLine = getSafeValue(line).trim();
-        return safeLine.matches("^[ㅇ○●▪■□※*·-].*");
+        return safeLine.matches("^(?:[ㅇ○●▪■□▢※*·◦-]|[가-하]\\s*[.)]|\\(?\\d+\\)|[①-⑳]).*");
     }
 
     private boolean isPageNumberLine(String line) {
         return getSafeValue(line).trim().matches("^-\\s*\\d+\\s*-$");
     }
 
-    /** 표 머리글·분류명·페이지 번호처럼 제출서류 자체가 아닌 항목은 제외한다. */
-    private boolean isRequiredDocumentNoise(String line) {
+    /** 실제 제출 문서 신호가 있으면서 과업·검사 등 사후 수행 문맥이 아닌 항목만 보존한다. */
+    private boolean isRequiredDocument(String line) {
         String compactLine = getSafeValue(line).replaceAll("\\s+", "");
-        return compactLine.isEmpty()
+        if (compactLine.isEmpty()
                 || compactLine.matches("^-?\\d+-?$")
-                || Set.of("구분내용수량", "제안업체", "일반사항", "자체서식").contains(compactLine);
+                || Set.of("구분내용수량", "제안업체", "일반사항", "자체서식", "평가", "자료").contains(compactLine)) {
+            return false;
+        }
+        if (containsAnyKeyword(line, SUBMISSION_DEADLINE_KEYWORDS)) {
+            return false;
+        }
+        return containsAnyKeyword(line, REQUIRED_DOCUMENT_SIGNALS)
+                && !containsAnyKeyword(line, REQUIRED_DOCUMENT_EXCLUSION_KEYWORDS);
     }
 
-    private void collectKeywordLines(
-            List<String> lines,
-            List<String> keywords,
-            Set<String> destination
-    ) {
-        lines.stream()
-                .filter(line -> containsAnyKeyword(line, keywords))
-                .forEach(destination::add);
-    }
-
-    /** 제출처·우편·직접 제출 등 실제 제출 행위를 나타내는 원문 줄을 수집한다. */
+    /** 제출 행위와 제출 수단이 함께 있고 신고·문의 문맥이 아닌 줄만 수집한다. */
     private void collectSubmissionMethodLines(List<String> lines, Set<String> destination) {
-        for (String line : lines) {
-            if (containsAnyKeyword(line, SUBMISSION_METHOD_KEYWORDS)
-                    && !isTopLevelSectionHeading(line)) {
+        for (int index = 0; index < lines.size(); index++) {
+            String line = lines.get(index);
+            if (containsAnyKeyword(line, SUBMISSION_CONTEXT_KEYWORDS)
+                    && containsAnyKeyword(line, SUBMISSION_METHOD_SIGNALS)
+                    && !containsAnyKeyword(line, SUBMISSION_EXCLUSION_KEYWORDS)
+                    && hasBidSubmissionContext(lines, index)
+                    && !hasPostAwardSubmissionContext(lines, index)
+                    && !isCategoryHeading(line, SUBMISSION_METHOD_KEYWORDS)) {
                 destination.add(line);
             }
         }
     }
 
-    /** 마감 키워드가 있는 줄과 바로 뒤에 이어지는 날짜·시간 원문 줄을 수집한다. */
+    /** 일반 산출물 제출처가 아니라 입찰서·제안서·참가신청 제출 문맥인지 주변 제목까지 확인한다. */
+    private boolean hasBidSubmissionContext(List<String> lines, int index) {
+        String line = lines.get(index);
+        if (containsAnyKeyword(line, List.of(
+                "입찰서", "제안서", "입찰참가", "참가신청", "참가 신청", "사전접수", "사전 접수"
+        ))) {
+            return true;
+        }
+        int firstContextIndex = Math.max(0, index - 3);
+        for (int contextIndex = index - 1; contextIndex >= firstContextIndex; contextIndex--) {
+            String context = lines.get(contextIndex);
+            if (containsAnyKeyword(context, List.of(
+                    "입찰서 제출", "제안서 제출", "입찰참가 신청", "입찰참가신청", "제출서류",
+                    "제출 및 문의처", "서류 제출", "참가신청"
+            ))) {
+                return true;
+            }
+            if (isTopLevelSectionHeading(context) && contextIndex != index - 1) {
+                break;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasPostAwardSubmissionContext(List<String> lines, int index) {
+        String line = lines.get(index);
+        if (containsAnyKeyword(line, List.of(
+                "입찰서", "제안서", "입찰참가", "참가신청", "참가 신청", "사전접수", "사전 접수"
+        ))) {
+            return false;
+        }
+        int firstContextIndex = Math.max(0, index - 4);
+        for (int contextIndex = index; contextIndex >= firstContextIndex; contextIndex--) {
+            if (containsAnyKeyword(lines.get(contextIndex), List.of(
+                    "산출물", "성과품", "결과물", "납품", "검사", "준공", "완료보고", "과업 수행", "과업수행"
+            ))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 실제 날짜·시간과 입찰서·제안서 등의 제출 행위가 연결된 마감정보만 수집한다. */
     private void collectSubmissionDeadlineLines(List<String> lines, Set<String> destination) {
         for (int index = 0; index < lines.size(); index++) {
             String line = lines.get(index);
-            if (!containsAnyKeyword(line, SUBMISSION_DEADLINE_KEYWORDS)) {
+            if (!containsAnyNormalizedKeyword(line, SUBMISSION_DEADLINE_KEYWORDS)
+                    || containsAnyKeyword(line, DEADLINE_EXCLUSION_KEYWORDS)) {
                 continue;
             }
-            destination.add(line);
+            boolean deadlineHeading = isCategoryHeading(line, SUBMISSION_DEADLINE_KEYWORDS);
+            boolean deadlineHeadingContext = deadlineHeading || !isDeadlineValue(line);
+            if (!deadlineHeading
+                    && isDeadlineValue(line)
+                    && containsAnyNormalizedKeyword(line, DEADLINE_ACTION_KEYWORDS)) {
+                destination.add(line);
+            }
 
             // 표 제목과 실제 날짜가 분리된 경우에만 가까운 날짜 줄을 추가한다.
-            if (!DEADLINE_VALUE_PATTERN.matcher(line).matches()) {
+            if (deadlineHeadingContext) {
+                boolean unlabeledDeadlineAdded = false;
                 int lastCandidateIndex = Math.min(index + 4, lines.size() - 1);
                 for (int candidateIndex = index + 1;
                      candidateIndex <= lastCandidateIndex;
@@ -1388,47 +1605,118 @@ public class G2bApiService {
                     if (isTopLevelSectionHeading(candidate)) {
                         break;
                     }
-                    if (DEADLINE_VALUE_PATTERN.matcher(candidate).matches()) {
+                    if (containsAnyKeyword(candidate, List.of("개찰", "개찰일시", "개찰시간"))) {
+                        break;
+                    }
+                    if (!isDeadlineValue(candidate)
+                            || containsAnyKeyword(candidate, DEADLINE_EXCLUSION_KEYWORDS)) {
+                        continue;
+                    }
+                    if (containsAnyNormalizedKeyword(candidate, DEADLINE_ACTION_KEYWORDS)
+                            || containsAnyNormalizedKeyword(candidate, List.of("시작", "마감", "개시", "종료", "일시"))) {
                         destination.add(candidate);
+                    } else if (!unlabeledDeadlineAdded) {
+                        // HWPX 표에서 셀 제목과 값이 분리되면 첫 날짜가 마감값이고 다음 값이 개찰시각인 경우가 많다.
+                        destination.add(candidate);
+                        unlabeledDeadlineAdded = true;
+                        break;
                     }
                 }
             }
         }
     }
 
-    /** 공동수급 제목이 있으면 해당 절을, 일반 문장이라면 키워드가 있는 줄만 보존한다. */
+    /** 유효한 날짜·시간인지 확인하고 대표전화 같은 숫자 형식은 명시적으로 제외한다. */
+    private boolean isDeadlineValue(String line) {
+        String safeLine = getSafeValue(line);
+        return DATE_OR_TIME_PATTERN.matcher(safeLine).matches()
+                && !PHONE_NUMBER_PATTERN.matcher(safeLine).matches();
+    }
+
+    /** 공동수급 허용방식·구성·지분·협정서 등 참가 판단에 직접 필요한 조건만 보존한다. */
     private void collectJointContractLines(List<String> lines, Set<String> destination) {
-        for (int index = 0; index < lines.size(); index++) {
-            String line = lines.get(index);
-            if (!containsAnyKeyword(line, JOINT_CONTRACT_KEYWORDS)) {
+        boolean insideJointSection = false;
+        for (String line : lines) {
+            if (isCategoryHeading(line, JOINT_CONTRACT_KEYWORDS)) {
+                insideJointSection = true;
                 continue;
             }
-
-            if (isTopLevelSectionHeading(line)) {
-                continue;
+            if (insideJointSection && isSectionBoundary(line)) {
+                insideJointSection = false;
             }
 
-            // PDF 줄바꿈으로 이어진 문장은 다음 목록·제목 전까지 최대 세 줄만 연결한다.
-            StringBuilder requirement = new StringBuilder(line);
-            int lastContinuationIndex = Math.min(index + 3, lines.size() - 1);
-            for (int continuationIndex = index + 1;
-                 continuationIndex <= lastContinuationIndex;
-                 continuationIndex++) {
-                String continuation = lines.get(continuationIndex);
-                if (isTopLevelSectionHeading(continuation)
-                        || isListItemStart(continuation)
-                        || continuation.matches("^[가-하]\\s*[.)].*")) {
-                    break;
+            String[] clauses = line.split("(?=[◦▢□]|\\uFFFD+)");
+            for (String clause : clauses) {
+                String candidate = clause.trim();
+                if (isJointContractCondition(candidate, insideJointSection)) {
+                    destination.add(candidate);
                 }
-                requirement.append(' ').append(continuation);
             }
-            destination.add(requirement.toString());
         }
     }
 
+    private boolean isJointContractCondition(String candidate, boolean insideJointSection) {
+        return (insideJointSection || containsAnyKeyword(candidate, JOINT_CONTRACT_KEYWORDS))
+                && containsAnyKeyword(candidate, JOINT_CONTRACT_CONDITION_KEYWORDS)
+                && !containsAnyKeyword(candidate, JOINT_CONTRACT_EXCLUSION_KEYWORDS)
+                && !isCategoryHeading(candidate, JOINT_CONTRACT_KEYWORDS);
+    }
+
+    /** 면허·법령·실적 등 직접 자격 신호가 있고 계약 후 안내·홍보 문맥이 아닌지 확인한다. */
+    private boolean isQualificationRequirement(String line) {
+        return containsAnyKeyword(line, QUALIFICATION_POSITIVE_KEYWORDS)
+                && !containsAnyKeyword(line, QUALIFICATION_EXCLUSION_KEYWORDS);
+    }
+
+    /** 같은 절의 다음 번호 제목 또는 잘 알려진 업무 제목을 만나면 수집 범위를 끝낸다. */
+    private boolean isSectionBoundary(String line) {
+        if (isTopLevelSectionHeading(line)) {
+            return true;
+        }
+        String safeLine = getSafeValue(line).trim();
+        return safeLine.length() <= 60
+                && containsAnyKeyword(safeLine, SECTION_BOUNDARY_KEYWORDS)
+                && (safeLine.matches("^[■□▢※].*") || safeLine.endsWith("사항") || safeLine.endsWith("안내"));
+    }
+
+    /** 원문은 고치지 않고 공백·목록기호를 제거한 비교키로 사실상 같은 결과만 제거한다. */
+    private List<String> deduplicateNormalized(Set<String> values) {
+        Map<String, String> uniqueValues = new LinkedHashMap<>();
+        for (String value : values) {
+            String comparisonKey = getSafeValue(value)
+                    .replaceAll("^[ㅇ○●▪■□▢※*·◦-]+", "")
+                    .replaceAll("\\s+", "")
+                    .trim();
+            if (!comparisonKey.isEmpty()) {
+                uniqueValues.putIfAbsent(comparisonKey, value);
+            }
+        }
+        return new ArrayList<>(uniqueValues.values());
+    }
+
     private boolean isCategoryHeading(String line, List<String> headings) {
-        return containsAnyKeyword(line, headings)
-                && (isTopLevelSectionHeading(line) || line.length() <= 40);
+        String safeLine = getSafeValue(line).trim();
+        String withoutPrefix = safeLine.replaceFirst(
+                "^(?:(?:\\d+\\s*[.)])|(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+[.)]?)|[■□▢※*·◦-])\\s*",
+                ""
+        );
+        String compactLine = withoutPrefix.replaceAll("\\s+", "");
+        for (String heading : headings) {
+            String compactHeading = heading.replaceAll("\\s+", "");
+            int headingIndex = compactLine.indexOf(compactHeading);
+            // PDF 표 머리글은 '구분제출서류(사본...)'처럼 셀 경계 없이 붙어서 추출될 수 있다.
+            if (compactHeading.equals("제출서류") && compactLine.startsWith("구분제출서류")) {
+                return true;
+            }
+            if (isTopLevelSectionHeading(safeLine) && headingIndex >= 0 && headingIndex <= 10) {
+                return true;
+            }
+            if (compactLine.equals(compactHeading)
+                    || compactLine.matches(Pattern.quote(compactHeading) + "[:：]?\\([^)]{0,40}\\)")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean isTopLevelSectionHeading(String line) {
@@ -1438,6 +1726,14 @@ public class G2bApiService {
     private boolean containsAnyKeyword(String line, List<String> keywords) {
         String safeLine = getSafeValue(line);
         return keywords.stream().anyMatch(safeLine::contains);
+    }
+
+    /** PDF 표에서 글자 사이 공백·제어문자가 삽입돼도 업무 키워드를 비교할 수 있게 정규화한다. */
+    private boolean containsAnyNormalizedKeyword(String line, List<String> keywords) {
+        String normalizedLine = getSafeValue(line).replaceAll("[\\s\\p{Cc}]+", "");
+        return keywords.stream()
+                .map(keyword -> keyword.replaceAll("[\\s\\p{Cc}]+", ""))
+                .anyMatch(normalizedLine::contains);
     }
 
     /** 형식 파싱 실패와 단순 미탐지가 구분되도록 문서 분석 실패 DTO를 만든다. */

@@ -30,7 +30,7 @@ class G2bApiServiceHwpxAttachmentAnalysisTests {
     void extractsHwpxTextAndExcludesG2bUrl() throws Exception {
         byte[] hwpxBytes = createHwpx(
                 "기관 홈페이지 참조 https://example.org/notice "
-                        + "https://www.g2b.go.kr/notice 직접 제출"
+                        + "https://www.g2b.go.kr/notice 입찰서는 직접 제출"
         );
         httpServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         httpServer.createContext("/notice.hwpx", exchange -> {
