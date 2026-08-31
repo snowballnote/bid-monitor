@@ -48,6 +48,13 @@ public class JdbcExternalNoticeRepository implements ExternalNoticeRepository {
                 external_notice_id, attachment_order, file_name, file_url
             ) VALUES (?, ?, ?, ?)
             """;
+    private static final String UPDATE_CONTENT_SQL = """
+            UPDATE external_notice SET
+                title = ?, published_date = ?, detail_url = ?, body = ?,
+                pia_related = ?, matched_keywords = ?, classification_reason = ?,
+                fingerprint = ?, last_seen_at = ?
+            WHERE id = ? AND external_id = ?
+            """;
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
@@ -123,6 +130,52 @@ public class JdbcExternalNoticeRepository implements ExternalNoticeRepository {
                 externalId
         );
         return count != null && count > 0;
+    }
+
+    /** 내용이 같을 때는 기존 데이터를 건드리지 않고 마지막 확인시각만 갱신한다. */
+    @Override
+    public void updateLastSeenAt(Long noticeId, Instant lastSeenAt) {
+        int updatedRows = jdbcTemplate.update(
+                "UPDATE external_notice SET last_seen_at = ? WHERE id = ?",
+                Timestamp.from(lastSeenAt),
+                noticeId
+        );
+        requireSingleUpdatedRow(updatedRows, noticeId);
+    }
+
+    /**
+     * 변경된 콘텐츠와 분류 결과를 교체하되 DB ID, 외부 식별값과 최초 발견시각은 유지한다.
+     * 첨부파일 삭제와 재등록도 같은 트랜잭션에 포함해 공지와 첨부 상태가 어긋나지 않게 한다.
+     */
+    @Override
+    @Transactional
+    public ExternalNotice updateContent(Long noticeId, ExternalNotice notice) {
+        Objects.requireNonNull(notice, "갱신할 외부공지는 null일 수 없습니다.");
+
+        int updatedRows = jdbcTemplate.update(connection -> {
+            PreparedStatement statement = connection.prepareStatement(UPDATE_CONTENT_SQL);
+            statement.setString(1, notice.getTitle());
+            setDate(statement, 2, notice.getPublishedDate());
+            statement.setString(3, notice.getDetailUrl());
+            statement.setString(4, notice.getBody());
+            statement.setBoolean(5, notice.isPiaRelated());
+            statement.setString(6, serializeKeywords(notice.getMatchedKeywords()));
+            statement.setString(7, notice.getClassificationReason());
+            statement.setString(8, notice.getFingerprint());
+            setTimestamp(statement, 9, notice.getLastSeenAt());
+            statement.setLong(10, noticeId);
+            statement.setString(11, notice.getExternalId());
+            return statement;
+        });
+        requireSingleUpdatedRow(updatedRows, noticeId);
+
+        jdbcTemplate.update(
+                "DELETE FROM external_notice_attachment WHERE external_notice_id = ?",
+                noticeId
+        );
+        saveAttachments(noticeId, notice.getAttachments());
+        return findByExternalId(notice.getExternalId())
+                .orElseThrow(() -> new IllegalStateException("갱신한 외부공지를 다시 조회할 수 없습니다."));
     }
 
     private void saveAttachments(Long noticeId, List<ExternalNoticeAttachment> attachments) {
@@ -228,6 +281,12 @@ public class JdbcExternalNoticeRepository implements ExternalNoticeRepository {
             statement.setNull(index, Types.TIMESTAMP);
         } else {
             statement.setTimestamp(index, Timestamp.from(value));
+        }
+    }
+
+    private void requireSingleUpdatedRow(int updatedRows, Long noticeId) {
+        if (updatedRows != 1) {
+            throw new IllegalStateException("갱신할 외부공지 한 건을 찾을 수 없습니다: " + noticeId);
         }
     }
 

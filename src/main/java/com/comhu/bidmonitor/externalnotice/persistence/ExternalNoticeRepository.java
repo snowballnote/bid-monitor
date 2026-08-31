@@ -1,5 +1,6 @@
 package com.comhu.bidmonitor.externalnotice.persistence;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -13,4 +14,8 @@ public interface ExternalNoticeRepository {
     List<ExternalNotice> findAll();
 
     boolean existsByExternalId(String externalId);
+
+    void updateLastSeenAt(Long noticeId, Instant lastSeenAt);
+
+    ExternalNotice updateContent(Long noticeId, ExternalNotice notice);
 }
