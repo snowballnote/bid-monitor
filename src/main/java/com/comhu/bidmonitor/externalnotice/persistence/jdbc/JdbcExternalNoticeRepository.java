@@ -1,0 +1,251 @@
+package com.comhu.bidmonitor.externalnotice.persistence.jdbc;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.comhu.bidmonitor.externalnotice.persistence.ExternalNotice;
+import com.comhu.bidmonitor.externalnotice.persistence.ExternalNoticeAttachment;
+import com.comhu.bidmonitor.externalnotice.persistence.ExternalNoticeRepository;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
+import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.sql.Date;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.sql.Timestamp;
+import java.sql.Types;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+
+/** Spring JDBC로 공지 본문과 1:N 첨부파일을 하나의 트랜잭션에서 저장한다. */
+@Repository
+public class JdbcExternalNoticeRepository implements ExternalNoticeRepository {
+
+    private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {
+    };
+    private static final String NOTICE_COLUMNS = """
+            id, source_code, external_id, source_notice_id, title, published_date,
+            detail_url, body, pia_related, matched_keywords, classification_reason,
+            fingerprint, first_seen_at, last_seen_at
+            """;
+    private static final String INSERT_NOTICE_SQL = """
+            INSERT INTO external_notice (
+                source_code, external_id, source_notice_id, title, published_date,
+                detail_url, body, pia_related, matched_keywords, classification_reason,
+                fingerprint, first_seen_at, last_seen_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """;
+    private static final String INSERT_ATTACHMENT_SQL = """
+            INSERT INTO external_notice_attachment (
+                external_notice_id, attachment_order, file_name, file_url
+            ) VALUES (?, ?, ?, ?)
+            """;
+
+    private final JdbcTemplate jdbcTemplate;
+    private final ObjectMapper objectMapper;
+
+    public JdbcExternalNoticeRepository(JdbcTemplate jdbcTemplate) {
+        this.jdbcTemplate = jdbcTemplate;
+        // 프로젝트의 Jackson 2 의존성을 저장 형식이 단순한 문자열 배열 직렬화에만 한정해 사용한다.
+        this.objectMapper = new ObjectMapper();
+    }
+
+    /** 이번 단계의 save는 신규 저장만 담당하며 같은 externalId는 DB 유일성 제약으로 거부한다. */
+    @Override
+    @Transactional
+    public ExternalNotice save(ExternalNotice notice) {
+        Objects.requireNonNull(notice, "저장할 외부공지는 null일 수 없습니다.");
+
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        jdbcTemplate.update(connection -> {
+            PreparedStatement statement = connection.prepareStatement(
+                    INSERT_NOTICE_SQL,
+                    Statement.RETURN_GENERATED_KEYS
+            );
+            statement.setString(1, notice.getSourceCode());
+            statement.setString(2, notice.getExternalId());
+            statement.setString(3, notice.getSourceNoticeId());
+            statement.setString(4, notice.getTitle());
+            setDate(statement, 5, notice.getPublishedDate());
+            statement.setString(6, notice.getDetailUrl());
+            statement.setString(7, notice.getBody());
+            statement.setBoolean(8, notice.isPiaRelated());
+            statement.setString(9, serializeKeywords(notice.getMatchedKeywords()));
+            statement.setString(10, notice.getClassificationReason());
+            statement.setString(11, notice.getFingerprint());
+            setTimestamp(statement, 12, notice.getFirstSeenAt());
+            setTimestamp(statement, 13, notice.getLastSeenAt());
+            return statement;
+        }, keyHolder);
+
+        Long noticeId = keyHolder.getKeyAs(Long.class);
+        if (noticeId == null) {
+            throw new IllegalStateException("저장된 외부공지의 ID를 가져올 수 없습니다.");
+        }
+        saveAttachments(noticeId, notice.getAttachments());
+        return findByExternalId(notice.getExternalId())
+                .orElseThrow(() -> new IllegalStateException("저장한 외부공지를 다시 조회할 수 없습니다."));
+    }
+
+    @Override
+    public Optional<ExternalNotice> findByExternalId(String externalId) {
+        List<NoticeRow> rows = jdbcTemplate.query(
+                "SELECT " + NOTICE_COLUMNS + " FROM external_notice WHERE external_id = ?",
+                this::mapNoticeRow,
+                externalId
+        );
+        return rows.stream().findFirst().map(this::restoreNotice);
+    }
+
+    @Override
+    public List<ExternalNotice> findAll() {
+        return jdbcTemplate.query(
+                        "SELECT " + NOTICE_COLUMNS + " FROM external_notice ORDER BY id",
+                        this::mapNoticeRow
+                ).stream()
+                .map(this::restoreNotice)
+                .toList();
+    }
+
+    @Override
+    public boolean existsByExternalId(String externalId) {
+        Long count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM external_notice WHERE external_id = ?",
+                Long.class,
+                externalId
+        );
+        return count != null && count > 0;
+    }
+
+    private void saveAttachments(Long noticeId, List<ExternalNoticeAttachment> attachments) {
+        if (attachments == null) {
+            return;
+        }
+        for (int index = 0; index < attachments.size(); index++) {
+            ExternalNoticeAttachment attachment = attachments.get(index);
+            jdbcTemplate.update(
+                    INSERT_ATTACHMENT_SQL,
+                    noticeId,
+                    index,
+                    attachment.getFileName(),
+                    attachment.getFileUrl()
+            );
+        }
+    }
+
+    private NoticeRow mapNoticeRow(ResultSet resultSet, int rowNumber) throws SQLException {
+        Date publishedDate = resultSet.getDate("published_date");
+        return new NoticeRow(
+                resultSet.getLong("id"),
+                resultSet.getString("source_code"),
+                resultSet.getString("external_id"),
+                resultSet.getString("source_notice_id"),
+                resultSet.getString("title"),
+                publishedDate == null ? null : publishedDate.toLocalDate(),
+                resultSet.getString("detail_url"),
+                resultSet.getString("body"),
+                resultSet.getBoolean("pia_related"),
+                deserializeKeywords(resultSet.getString("matched_keywords")),
+                resultSet.getString("classification_reason"),
+                resultSet.getString("fingerprint"),
+                resultSet.getTimestamp("first_seen_at").toInstant(),
+                resultSet.getTimestamp("last_seen_at").toInstant()
+        );
+    }
+
+    private ExternalNotice restoreNotice(NoticeRow row) {
+        return ExternalNotice.builder()
+                .id(row.id())
+                .sourceCode(row.sourceCode())
+                .externalId(row.externalId())
+                .sourceNoticeId(row.sourceNoticeId())
+                .title(row.title())
+                .publishedDate(row.publishedDate())
+                .detailUrl(row.detailUrl())
+                .body(row.body())
+                .piaRelated(row.piaRelated())
+                .matchedKeywords(row.matchedKeywords())
+                .classificationReason(row.classificationReason())
+                .fingerprint(row.fingerprint())
+                .firstSeenAt(row.firstSeenAt())
+                .lastSeenAt(row.lastSeenAt())
+                .attachments(findAttachments(row.id()))
+                .build();
+    }
+
+    private List<ExternalNoticeAttachment> findAttachments(Long noticeId) {
+        return jdbcTemplate.query(
+                """
+                        SELECT id, external_notice_id, file_name, file_url
+                        FROM external_notice_attachment
+                        WHERE external_notice_id = ?
+                        ORDER BY attachment_order
+                        """,
+                (resultSet, rowNumber) -> ExternalNoticeAttachment.builder()
+                        .id(resultSet.getLong("id"))
+                        .externalNoticeId(resultSet.getLong("external_notice_id"))
+                        .fileName(resultSet.getString("file_name"))
+                        .fileUrl(resultSet.getString("file_url"))
+                        .build(),
+                noticeId
+        );
+    }
+
+    private String serializeKeywords(List<String> matchedKeywords) {
+        try {
+            return objectMapper.writeValueAsString(matchedKeywords == null ? List.of() : matchedKeywords);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("PIA 매칭 키워드를 JSON으로 변환할 수 없습니다.", e);
+        }
+    }
+
+    private List<String> deserializeKeywords(String value) throws SQLException {
+        try {
+            return objectMapper.readValue(value, STRING_LIST_TYPE);
+        } catch (JsonProcessingException e) {
+            throw new SQLException("저장된 PIA 매칭 키워드 JSON을 읽을 수 없습니다.", e);
+        }
+    }
+
+    private void setDate(PreparedStatement statement, int index, LocalDate value) throws SQLException {
+        if (value == null) {
+            statement.setNull(index, Types.DATE);
+        } else {
+            statement.setDate(index, Date.valueOf(value));
+        }
+    }
+
+    private void setTimestamp(PreparedStatement statement, int index, Instant value) throws SQLException {
+        if (value == null) {
+            statement.setNull(index, Types.TIMESTAMP);
+        } else {
+            statement.setTimestamp(index, Timestamp.from(value));
+        }
+    }
+
+    private record NoticeRow(
+            Long id,
+            String sourceCode,
+            String externalId,
+            String sourceNoticeId,
+            String title,
+            LocalDate publishedDate,
+            String detailUrl,
+            String body,
+            boolean piaRelated,
+            List<String> matchedKeywords,
+            String classificationReason,
+            String fingerprint,
+            Instant firstSeenAt,
+            Instant lastSeenAt
+    ) {
+    }
+}
