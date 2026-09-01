@@ -1201,3 +1201,139 @@ body.modal-open {
         gap: 8px;
     }
 }
+
+/* Biz Assist 목록에서는 즉시 판단할 핵심 필드만 일정한 밀도로 표시한다. */
+.search-main-controls {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    flex-wrap: wrap;
+}
+
+.search-main-controls .quick-search { margin-bottom: 0; }
+.search-main-controls .current-period { margin: 0 0 0 2px; color: #667085; font-size: 12px; }
+.license-code-manager { margin-top: 14px; padding-top: 14px; }
+.license-code-heading { margin-bottom: 7px; }
+.license-code-help { font-size: 12px; }
+.license-code-tags { min-height: 26px; margin-bottom: 7px; }
+.license-code-tag { padding: 3px 7px 3px 9px; font-size: 12px; }
+.license-code-form input { min-height: 34px; }
+
+.table-wrapper { max-width: 100%; overflow-x: auto; }
+table { min-width: 980px; table-layout: fixed; font-size: 13px; }
+th, td { padding: 11px 10px; vertical-align: middle; line-height: 1.4; }
+th:nth-child(1) { width: 10%; }
+th:nth-child(2) { width: 22%; }
+th:nth-child(3) { width: 12%; }
+th:nth-child(4) { width: 9%; }
+th:nth-child(5) { width: 11%; }
+th:nth-child(6) { width: 10%; }
+th:nth-child(7) { width: 8%; }
+th:nth-child(8) { width: 11%; }
+th:nth-child(9) { width: 7%; }
+td:nth-child(2), td:nth-child(9), td:nth-child(10) { min-width: 0; }
+
+.bid-cell-clamp {
+    display: -webkit-box;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+.bid-title-cell { color: #172033; font-weight: 750; }
+.bid-institution-cell { color: #475467; }
+.bid-budget-cell { color: #344054; font-weight: 750; white-space: nowrap; }
+.bid-deadline-date, .bid-deadline-time { display: block; white-space: nowrap; }
+.bid-deadline-time { margin-top: 2px; color: #667085; font-size: 12px; }
+.bid-method-cell, .bid-region-cell { color: #475467; overflow-wrap: anywhere; }
+.bid-check-cell { font-size: 0; }
+.bid-check-cell > * { margin: 2px 4px 2px 0; }
+.bid-check-badge,
+.bid-check-none { display: inline-block; padding: 3px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.bid-check-badge { border: 1px solid #d7dce3; background: #f8fafc; color: #566274; }
+.bid-check-none { padding-left: 0; color: #98a2b3; font-weight: 500; }
+.status { min-width: auto; padding: 3px 8px; border-radius: 999px; font-size: 11px; }
+.status-review { background: #e8f5ed; color: #28704a; }
+.status-check { background: #fff4d6; color: #8a5a12; }
+.status-excluded { background: #f1f3f5; color: #667085; }
+.external-check-status { padding: 3px 7px; border-radius: 999px; font-size: 11px; }
+.external-check-required { background: #fff1d6; color: #8a4b12; }
+.external-check-reference { background: #eef3f8; color: #52657a; }
+.bid-detail-button {
+    min-height: 32px;
+    padding: 5px 10px;
+    border: 1px solid #cfd5dd;
+    border-radius: 6px;
+    background: #fff;
+    color: #344054;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 750;
+    cursor: pointer;
+}
+.bid-detail-button:hover, .bid-detail-button:focus { border-color: #98a2b3; background: #f8fafc; }
+
+/* 기존 분석 기능을 빠른 판단형 입찰 상세 안에서 접어 제공한다. */
+.analysis-modal { display: flex; width: min(960px, 100%); align-self: center; flex-direction: column; }
+.analysis-modal-content { min-height: 0; padding: 0 26px 24px; }
+.bid-detail-hero { padding: 24px 0 20px; border-bottom: 1px solid #e4e7ec; }
+.bid-detail-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.bid-detail-title { margin: 0; color: #172033; font-size: 21px; line-height: 1.45; overflow-wrap: anywhere; }
+.bid-detail-identity { margin: 7px 0 0; color: #667085; font-size: 13px; }
+.bid-detail-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 17px; }
+.bid-detail-section { padding: 20px 0; border-bottom: 1px solid #e4e7ec; }
+.bid-detail-section-title,
+.bid-detail-section > .analysis-section-title { margin: 0 0 12px; color: #172033; font-size: 15px; }
+.bid-decision-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; overflow: hidden; border: 1px solid #e4e7ec; border-radius: 8px; background: #e4e7ec; }
+.bid-detail-field { min-width: 0; padding: 12px 14px; background: #fff; }
+.bid-detail-field-wide { grid-column: 1 / -1; }
+.bid-detail-label { display: block; margin-bottom: 5px; color: #667085; font-size: 11px; font-weight: 700; }
+.bid-detail-value { color: #344054; font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.bid-detail-facts .bid-detail-field { border-radius: 7px; background: #f7f8fa; }
+.bid-detail-facts .bid-detail-value { color: #172033; font-size: 14px; font-weight: 750; }
+.bid-detail-section .external-detail-box { padding: 13px 14px; border-color: #e4e7ec; background: #fafbfc; }
+.bid-detail-section .external-check-reason { color: #667085; }
+.bid-detail-section .external-link-list { flex-direction: row; flex-wrap: wrap; }
+.attachment-summary-section { margin-top: 0; padding: 20px 0; border-top: 0; border-bottom: 1px solid #e4e7ec; }
+.bid-analysis-disclosure { border: 1px solid #e4e7ec; border-radius: 8px; }
+.bid-analysis-disclosure > summary { display: flex; padding: 13px 14px; align-items: center; justify-content: space-between; gap: 14px; cursor: pointer; }
+.bid-analysis-summary-title { color: #344054; font-size: 13px; font-weight: 750; }
+.bid-analysis-summary-hint { color: #667085; font-size: 12px; }
+.bid-analysis-disclosure-content { padding: 0 14px 14px; }
+.bid-detail-actions { display: flex; justify-content: flex-end; padding-top: 20px; }
+.bid-source-link { display: inline-flex; min-height: 38px; padding: 8px 14px; align-items: center; border-radius: 6px; background: #2563eb; color: #fff; font-size: 13px; font-weight: 750; text-decoration: none; }
+.bid-source-link:hover, .bid-source-link:focus { background: #1d4ed8; }
+
+@media (max-width: 720px) {
+    .search-main-controls { align-items: stretch; flex-direction: column; gap: 14px; }
+    .quick-search { display: grid; grid-template-columns: auto repeat(3, 1fr); gap: 6px; }
+    .range-search { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 8px; }
+    .range-search .search-button, .range-search .current-period { grid-column: 1 / -1; }
+    .range-search .search-button { width: 100%; }
+    .license-code-help { display: none; }
+
+    .table-wrapper { overflow: visible; background: #f5f6f8; }
+    table, tbody { display: block; min-width: 0; width: 100%; }
+    thead { display: none; }
+    tbody { padding: 10px; }
+    tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; margin-bottom: 10px; padding: 14px; border: 1px solid #e1e5eb; border-radius: 9px; background: #fff; }
+    tbody tr:last-child { margin-bottom: 0; }
+    tbody tr:hover { background: #fff; }
+    tbody td { display: grid; min-width: 0; padding: 7px 0; grid-template-columns: 84px minmax(0, 1fr); gap: 8px; align-items: start; border: 0; }
+    tbody td::before { content: attr(data-label); color: #667085; font-size: 11px; font-weight: 700; }
+    .bid-status-cell, .bid-title-cell, .bid-institution-cell, .bid-check-cell, .bid-action-cell { grid-column: 1 / -1; }
+    .bid-title-cell { font-size: 15px; line-height: 1.5; }
+    .bid-check-cell { font-size: 0; }
+    .bid-action-cell { display: block; padding-top: 10px; border-top: 1px solid #eef0f3; }
+    .bid-action-cell::before { display: none; }
+    .bid-detail-button { width: 100%; }
+
+    .analysis-modal { max-height: calc(100vh - 20px); }
+    .analysis-modal-content { padding: 0 16px 18px; }
+    .bid-detail-title { font-size: 18px; }
+    .bid-detail-facts, .bid-decision-grid { grid-template-columns: 1fr; }
+    .bid-detail-field-wide { grid-column: auto; }
+    .bid-analysis-disclosure > summary { align-items: flex-start; flex-direction: column; gap: 3px; }
+    .bid-detail-actions { padding-top: 16px; }
+    .bid-source-link { width: 100%; justify-content: center; }
+}

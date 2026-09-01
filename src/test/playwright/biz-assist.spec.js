@@ -6,19 +6,31 @@ const screenshotDirectory = path.resolve("artifacts", "screenshots");
 
 const bidNotice = {
     bidNtceNo: "20260901001",
-    bidNtceNm: "정보시스템 감리 용역",
+    bidNtceNm: "2026년 통합정보시스템 구축 및 운영을 위한 정보시스템 감리 용역",
     ntceInsttNm: "테스트기관",
-    asignBdgtAmt: "120000000",
+    asignBdgtAmt: "166564000",
     bidClseDt: "2026-09-10 10:00",
     sucsfbidMthdNm: "적격심사",
-    licenseLimit: "정보시스템 감리",
+    licenseLimit: "정보시스템 감리법인 등록 및 전자입찰 참가자격을 모두 충족한 업체",
     participationRegion: "제한없음",
     reviewStatus: "추가확인필요",
-    reviewReason: "추가 확인이 필요한 테스트 공고",
-    externalCheckStatus: "NOT_DETECTED",
-    externalCheckReason: "외부참조 미탐지",
-    externalSiteUrls: [],
-    attachments: [],
+    reviewReason: "외부 제안서 제출 사이트와 첨부문서의 세부 참가자격을 함께 확인해야 합니다.",
+    externalCheckStatus: "REQUIRED",
+    externalCheckReason: "제안서 제출을 위해 외부사이트 확인이 필요합니다.",
+    externalSiteUrls: ["https://vendor.example.com/proposal"],
+    attachments: [{
+        fileName: "제안요청서.pdf",
+        fileUrl: "https://example.com/files/request.pdf",
+        documentType: "PDF",
+        documentAnalysis: {
+            analysisStatus: "ANALYZED",
+            qualificationRequirements: ["정보시스템 감리법인 등록"],
+            requiredDocuments: ["기술제안서", "사업수행실적 증명서"],
+            submissionMethods: ["외부사이트 온라인 제출"],
+            submissionDeadlines: ["2026-09-10 10:00까지"],
+            jointContractRequirements: []
+        }
+    }],
     bidNtceDtlUrl: "https://example.com/bids/20260901001"
 };
 
@@ -110,9 +122,47 @@ test("홈과 세 업무 메뉴가 Biz Assist 앱 셸에서 연결된다", async 
     await expect(page.getByRole("link", { name: "입찰공고", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(page.locator("#bid-list")).toContainText(bidNotice.bidNtceNm);
     await page.getByRole("button", { name: "최근 3일" }).click();
-    await expect(page.locator("#bid-list")).toContainText(bidNotice.reviewStatus);
+    const bidRow = page.locator("#bid-list tr");
+    await expect(bidRow).toHaveCount(1);
+    await expect(bidRow).toContainText(bidNotice.reviewStatus);
+    await expect(bidRow).toContainText("외부확인 필요");
+    await expect(bidRow).toContainText("1.67억");
+    await expect(bidRow).not.toContainText("vendor.example.com");
+    await expect(bidRow).not.toContainText(bidNotice.licenseLimit);
+    await expect(bidRow.locator(".bid-cell-clamp").first()).toHaveCSS("-webkit-line-clamp", "2");
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: path.join(screenshotDirectory, "biz-assist-bids.png"), fullPage: true });
+    await bidRow.screenshot({ path: path.join(screenshotDirectory, "biz-assist-bids-additional-check.png") });
+
+    await bidRow.getByRole("button", { name: "상세", exact: true }).click();
+    const bidModal = page.getByRole("dialog", { name: "입찰공고 상세" });
+    await expect(bidModal).toBeVisible();
+    await expect(bidModal).toContainText(bidNotice.licenseLimit);
+    await expect(bidModal).toContainText(bidNotice.reviewReason);
+    await expect(bidModal).toContainText("vendor.example.com");
+    await expect(bidModal).toContainText("166,564,000원");
+    await expect(bidModal.getByText("문서분석 보기")).toBeVisible();
+    const bidSourceLink = bidModal.getByRole("link", { name: "나라장터 원문 보기 ↗" });
+    await expect(bidSourceLink).toHaveAttribute("href", bidNotice.bidNtceDtlUrl);
+    await expect(bidSourceLink).toHaveAttribute("target", "_blank");
+    await expect(bidSourceLink).toHaveAttribute("rel", "noopener noreferrer");
+    const expandedModalStyle = await page.addStyleTag({ content: [
+        "#document-analysis-modal { position: absolute !important; align-items: flex-start !important; min-height: 100vh !important; overflow: visible !important; }",
+        ".analysis-modal { max-height: none !important; margin: 24px auto !important; align-self: flex-start !important; }",
+        ".analysis-modal-content { max-height: none !important; overflow: visible !important; }"
+    ].join("\n") });
+    await page.evaluate(() => {
+        window.scrollTo(0, 0);
+        document.querySelector(".analysis-modal").scrollTop = 0;
+        document.querySelector(".analysis-modal-content").scrollTop = 0;
+    });
+    await page.screenshot({
+        path: path.join(screenshotDirectory, "biz-assist-bid-detail.png"),
+        fullPage: true
+    });
+    await expandedModalStyle.evaluate((style) => style.remove());
+    await page.keyboard.press("Escape");
+    await expect(bidModal).toBeHidden();
 
     await page.getByRole("link", { name: "홈", exact: true }).click();
     await page.getByRole("link", { name: "외부 중요공지", exact: true }).click();
@@ -182,6 +232,13 @@ test("390px 모바일 앱 셸에 가로 넘침이 없다", async ({ page }) => {
     await expect(page.locator(".app-nav-link")).toHaveCount(3);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
     await page.screenshot({ path: path.join(screenshotDirectory, "biz-assist-mobile.png"), fullPage: true });
+
+    await page.getByRole("link", { name: "입찰공고", exact: true }).click();
+    const mobileBidRow = page.locator("#bid-list tr");
+    await expect(mobileBidRow).toHaveCount(1);
+    await expect(mobileBidRow.getByRole("button", { name: "상세", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+    await page.screenshot({ path: path.join(screenshotDirectory, "biz-assist-bids-mobile.png"), fullPage: true });
 
     await page.getByRole("link", { name: "외부 중요공지", exact: true }).click();
     await expect(page.locator(".notice-item")).toHaveCount(1);

@@ -17,6 +17,7 @@ const licenseCodeMessage = document.getElementById("license-code-message");
 const analysisModal = document.getElementById("document-analysis-modal");
 const analysisModalContent = document.getElementById("analysis-modal-content");
 const analysisModalClose = document.getElementById("analysis-modal-close");
+const analysisModalTitle = document.getElementById("document-analysis-title");
 
 const LICENSE_STORAGE_KEY = "bidAllowedLicenseCodes";
 const DEFAULT_LICENSE_CODES = ["6146", "1468"];
@@ -134,6 +135,24 @@ function formatAmount(amount) {
     return Number.isFinite(numericAmount) ? `${numericAmount.toLocaleString("ko-KR")}원` : amount;
 }
 
+/** 목록에서 금액의 규모를 빠르게 읽을 수 있도록 억/만 단위로만 축약한다. */
+function formatCompactAmount(amount) {
+    if (amount === null || amount === undefined || amount === "") {
+        return "-";
+    }
+    const numericAmount = Number(String(amount).replaceAll(",", ""));
+    if (!Number.isFinite(numericAmount)) {
+        return amount;
+    }
+    if (Math.abs(numericAmount) >= 100_000_000) {
+        return `${(numericAmount / 100_000_000).toFixed(2).replace(/\.?0+$/, "")}억`;
+    }
+    if (Math.abs(numericAmount) >= 10_000) {
+        return `${Math.round(numericAmount / 10_000).toLocaleString("ko-KR")}만`;
+    }
+    return numericAmount.toLocaleString("ko-KR");
+}
+
 /**
  * 빈 값도 화면에서 일관되게 표시하도록 처리한다.
  */
@@ -154,9 +173,36 @@ function getStatusClass(status) {
     return "status-check";
 }
 
-function createCell(value) {
+function createCell(value, label, className = "") {
     const cell = document.createElement("td");
+    cell.dataset.label = label;
+    if (className) {
+        cell.className = className;
+    }
     cell.textContent = displayValue(value);
+    return cell;
+}
+
+function createClampedCell(value, label, className) {
+    const cell = document.createElement("td");
+    cell.dataset.label = label;
+    cell.className = className;
+    appendTextElement(cell, "span", "bid-cell-clamp", displayValue(value));
+    return cell;
+}
+
+/** 목록에서는 마감 날짜와 분 단위 시간을 두 줄로 분리한다. */
+function createDeadlineCell(value) {
+    const cell = document.createElement("td");
+    cell.className = "bid-deadline-cell";
+    cell.dataset.label = "입찰마감";
+    const match = String(value || "").match(/^(\d{4}-\d{2}-\d{2})[T\s]+(\d{2}:\d{2})/);
+    if (!match) {
+        cell.textContent = displayValue(value);
+        return cell;
+    }
+    appendTextElement(cell, "span", "bid-deadline-date", match[1]);
+    appendTextElement(cell, "span", "bid-deadline-time", match[2]);
     return cell;
 }
 
@@ -680,77 +726,127 @@ function appendAttachmentDetails(parent, attachments) {
     parent.appendChild(section);
 }
 
-/** 선택한 공고의 첨부문서 분석 결과를 비우고 새로 구성해 모달을 연다. */
+function appendBidDetailField(parent, label, value, wide = false) {
+    const field = document.createElement("div");
+    field.className = `bid-detail-field${wide ? " bid-detail-field-wide" : ""}`;
+    appendTextElement(field, "span", "bid-detail-label", label);
+    appendTextElement(field, "span", "bid-detail-value", displayValue(value));
+    parent.appendChild(field);
+}
+
+/** 목록에서 생략한 정확한 기본 정보와 판단 상태를 상세 상단에 모은다. */
+function appendBidDetailOverview(parent, bid) {
+    const hero = document.createElement("section");
+    hero.className = "bid-detail-hero";
+
+    const badges = document.createElement("div");
+    badges.className = "bid-detail-badges";
+    const reviewBadge = appendTextElement(badges, "span", "status", displayValue(bid.reviewStatus));
+    reviewBadge.classList.add(getStatusClass(bid.reviewStatus));
+    if ((bid.externalCheckStatus || "UNKNOWN") === "REQUIRED") {
+        appendTextElement(badges, "span", "external-check-status external-check-required", "외부확인 필요");
+    }
+    hero.appendChild(badges);
+
+    appendTextElement(hero, "h3", "bid-detail-title", displayValue(bid.bidNtceNm));
+    appendTextElement(
+        hero,
+        "p",
+        "bid-detail-identity",
+        `${displayValue(bid.ntceInsttNm)} · 공고번호 ${displayValue(bid.bidNtceNo)}`
+    );
+
+    const facts = document.createElement("div");
+    facts.className = "bid-detail-facts";
+    appendBidDetailField(facts, "입찰마감", bid.bidClseDt);
+    appendBidDetailField(facts, "배정예산", formatAmount(bid.asignBdgtAmt));
+    hero.appendChild(facts);
+    parent.appendChild(hero);
+}
+
+/** 목록에서 제거한 면허조건과 전체 판정사유를 상세의 판정 영역에 표시한다. */
+function appendBidDecisionDetail(parent, bid) {
+    const section = document.createElement("section");
+    section.className = "bid-detail-section";
+    appendTextElement(section, "h3", "bid-detail-section-title", "판정 정보");
+    const grid = document.createElement("div");
+    grid.className = "bid-decision-grid";
+    appendBidDetailField(grid, "낙찰방법", bid.sucsfbidMthdNm);
+    appendBidDetailField(grid, "지역제한", bid.participationRegion);
+    appendBidDetailField(grid, "면허조건", bid.licenseLimit, true);
+    appendBidDetailField(grid, "판정사유", bid.reviewReason, true);
+    section.appendChild(grid);
+    parent.appendChild(section);
+}
+
+/** 기존 문서분석 결과는 상세 안에서 필요할 때만 펼치도록 구성한다. */
+function appendDocumentAnalysisDisclosure(parent, attachments, merged) {
+    const section = document.createElement("section");
+    section.className = "bid-detail-section bid-document-analysis";
+    if (!hasDocumentAnalysis(attachments)) {
+        appendTextElement(section, "h3", "bid-detail-section-title", "문서분석");
+        appendTextElement(section, "p", "analysis-empty-text", "분석 가능한 자료가 없거나 아직 분석되지 않았습니다.");
+        parent.appendChild(section);
+        return;
+    }
+
+    const details = document.createElement("details");
+    details.className = "bid-analysis-disclosure";
+    const summary = document.createElement("summary");
+    appendTextElement(summary, "span", "bid-analysis-summary-title", "문서분석 보기");
+    appendTextElement(summary, "span", "bid-analysis-summary-hint", "제출서류·참가자격·제출방법 확인");
+    details.appendChild(summary);
+
+    const content = document.createElement("div");
+    content.className = "bid-analysis-disclosure-content";
+    const priorityGrid = document.createElement("div");
+    priorityGrid.className = "analysis-priority-grid analysis-priority-grid-compact";
+    priorityGrid.appendChild(createAnalysisResultSection("제출기한", merged.submissionDeadlines, {variant: "deadline", compact: true}));
+    priorityGrid.appendChild(createAnalysisResultSection("제출방법", merged.submissionMethods, {variant: "method", compact: true}));
+    content.appendChild(priorityGrid);
+    content.appendChild(createAnalysisResultSection("제출서류", merged.requiredDocuments, {
+        checklist: true, variant: "documents", previewLimit: 6, toggleText: `전체 ${merged.requiredDocuments.length}건 보기`
+    }));
+    content.appendChild(createAnalysisResultSection("참가자격", merged.qualificationRequirements, {
+        previewLimit: 4, toggleText: `전체 ${merged.qualificationRequirements.length}건 보기`
+    }));
+    content.appendChild(createAnalysisResultSection("공동수급 조건", merged.jointContractRequirements, {
+        previewLimit: 0, startCollapsed: true, headingToggle: true
+    }));
+    details.appendChild(content);
+    section.appendChild(details);
+    parent.appendChild(section);
+}
+
+function appendBidDetailActions(parent, bid) {
+    const actions = document.createElement("div");
+    actions.className = "bid-detail-actions";
+    const sourceLink = createSafeLink(bid.bidNtceDtlUrl, "나라장터 원문 보기 ↗", "bid-source-link");
+    if (sourceLink) {
+        actions.appendChild(sourceLink);
+    } else {
+        appendTextElement(actions, "span", "analysis-empty-text", "나라장터 원문 링크가 없습니다.");
+    }
+    parent.appendChild(actions);
+}
+
+/** 선택한 공고의 판단 정보와 기존 문서분석 결과를 비우고 새로 구성해 모달을 연다. */
 function openDocumentAnalysisModal(bid, triggerButton) {
     lastAnalysisTrigger = triggerButton;
     analysisModalContent.replaceChildren();
-
-    const identity = document.createElement("div");
-    identity.className = "practical-bid-identity";
-    appendTextElement(identity, "strong", "practical-bid-name", displayValue(bid.bidNtceNm));
-    appendTextElement(
-        identity,
-        "span",
-        "practical-bid-meta",
-        `${displayValue(bid.bidNtceNo)} · ${displayValue(bid.ntceInsttNm)}`
-    );
-    analysisModalContent.appendChild(identity);
+    analysisModalTitle.textContent = "입찰공고 상세";
 
     const attachments = Array.isArray(bid.attachments) ? bid.attachments : [];
     const merged = mergeDocumentAnalysis(attachments);
-    appendPracticalSummary(analysisModalContent, bid, merged);
-
-    const priorityGrid = document.createElement("div");
-    priorityGrid.className = "analysis-priority-grid analysis-priority-grid-compact";
-    priorityGrid.appendChild(createAnalysisResultSection(
-        "제출기한",
-        merged.submissionDeadlines,
-        {variant: "deadline", compact: true}
-    ));
-    priorityGrid.appendChild(createAnalysisResultSection(
-        "제출방법",
-        merged.submissionMethods,
-        {variant: "method", compact: true}
-    ));
-    analysisModalContent.appendChild(priorityGrid);
-
-    analysisModalContent.appendChild(createAnalysisResultSection(
-        "제출서류",
-        merged.requiredDocuments,
-        {
-            checklist: true,
-            variant: "documents",
-            previewLimit: 6,
-            toggleText: `전체 ${merged.requiredDocuments.length}건 보기`
-        }
-    ));
-
-    analysisModalContent.appendChild(createAnalysisResultSection(
-        "참가자격",
-        merged.qualificationRequirements,
-        {
-            previewLimit: 4,
-            toggleText: `전체 ${merged.qualificationRequirements.length}건 보기`
-        }
-    ));
-    analysisModalContent.appendChild(createAnalysisResultSection(
-        "공동수급 조건",
-        merged.jointContractRequirements,
-        {
-            previewLimit: 0,
-            startCollapsed: true,
-            headingToggle: true
-        }
-    ));
-
+    appendBidDetailOverview(analysisModalContent, bid);
+    appendBidDecisionDetail(analysisModalContent, bid);
+    const externalSection = document.createElement("section");
+    externalSection.className = "bid-detail-section";
+    appendExternalCheckDetail(externalSection, bid);
+    analysisModalContent.appendChild(externalSection);
     appendAttachmentDetails(analysisModalContent, attachments);
-
-    appendTextElement(
-        analysisModalContent,
-        "p",
-        "analysis-notice analysis-notice-bottom",
-        "자동 추출 결과이므로 최종 제출 및 참가 여부는 원문 공고를 확인해 주세요."
-    );
+    appendDocumentAnalysisDisclosure(analysisModalContent, attachments, merged);
+    appendBidDetailActions(analysisModalContent, bid);
 
     analysisModal.classList.remove("hidden");
     document.body.classList.add("modal-open");
@@ -762,6 +858,7 @@ function closeDocumentAnalysisModal() {
     analysisModal.classList.add("hidden");
     document.body.classList.remove("modal-open");
     analysisModalContent.replaceChildren();
+    analysisModalTitle.textContent = "입찰공고 상세";
     if (lastAnalysisTrigger) {
         lastAnalysisTrigger.focus();
         lastAnalysisTrigger = null;
@@ -774,6 +871,8 @@ function closeDocumentAnalysisModal() {
 function createBidRow(bid) {
     const row = document.createElement("tr");
     const statusCell = document.createElement("td");
+    statusCell.className = "bid-status-cell";
+    statusCell.dataset.label = "검토상태";
     const status = document.createElement("span");
 
     status.className = `status ${getStatusClass(bid.reviewStatus)}`;
@@ -781,43 +880,42 @@ function createBidRow(bid) {
     statusCell.appendChild(status);
     row.appendChild(statusCell);
 
-    row.appendChild(createCell(bid.bidNtceNm));
-    row.appendChild(createCell(bid.ntceInsttNm));
-    row.appendChild(createCell(formatAmount(bid.asignBdgtAmt)));
-    row.appendChild(createCell(bid.bidClseDt));
-    row.appendChild(createCell(bid.sucsfbidMthdNm));
-    row.appendChild(createCell(bid.licenseLimit));
-    row.appendChild(createCell(bid.participationRegion));
-    row.appendChild(createCell(bid.reviewReason));
-    row.appendChild(createExternalCheckCell(bid));
+    row.appendChild(createClampedCell(bid.bidNtceNm, "공고명", "bid-title-cell"));
+    row.appendChild(createClampedCell(bid.ntceInsttNm, "공고기관", "bid-institution-cell"));
+    const budgetCell = createCell(formatCompactAmount(bid.asignBdgtAmt), "배정예산", "bid-budget-cell");
+    budgetCell.title = formatAmount(bid.asignBdgtAmt);
+    row.appendChild(budgetCell);
+    row.appendChild(createDeadlineCell(bid.bidClseDt));
+    row.appendChild(createCell(bid.sucsfbidMthdNm, "낙찰방법", "bid-method-cell"));
+    row.appendChild(createCell(bid.participationRegion, "지역제한", "bid-region-cell"));
 
-    const analysisCell = document.createElement("td");
-    const analysisButton = document.createElement("button");
-    const analysisAvailable = hasDocumentAnalysis(bid.attachments);
-    analysisButton.type = "button";
-    analysisButton.className = "analysis-detail-button";
-    analysisButton.disabled = !analysisAvailable;
-    analysisButton.textContent = analysisAvailable ? "분석내용 보기" : "분석자료 없음";
-    if (!analysisAvailable) {
-        analysisButton.title = "분석 가능한 첨부가 없거나 문서 분석이 아직 완료되지 않았습니다.";
-    } else {
-        analysisButton.addEventListener("click", () => openDocumentAnalysisModal(bid, analysisButton));
+    const checkCell = document.createElement("td");
+    checkCell.className = "bid-check-cell";
+    checkCell.dataset.label = "확인사항";
+    const externalStatus = bid.externalCheckStatus || "UNKNOWN";
+    if (externalStatus === "REQUIRED") {
+        appendTextElement(checkCell, "span", "external-check-status external-check-required", "외부확인 필요");
+    } else if (externalStatus === "REFERENCE") {
+        appendTextElement(checkCell, "span", "external-check-status external-check-reference", "참고사이트");
     }
-    analysisCell.appendChild(analysisButton);
-    row.appendChild(analysisCell);
+    const analysisAvailable = hasDocumentAnalysis(bid.attachments);
+    if (analysisAvailable) {
+        appendTextElement(checkCell, "span", "bid-check-badge", "문서분석 있음");
+    }
+    if (checkCell.childElementCount === 0) {
+        appendTextElement(checkCell, "span", "bid-check-none", "특이사항 없음");
+    }
+    row.appendChild(checkCell);
 
     const detailCell = document.createElement("td");
-    if (bid.bidNtceDtlUrl) {
-        const detailLink = document.createElement("a");
-        detailLink.href = bid.bidNtceDtlUrl;
-        detailLink.target = "_blank";
-        detailLink.rel = "noopener noreferrer";
-        detailLink.className = "detail-link";
-        detailLink.textContent = "나라장터 보기";
-        detailCell.appendChild(detailLink);
-    } else {
-        detailCell.textContent = "-";
-    }
+    detailCell.className = "bid-action-cell";
+    detailCell.dataset.label = "상세";
+    const detailButton = document.createElement("button");
+    detailButton.type = "button";
+    detailButton.className = "bid-detail-button";
+    detailButton.textContent = "상세";
+    detailButton.addEventListener("click", () => openDocumentAnalysisModal(bid, detailButton));
+    detailCell.appendChild(detailButton);
     row.appendChild(detailCell);
 
     return row;

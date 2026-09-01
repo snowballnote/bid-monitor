@@ -30,18 +30,20 @@
             </header>
             <section class="notice-board surface-card" aria-label="감리 입찰공고 목록">
                 <div class="search-area">
-                    <div class="quick-search" aria-label="빠른 기간 조회">
-                        <span class="search-label">빠른 조회</span>
-                        <button type="button" class="quick-button" data-days="1">오늘</button>
-                        <button type="button" class="quick-button" data-days="3">최근 3일</button>
-                        <button type="button" class="quick-button" data-days="7">최근 7일</button>
+                    <div class="search-main-controls">
+                        <div class="quick-search" aria-label="빠른 기간 조회">
+                            <span class="search-label">빠른 조회</span>
+                            <button type="button" class="quick-button" data-days="1">오늘</button>
+                            <button type="button" class="quick-button" data-days="3">최근 3일</button>
+                            <button type="button" class="quick-button" data-days="7">최근 7일</button>
+                        </div>
+                        <form id="range-search-form" class="range-search">
+                            <label for="start-date">시작일</label><input type="date" id="start-date" name="startDate">
+                            <label for="end-date">종료일</label><input type="date" id="end-date" name="endDate">
+                            <button type="submit" class="search-button">조회</button>
+                            <p id="current-period" class="current-period" aria-live="polite"></p>
+                        </form>
                     </div>
-                    <form id="range-search-form" class="range-search">
-                        <label for="start-date">시작일</label><input type="date" id="start-date" name="startDate">
-                        <label for="end-date">종료일</label><input type="date" id="end-date" name="endDate">
-                        <button type="submit" class="search-button">조회</button>
-                        <p id="current-period" class="current-period" aria-live="polite"></p>
-                    </form>
                     <p id="validation-message" class="validation-message hidden" role="alert"></p>
                     <div class="license-code-manager" aria-labelledby="license-code-title">
                         <div class="license-code-heading">
@@ -64,9 +66,8 @@
                 <div id="table-wrapper" class="table-wrapper hidden">
                     <table>
                         <thead><tr>
-                            <th>검토상태</th><th>공고명</th><th>공고기관</th><th>배정예산</th><th>입찰마감일시</th>
-                            <th>낙찰방법</th><th>면허조건</th><th>지역제한</th><th>판정사유</th><th>외부확인</th>
-                            <th>문서분석</th><th>상세보기</th>
+                            <th>검토상태</th><th>공고명</th><th>공고기관</th><th>배정예산</th><th>입찰마감</th>
+                            <th>낙찰방법</th><th>지역제한</th><th>확인사항</th><th>상세</th>
                         </tr></thead>
                         <tbody id="bid-list"></tbody>
                     </table>
@@ -79,8 +80,8 @@
      aria-labelledby="document-analysis-title">
     <div class="analysis-modal service-modal">
         <div class="analysis-modal-header service-modal-header">
-            <div><span class="analysis-modal-eyebrow">입찰 검토 지원</span><h2 id="document-analysis-title">문서 분석 상세보기</h2></div>
-            <button id="analysis-modal-close" type="button" class="modal-close-button" aria-label="분석내용 상세보기 닫기">×</button>
+            <div><span class="analysis-modal-eyebrow">입찰 검토 지원</span><h2 id="document-analysis-title">입찰공고 상세</h2></div>
+            <button id="analysis-modal-close" type="button" class="modal-close-button" aria-label="입찰공고 상세 닫기">×</button>
         </div>
         <div id="analysis-modal-content" class="analysis-modal-content"></div>
     </div>
