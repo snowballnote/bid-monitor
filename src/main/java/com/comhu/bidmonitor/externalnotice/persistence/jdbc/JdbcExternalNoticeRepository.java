@@ -113,10 +113,43 @@ public class JdbcExternalNoticeRepository implements ExternalNoticeRepository {
     }
 
     @Override
+    public Optional<ExternalNotice> findById(Long id) {
+        List<NoticeRow> rows = jdbcTemplate.query(
+                "SELECT " + NOTICE_COLUMNS + " FROM external_notice WHERE id = ?",
+                this::mapNoticeRow,
+                id
+        );
+        return rows.stream().findFirst().map(this::restoreNotice);
+    }
+
+    @Override
     public List<ExternalNotice> findAll() {
         return jdbcTemplate.query(
                         "SELECT " + NOTICE_COLUMNS + " FROM external_notice ORDER BY id",
                         this::mapNoticeRow
+                ).stream()
+                .map(this::restoreNotice)
+                .toList();
+    }
+
+    @Override
+    public List<ExternalNotice> findAllLatestFirst() {
+        return findAllWithSql("""
+                SELECT %s FROM external_notice
+                ORDER BY published_date DESC NULLS LAST, id DESC
+                """.formatted(NOTICE_COLUMNS));
+    }
+
+    @Override
+    public List<ExternalNotice> findAllByPiaRelatedLatestFirst(boolean piaRelated) {
+        return jdbcTemplate.query(
+                        """
+                                SELECT %s FROM external_notice
+                                WHERE pia_related = ?
+                                ORDER BY published_date DESC NULLS LAST, id DESC
+                                """.formatted(NOTICE_COLUMNS),
+                        this::mapNoticeRow,
+                        piaRelated
                 ).stream()
                 .map(this::restoreNotice)
                 .toList();
@@ -192,6 +225,12 @@ public class JdbcExternalNoticeRepository implements ExternalNoticeRepository {
                     attachment.getFileUrl()
             );
         }
+    }
+
+    private List<ExternalNotice> findAllWithSql(String sql) {
+        return jdbcTemplate.query(sql, this::mapNoticeRow).stream()
+                .map(this::restoreNotice)
+                .toList();
     }
 
     private NoticeRow mapNoticeRow(ResultSet resultSet, int rowNumber) throws SQLException {

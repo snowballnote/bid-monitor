@@ -11,7 +11,13 @@ public interface ExternalNoticeRepository {
 
     Optional<ExternalNotice> findByExternalId(String externalId);
 
+    Optional<ExternalNotice> findById(Long id);
+
     List<ExternalNotice> findAll();
+
+    List<ExternalNotice> findAllLatestFirst();
+
+    List<ExternalNotice> findAllByPiaRelatedLatestFirst(boolean piaRelated);
 
     boolean existsByExternalId(String externalId);
 
