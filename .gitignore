@@ -32,3 +32,10 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Frontend browser tests ###
+node_modules/
+.npm-cache/
+test-results/
+playwright-report/
+artifacts/

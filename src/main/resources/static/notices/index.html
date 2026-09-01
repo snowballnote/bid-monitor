@@ -3,64 +3,90 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>외부 중요공지</title>
-    <link rel="stylesheet" href="notices.css">
+    <title>외부 중요공지 | Biz Assist</title>
+    <link rel="stylesheet" href="/common.css">
+    <link rel="stylesheet" href="/notices/notices.css">
 </head>
 <body>
-<main class="page-container">
-    <header class="page-header">
-        <div>
-            <a class="back-link" href="/">입찰공고 화면으로</a>
-            <h1>외부 중요공지</h1>
-            <p>개인정보 포털의 PIA 관련 공지를 확인합니다.</p>
+<div class="app-shell">
+    <aside class="app-sidebar">
+        <a class="app-brand" href="/" aria-label="Biz Assist 홈">
+            <span class="app-brand-mark" aria-hidden="true">BA</span>
+            <span><strong>Biz Assist</strong><small>경영지원 업무지원</small></span>
+        </a>
+        <nav class="app-nav" aria-label="주요 메뉴">
+            <a class="app-nav-link" href="/">홈</a>
+            <a class="app-nav-link" href="/bids/">입찰공고</a>
+            <a class="app-nav-link active" href="/notices/" aria-current="page">외부 중요공지</a>
+        </nav>
+        <p class="app-sidebar-description">경영지원에 필요한 정보를 한곳에서 확인하세요.</p>
+    </aside>
+
+    <main class="app-main">
+        <div class="page-container">
+            <header class="page-header page-heading page-heading-actions">
+                <div>
+                    <span class="page-eyebrow">EXTERNAL NOTICE</span>
+                    <h1>외부 중요공지</h1>
+                    <p>놓치면 안 되는 외부기관 공지를 확인합니다.</p>
+                </div>
+                <button id="collect-button" class="ui-button ui-button-secondary" type="button">↻ 지금 수집</button>
+            </header>
+
+            <section class="notice-summary-strip" aria-label="외부공지 현황">
+                <div class="notice-summary-item"><span>PIA 관련 공지</span><strong id="notice-pia-count">-</strong></div>
+                <div class="notice-summary-item"><span>마지막 확인 시각</span><strong id="notice-last-checked">-</strong></div>
+            </section>
+
+            <section class="notice-board surface-card" aria-labelledby="notice-list-title">
+                <div class="toolbar">
+                    <div>
+                        <h2 id="notice-list-title">공지 목록</h2>
+                        <p><span id="notice-count">0건</span> · <span id="filter-description">PIA 관련 공지만 표시하고 있습니다.</span></p>
+                    </div>
+                    <div class="filter-control">
+                        <span class="filter-label">보기 설정</span>
+                        <div class="filter-buttons" role="group" aria-label="공지 필터">
+                            <button id="all-filter-button" class="filter-button" type="button" aria-pressed="false">전체 공지</button>
+                            <button id="pia-filter-button" class="filter-button active" type="button" aria-pressed="true">PIA 관련 공지만</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="collection-message" class="collection-message hidden" role="status" aria-live="polite"></div>
+                <div id="loading-message" class="state-message" role="status">공지 목록을 불러오는 중입니다.</div>
+                <div id="empty-message" class="state-message hidden">
+                    <strong>표시할 공지가 없습니다.</strong>
+                    <span>필터를 바꾸거나 지금 수집을 실행해 최신 공지를 확인해 주세요.</span>
+                </div>
+                <div id="error-message" class="state-message error hidden" role="alert"></div>
+                <div id="notice-list" class="notice-list hidden" aria-live="polite"></div>
+            </section>
         </div>
-        <button id="collect-button" class="primary-button" type="button">공지 새로 수집</button>
-    </header>
+    </main>
+</div>
 
-    <section class="notice-board" aria-labelledby="notice-list-title">
-        <div class="toolbar">
-            <div>
-                <h2 id="notice-list-title">공지 목록</h2>
-                <p id="filter-description">PIA 관련 공지만 표시하고 있습니다.</p>
-            </div>
-            <div class="filter-buttons" role="group" aria-label="공지 필터">
-                <button id="all-filter-button" class="filter-button" type="button" aria-pressed="false">
-                    전체 공지
-                </button>
-                <button id="pia-filter-button" class="filter-button active" type="button" aria-pressed="true">
-                    PIA 관련 공지만
-                </button>
-            </div>
-        </div>
-
-        <div id="collection-message" class="collection-message hidden" role="status" aria-live="polite"></div>
-        <div id="loading-message" class="state-message" role="status">공지 목록을 불러오는 중입니다.</div>
-        <div id="empty-message" class="state-message hidden">
-            <strong>표시할 공지가 없습니다.</strong>
-            <span>공지 새로 수집 버튼을 눌러 개인정보 포털의 최신 공지를 확인해 주세요.</span>
-        </div>
-        <div id="error-message" class="state-message error hidden" role="alert"></div>
-
-        <div id="notice-list" class="notice-list hidden" aria-live="polite"></div>
-    </section>
-</main>
-
-<div id="notice-modal" class="modal-overlay hidden" role="dialog" aria-modal="true"
-     aria-labelledby="notice-detail-title">
-    <article class="notice-modal">
-        <header class="modal-header">
-            <div>
-                <span class="modal-eyebrow">개인정보 포털 공지</span>
+<div id="notice-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-hidden="true"
+     aria-labelledby="notice-detail-title" aria-describedby="notice-detail">
+    <article class="notice-modal service-modal">
+        <header class="modal-header service-modal-header">
+            <div class="modal-heading-content">
+                <div id="modal-status" class="modal-status"></div>
                 <h2 id="notice-detail-title">공지 상세</h2>
+                <p id="modal-publication-meta" class="modal-publication-meta">개인정보 포털</p>
+                <div id="modal-keywords" class="modal-keywords"></div>
             </div>
             <button id="modal-close-button" class="modal-close-button" type="button" aria-label="공지 상세 닫기">×</button>
         </header>
         <div id="modal-loading" class="state-message">공지 상세를 불러오는 중입니다.</div>
         <div id="modal-error" class="state-message error hidden" role="alert"></div>
-        <div id="notice-detail" class="notice-detail hidden"></div>
+        <div id="notice-detail" class="notice-detail hidden">
+            <div id="notice-scroll-body" class="notice-scroll-body"></div>
+            <footer id="notice-actions" class="notice-actions"></footer>
+        </div>
     </article>
 </div>
 
-<script src="notices.js"></script>
+<script src="/notices/notices.js"></script>
 </body>
 </html>

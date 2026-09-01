@@ -28,6 +28,25 @@ class ExternalNoticePageTests {
     private MockMvc mockMvc;
 
     @Test
+    void servesBizAssistHomeAndSharedAppShell() throws Exception {
+        mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andExpect(forwardedUrl("index.html"));
+
+        mockMvc.perform(get("/index.html"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Biz Assist")))
+                .andExpect(content().string(containsString("href=\"/bids/\"")))
+                .andExpect(content().string(containsString("href=\"/notices/\"")))
+                .andExpect(content().string(containsString("home.js")));
+
+        mockMvc.perform(get("/common.css"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString(".app-sidebar")))
+                .andExpect(content().string(containsString(".app-nav-link.active")));
+    }
+
+    @Test
     void servesExternalNoticePageWithSeparatedAssetsAndControls() throws Exception {
         mockMvc.perform(get("/notices/"))
                 .andExpect(status().isOk())
@@ -39,6 +58,7 @@ class ExternalNoticePageTests {
                 .andExpect(content().string(containsString("id=\"pia-filter-button\"")))
                 .andExpect(content().string(containsString("id=\"notice-modal\"")))
                 .andExpect(content().string(containsString("notices.css")))
+                .andExpect(content().string(containsString("/common.css")))
                 .andExpect(content().string(containsString("notices.js")));
 
         mockMvc.perform(get("/notices/notices.css"))
@@ -53,15 +73,17 @@ class ExternalNoticePageTests {
     }
 
     @Test
-    void keepsExistingBidPageAvailable() throws Exception {
-        mockMvc.perform(get("/"))
+    void keepsExistingBidFeaturesAvailableAtDedicatedPath() throws Exception {
+        mockMvc.perform(get("/bids/"))
                 .andExpect(status().isOk())
-                .andExpect(forwardedUrl("index.html"));
+                .andExpect(forwardedUrl("/bids/index.html"));
 
-        mockMvc.perform(get("/index.html"))
+        mockMvc.perform(get("/bids/index.html"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("app.js")))
                 .andExpect(content().string(containsString("style.css")))
-                .andExpect(content().string(containsString("href=\"/notices/\"")));
+                .andExpect(content().string(containsString("common.css")))
+                .andExpect(content().string(containsString("id=\"range-search-form\"")))
+                .andExpect(content().string(containsString("id=\"bid-list\"")));
     }
 }

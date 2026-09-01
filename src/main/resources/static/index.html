@@ -3,104 +3,75 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>오늘의 감리 입찰공고</title>
-    <link rel="stylesheet" href="style.css">
+    <title>Biz Assist</title>
+    <link rel="stylesheet" href="/common.css">
+    <link rel="stylesheet" href="/home.css">
 </head>
 <body>
-<main class="page-container">
-    <header class="page-header">
-        <h1>오늘의 감리 입찰공고</h1>
-        <p>자동 판정된 대상 공고의 참가조건을 확인합니다.</p>
-        <a class="external-notice-nav-link" href="/notices/">외부 중요공지 보기</a>
-    </header>
+<div class="app-shell">
+    <aside class="app-sidebar">
+        <a class="app-brand" href="/" aria-label="Biz Assist 홈">
+            <span class="app-brand-mark" aria-hidden="true">BA</span>
+            <span><strong>Biz Assist</strong><small>경영지원 업무지원</small></span>
+        </a>
+        <nav class="app-nav" aria-label="주요 메뉴">
+            <a class="app-nav-link active" href="/" aria-current="page">홈</a>
+            <a class="app-nav-link" href="/bids/">입찰공고</a>
+            <a class="app-nav-link" href="/notices/">외부 중요공지</a>
+        </nav>
+        <p class="app-sidebar-description">경영지원에 필요한 정보를 한곳에서 확인하세요.</p>
+    </aside>
 
-    <section class="notice-board" aria-label="감리 입찰공고 목록">
-        <div class="search-area">
-            <div class="quick-search" aria-label="빠른 기간 조회">
-                <span class="search-label">빠른 조회</span>
-                <button type="button" class="quick-button" data-days="1">오늘</button>
-                <button type="button" class="quick-button" data-days="3">최근 3일</button>
-                <button type="button" class="quick-button" data-days="7">최근 7일</button>
-            </div>
+    <div class="app-main">
+        <main class="page-container dashboard-page">
+            <header class="page-heading dashboard-heading">
+                <span class="page-eyebrow">TODAY</span>
+                <h1>안녕하세요.</h1>
+                <p>오늘 확인할 경영지원 업무를 정리했습니다.</p>
+            </header>
 
-            <form id="range-search-form" class="range-search">
-                <label for="start-date">시작일</label>
-                <input type="date" id="start-date" name="startDate">
-                <label for="end-date">종료일</label>
-                <input type="date" id="end-date" name="endDate">
-                <button type="submit" class="search-button">조회</button>
-                <p id="current-period" class="current-period" aria-live="polite"></p>
-            </form>
+            <section class="dashboard-summary-grid" aria-label="업무 요약">
+                <article class="summary-card">
+                    <div class="summary-card-header">
+                        <div><span class="summary-card-kicker">입찰공고</span><h2>오늘의 입찰 검토</h2></div>
+                        <a href="/bids/">업무 열기</a>
+                    </div>
+                    <dl class="summary-metrics">
+                        <div><dt>조회·검토 가능</dt><dd id="bid-total-count">확인 중</dd></div>
+                        <div><dt>추가 확인 필요</dt><dd id="bid-check-count">확인 중</dd></div>
+                    </dl>
+                    <p id="bid-summary-message" class="summary-message" aria-live="polite"></p>
+                </article>
 
-            <p id="validation-message" class="validation-message hidden" role="alert"></p>
+                <article class="summary-card">
+                    <div class="summary-card-header">
+                        <div><span class="summary-card-kicker">외부 중요공지</span><h2>PIA 관련 공지</h2></div>
+                        <a href="/notices/">업무 열기</a>
+                    </div>
+                    <dl class="summary-metrics">
+                        <div><dt>관련 공지</dt><dd id="pia-notice-count">확인 중</dd></div>
+                        <div><dt>최근 확인</dt><dd id="notice-last-checked" class="metric-date">확인 중</dd></div>
+                    </dl>
+                    <p id="notice-summary-message" class="summary-message" aria-live="polite"></p>
+                </article>
+            </section>
 
-            <div class="license-code-manager" aria-labelledby="license-code-title">
-                <div class="license-code-heading">
-                    <span id="license-code-title" class="search-label">허용 업종코드</span>
-                    <span class="license-code-help">숫자 4자리 코드를 최소 1개 이상 관리할 수 있습니다.</span>
+            <section class="dashboard-panel" aria-labelledby="recent-notice-title">
+                <div class="dashboard-panel-header">
+                    <div>
+                        <h2 id="recent-notice-title">최근 중요공지</h2>
+                        <p>PIA 관련 공지 중 최근 게시된 내용을 표시합니다.</p>
+                    </div>
+                    <a href="/notices/">전체 보기</a>
                 </div>
-                <div id="license-code-tags" class="license-code-tags" aria-live="polite"></div>
-                <form id="license-code-form" class="license-code-form">
-                    <label for="license-code-input" class="sr-only">허용 업종코드 입력</label>
-                    <input
-                            type="text"
-                            id="license-code-input"
-                            inputmode="numeric"
-                            pattern="[0-9]{4}"
-                            maxlength="4"
-                            placeholder="숫자 4자리"
-                            autocomplete="off"
-                    >
-                    <button type="submit" class="license-add-button">추가</button>
-                </form>
-                <p id="license-code-message" class="validation-message hidden" role="alert"></p>
-            </div>
-
-        </div>
-
-        <div id="loading-message" class="message">공고 목록을 불러오는 중입니다.</div>
-        <div id="empty-message" class="message hidden">선택한 기간에 검토할 대상 공고가 없습니다.</div>
-        <div id="error-message" class="message error hidden">공고 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</div>
-
-        <div id="table-wrapper" class="table-wrapper hidden">
-            <table>
-                <thead>
-                <tr>
-                    <th>검토상태</th>
-                    <th>공고명</th>
-                    <th>공고기관</th>
-                    <th>배정예산</th>
-                    <th>입찰마감일시</th>
-                    <th>낙찰방법</th>
-                    <th>면허조건</th>
-                    <th>지역제한</th>
-                    <th>판정사유</th>
-                    <th>외부확인</th>
-                    <th>문서분석</th>
-                    <th>상세보기</th>
-                </tr>
-                </thead>
-                <tbody id="bid-list"></tbody>
-            </table>
-        </div>
-    </section>
-</main>
-
-<div id="document-analysis-modal" class="modal-overlay hidden" role="dialog" aria-modal="true"
-     aria-labelledby="document-analysis-title">
-    <div class="analysis-modal">
-        <div class="analysis-modal-header">
-            <div>
-                <span class="analysis-modal-eyebrow">입찰 검토 지원</span>
-                <h2 id="document-analysis-title">문서 분석 상세보기</h2>
-            </div>
-            <button id="analysis-modal-close" type="button" class="modal-close-button"
-                    aria-label="분석내용 상세보기 닫기">×</button>
-        </div>
-        <div id="analysis-modal-content" class="analysis-modal-content"></div>
+                <div id="recent-notice-loading" class="dashboard-state">중요공지를 확인하는 중입니다.</div>
+                <div id="recent-notice-empty" class="dashboard-state hidden">표시할 PIA 관련 공지가 없습니다.</div>
+                <div id="recent-notice-error" class="dashboard-state error hidden">중요공지를 불러오지 못했습니다.</div>
+                <div id="recent-notice-list" class="recent-notice-list hidden"></div>
+            </section>
+        </main>
     </div>
 </div>
-
-<script src="app.js"></script>
+<script src="/home.js"></script>
 </body>
 </html>

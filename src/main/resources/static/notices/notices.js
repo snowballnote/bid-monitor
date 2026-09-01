@@ -1,11 +1,15 @@
 "use strict";
 
 const API_BASE_URL = "/api/external-notices";
+const PREVIEW_MAX_CHARACTERS = 360;
 
 const collectButton = document.querySelector("#collect-button");
 const allFilterButton = document.querySelector("#all-filter-button");
 const piaFilterButton = document.querySelector("#pia-filter-button");
 const filterDescription = document.querySelector("#filter-description");
+const noticeCount = document.querySelector("#notice-count");
+const noticePiaCount = document.querySelector("#notice-pia-count");
+const noticeLastChecked = document.querySelector("#notice-last-checked");
 const collectionMessage = document.querySelector("#collection-message");
 const loadingMessage = document.querySelector("#loading-message");
 const emptyMessage = document.querySelector("#empty-message");
@@ -14,12 +18,18 @@ const noticeList = document.querySelector("#notice-list");
 const noticeModal = document.querySelector("#notice-modal");
 const modalCloseButton = document.querySelector("#modal-close-button");
 const modalTitle = document.querySelector("#notice-detail-title");
+const modalStatus = document.querySelector("#modal-status");
+const modalPublicationMeta = document.querySelector("#modal-publication-meta");
+const modalKeywords = document.querySelector("#modal-keywords");
 const modalLoading = document.querySelector("#modal-loading");
 const modalError = document.querySelector("#modal-error");
 const noticeDetail = document.querySelector("#notice-detail");
+const noticeScrollBody = document.querySelector("#notice-scroll-body");
+const noticeActions = document.querySelector("#notice-actions");
 
 let piaOnly = true;
 let lastFocusedElement = null;
+let directNoticeOpened = false;
 
 /** API가 반환한 오류 본문을 사용자에게 보여줄 수 있는 짧은 메시지로 변환한다. */
 async function readErrorMessage(response, fallback) {
@@ -99,31 +109,46 @@ function createNoticeItem(notice) {
     const item = document.createElement("article");
     item.className = `notice-item${notice.piaRelated ? " pia-related" : ""}`;
 
+    const cardTop = document.createElement("div");
+    cardTop.className = "notice-card-top";
     const heading = document.createElement("div");
     heading.className = "notice-heading";
+    const publishedDate = createTextElement("time", "notice-date", formatDate(notice.publishedDate));
+    if (notice.publishedDate) {
+        publishedDate.dateTime = notice.publishedDate;
+    }
+    heading.appendChild(publishedDate);
     const titleButton = createTextElement("button", "notice-title-button", notice.title || "제목 없음");
     titleButton.type = "button";
     titleButton.addEventListener("click", () => openNoticeDetail(notice.id, titleButton));
     heading.appendChild(titleButton);
-    item.appendChild(heading);
+    cardTop.appendChild(heading);
 
     const badges = document.createElement("div");
     badges.className = "notice-badges";
     badges.appendChild(createBadge(Boolean(notice.piaRelated)));
-    item.appendChild(badges);
-
-    const meta = document.createElement("div");
-    meta.className = "notice-meta";
-    meta.appendChild(createTextElement("span", "", `게시일 ${formatDate(notice.publishedDate)}`));
-    meta.appendChild(createTextElement("span", "", `최초 수집 ${formatDateTime(notice.firstSeenAt)}`));
-    meta.appendChild(createTextElement("span", "", `최근 확인 ${formatDateTime(notice.lastSeenAt)}`));
-    item.appendChild(meta);
+    cardTop.appendChild(badges);
+    item.appendChild(cardTop);
 
     const keywords = document.createElement("div");
     keywords.className = "notice-keywords";
     keywords.appendChild(createTextElement("span", "meta-label", "매칭 키워드"));
     keywords.appendChild(createKeywordList(notice.matchedKeywords));
     item.appendChild(keywords);
+
+    const meta = document.createElement("div");
+    meta.className = "notice-meta";
+    const firstSeen = document.createElement("span");
+    firstSeen.className = "notice-meta-item";
+    firstSeen.appendChild(createTextElement("strong", "", "최초 수집"));
+    firstSeen.appendChild(document.createTextNode(formatDateTime(notice.firstSeenAt)));
+    meta.appendChild(firstSeen);
+    const lastSeen = document.createElement("span");
+    lastSeen.className = "notice-meta-item";
+    lastSeen.appendChild(createTextElement("strong", "", "최근 확인"));
+    lastSeen.appendChild(document.createTextNode(formatDateTime(notice.lastSeenAt)));
+    meta.appendChild(lastSeen);
+    item.appendChild(meta);
 
     return item;
 }
@@ -140,13 +165,24 @@ function showListState(state, message) {
 
 function renderNotices(notices) {
     noticeList.replaceChildren();
-    if (!Array.isArray(notices) || notices.length === 0) {
+    const safeNotices = Array.isArray(notices) ? notices : [];
+    const piaNotices = safeNotices.filter((notice) => Boolean(notice.piaRelated));
+    const lastSeenValues = safeNotices
+        .map((notice) => notice.lastSeenAt)
+        .filter(Boolean)
+        .sort((left, right) => new Date(right) - new Date(left));
+    noticePiaCount.textContent = `${piaNotices.length}건`;
+    noticeLastChecked.textContent = lastSeenValues.length > 0 ? formatDateTime(lastSeenValues[0]) : "-";
+
+    if (safeNotices.length === 0) {
+        noticeCount.textContent = "0건";
         showListState("empty");
         return;
     }
 
+    noticeCount.textContent = `${safeNotices.length}건`;
     const fragment = document.createDocumentFragment();
-    notices.forEach((notice) => fragment.appendChild(createNoticeItem(notice)));
+    safeNotices.forEach((notice) => fragment.appendChild(createNoticeItem(notice)));
     noticeList.appendChild(fragment);
     showListState("content");
 }
@@ -161,6 +197,11 @@ async function loadNotices() {
             throw new Error(await readErrorMessage(response, `공지 목록 조회에 실패했습니다. (${response.status})`));
         }
         renderNotices(await response.json());
+        const directNoticeId = new URLSearchParams(window.location.search).get("noticeId");
+        if (!directNoticeOpened && directNoticeId) {
+            directNoticeOpened = true;
+            await openNoticeDetail(directNoticeId, null);
+        }
     } catch (error) {
         console.error(error);
         showListState("error", error.message || "공지 목록을 불러오지 못했습니다.");
@@ -191,6 +232,7 @@ function showCollectionMessage(message, isError = false) {
 
 async function collectNotices() {
     collectButton.disabled = true;
+    collectButton.setAttribute("aria-busy", "true");
     collectButton.textContent = "수집 중...";
     collectionMessage.classList.add("hidden");
 
@@ -221,20 +263,9 @@ async function collectNotices() {
         showCollectionMessage(error.message || "공지 수집 중 오류가 발생했습니다.", true);
     } finally {
         collectButton.disabled = false;
-        collectButton.textContent = "공지 새로 수집";
+        collectButton.removeAttribute("aria-busy");
+        collectButton.textContent = "↻ 지금 수집";
     }
-}
-
-function createDetailSummaryItem(label, content) {
-    const item = document.createElement("div");
-    item.className = "detail-summary-item";
-    item.appendChild(createTextElement("span", "detail-label", label));
-    if (content instanceof Node) {
-        item.appendChild(content);
-    } else {
-        item.appendChild(createTextElement("div", "detail-value", content));
-    }
-    return item;
 }
 
 function createDetailSection(title, content) {
@@ -271,33 +302,52 @@ function createAttachmentList(attachments) {
 
 function renderNoticeDetail(notice) {
     modalTitle.textContent = notice.title || "공지 상세";
-    noticeDetail.replaceChildren();
+    modalStatus.replaceChildren(createBadge(Boolean(notice.piaRelated)));
+    modalPublicationMeta.textContent = `${formatDate(notice.publishedDate)} · 개인정보 포털`;
+    modalKeywords.replaceChildren(createKeywordList(notice.matchedKeywords));
+    noticeScrollBody.replaceChildren();
+    noticeActions.replaceChildren();
 
-    const summary = document.createElement("div");
-    summary.className = "detail-summary";
-    summary.appendChild(createDetailSummaryItem("게시일", formatDate(notice.publishedDate)));
-    summary.appendChild(createDetailSummaryItem("PIA 관련 여부", createBadge(Boolean(notice.piaRelated))));
-    summary.appendChild(createDetailSummaryItem("판정 사유", notice.classificationReason || "판정 사유 없음"));
-    summary.appendChild(createDetailSummaryItem("매칭 키워드", createKeywordList(notice.matchedKeywords)));
-    noticeDetail.appendChild(summary);
+    const body = typeof notice.body === "string" ? notice.body : "";
+    if (body.trim().length > 0) {
+        // 원문을 재작성하지 않고 앞부분만 사용하며, 나머지 노출 범위는 CSS line-clamp로 제한한다.
+        const preview = document.createElement("div");
+        preview.className = "notice-preview";
+        preview.appendChild(createTextElement("div", "notice-preview-text", body.slice(0, PREVIEW_MAX_CHARACTERS)));
+        noticeScrollBody.appendChild(createDetailSection("공지 미리보기", preview));
+    }
 
-    const body = createTextElement("div", "detail-body", notice.body || "본문이 없습니다.");
-    noticeDetail.appendChild(createDetailSection("본문", body));
-    noticeDetail.appendChild(createDetailSection("첨부파일", createAttachmentList(notice.attachments)));
+    if (notice.classificationReason) {
+        const explanation = document.createElement("details");
+        explanation.className = "classification-details";
+        explanation.appendChild(createTextElement("summary", "", "왜 PIA 관련인가요?"));
+        explanation.appendChild(createTextElement("p", "detail-value", notice.classificationReason));
+        noticeScrollBody.appendChild(explanation);
+    }
 
-    const sourceArea = document.createElement("div");
-    sourceArea.className = "source-area";
+    const hasAttachments = Array.isArray(notice.attachments) && notice.attachments.length > 0;
+    noticeActions.classList.toggle("without-attachments", !hasAttachments);
+    if (hasAttachments) {
+        const attachmentPanel = document.createElement("section");
+        attachmentPanel.className = "detail-link-panel";
+        attachmentPanel.appendChild(createTextElement("h3", "", "첨부파일"));
+        attachmentPanel.appendChild(createAttachmentList(notice.attachments));
+        noticeActions.appendChild(attachmentPanel);
+    }
+
+    const sourcePanel = document.createElement("section");
+    sourcePanel.className = "detail-link-panel source-panel";
     const sourceUrl = safeExternalUrl(notice.detailUrl);
     if (sourceUrl) {
-        const sourceLink = createTextElement("a", "source-link", "개인정보 포털 원문 새 탭에서 보기");
+        const sourceLink = createTextElement("a", "source-link", "개인정보 포털에서 전체 내용 보기 ↗");
         sourceLink.href = sourceUrl;
         sourceLink.target = "_blank";
         sourceLink.rel = "noopener noreferrer";
-        sourceArea.appendChild(sourceLink);
+        sourcePanel.appendChild(sourceLink);
     } else {
-        sourceArea.appendChild(createTextElement("span", "detail-value", "원문 링크가 없습니다."));
+        sourcePanel.appendChild(createTextElement("span", "detail-value", "원문 링크가 없습니다."));
     }
-    noticeDetail.appendChild(sourceArea);
+    noticeActions.appendChild(sourcePanel);
 
     modalLoading.classList.add("hidden");
     modalError.classList.add("hidden");
@@ -307,8 +357,12 @@ function renderNoticeDetail(notice) {
 async function openNoticeDetail(id, triggerElement) {
     lastFocusedElement = triggerElement;
     noticeModal.classList.remove("hidden");
+    noticeModal.setAttribute("aria-hidden", "false");
     document.body.classList.add("modal-open");
     modalTitle.textContent = "공지 상세";
+    modalStatus.replaceChildren();
+    modalPublicationMeta.textContent = "개인정보 포털";
+    modalKeywords.replaceChildren();
     modalLoading.classList.remove("hidden");
     modalError.classList.add("hidden");
     noticeDetail.classList.add("hidden");
@@ -332,6 +386,7 @@ async function openNoticeDetail(id, triggerElement) {
 
 function closeNoticeDetail() {
     noticeModal.classList.add("hidden");
+    noticeModal.setAttribute("aria-hidden", "true");
     document.body.classList.remove("modal-open");
     if (lastFocusedElement) {
         lastFocusedElement.focus();
@@ -350,6 +405,26 @@ noticeModal.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !noticeModal.classList.contains("hidden")) {
         closeNoticeDetail();
+        return;
+    }
+
+    if (event.key === "Tab" && !noticeModal.classList.contains("hidden")) {
+        const focusableElements = Array.from(noticeModal.querySelectorAll(
+            "button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex='-1'])"
+        ));
+        if (focusableElements.length === 0) {
+            event.preventDefault();
+            return;
+        }
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
+        if (event.shiftKey && document.activeElement === firstElement) {
+            event.preventDefault();
+            lastElement.focus();
+        } else if (!event.shiftKey && document.activeElement === lastElement) {
+            event.preventDefault();
+            firstElement.focus();
+        }
     }
 });
 
