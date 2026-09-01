@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>외부 중요공지</title>
+    <link rel="stylesheet" href="notices.css">
+</head>
+<body>
+<main class="page-container">
+    <header class="page-header">
+        <div>
+            <a class="back-link" href="/">입찰공고 화면으로</a>
+            <h1>외부 중요공지</h1>
+            <p>개인정보 포털의 PIA 관련 공지를 확인합니다.</p>
+        </div>
+        <button id="collect-button" class="primary-button" type="button">공지 새로 수집</button>
+    </header>
+
+    <section class="notice-board" aria-labelledby="notice-list-title">
+        <div class="toolbar">
+            <div>
+                <h2 id="notice-list-title">공지 목록</h2>
+                <p id="filter-description">PIA 관련 공지만 표시하고 있습니다.</p>
+            </div>
+            <div class="filter-buttons" role="group" aria-label="공지 필터">
+                <button id="all-filter-button" class="filter-button" type="button" aria-pressed="false">
+                    전체 공지
+                </button>
+                <button id="pia-filter-button" class="filter-button active" type="button" aria-pressed="true">
+                    PIA 관련 공지만
+                </button>
+            </div>
+        </div>
+
+        <div id="collection-message" class="collection-message hidden" role="status" aria-live="polite"></div>
+        <div id="loading-message" class="state-message" role="status">공지 목록을 불러오는 중입니다.</div>
+        <div id="empty-message" class="state-message hidden">
+            <strong>표시할 공지가 없습니다.</strong>
+            <span>공지 새로 수집 버튼을 눌러 개인정보 포털의 최신 공지를 확인해 주세요.</span>
+        </div>
+        <div id="error-message" class="state-message error hidden" role="alert"></div>
+
+        <div id="notice-list" class="notice-list hidden" aria-live="polite"></div>
+    </section>
+</main>
+
+<div id="notice-modal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+     aria-labelledby="notice-detail-title">
+    <article class="notice-modal">
+        <header class="modal-header">
+            <div>
+                <span class="modal-eyebrow">개인정보 포털 공지</span>
+                <h2 id="notice-detail-title">공지 상세</h2>
+            </div>
+            <button id="modal-close-button" class="modal-close-button" type="button" aria-label="공지 상세 닫기">×</button>
+        </header>
+        <div id="modal-loading" class="state-message">공지 상세를 불러오는 중입니다.</div>
+        <div id="modal-error" class="state-message error hidden" role="alert"></div>
+        <div id="notice-detail" class="notice-detail hidden"></div>
+    </article>
+</div>
+
+<script src="notices.js"></script>
+</body>
+</html>

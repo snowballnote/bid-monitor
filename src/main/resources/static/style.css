@@ -33,6 +33,20 @@ h1 {
     color: #6b7280;
 }
 
+.external-notice-nav-link {
+    display: inline-block;
+    margin-top: 12px;
+    color: #1d4ed8;
+    font-size: 14px;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.external-notice-nav-link:hover,
+.external-notice-nav-link:focus {
+    text-decoration: underline;
+}
+
 .notice-board {
     overflow: hidden;
     background: #ffffff;
