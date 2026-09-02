@@ -1,5 +1,10 @@
 package com.comhu.bidmonitor.service;
 
+import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
+import com.comhu.bidmonitor.classifier.BidAwardMethodCategory;
+import com.comhu.bidmonitor.classifier.BidAwardMethodClassifier;
+import com.comhu.bidmonitor.classifier.BidAwardMethodResult;
+import com.comhu.bidmonitor.classifier.BidAwardMethodStatus;
 import com.comhu.bidmonitor.dto.BidAttachmentDto;
 import com.comhu.bidmonitor.dto.BidDocumentAnalysisDto;
 import com.comhu.bidmonitor.dto.BidDto;
@@ -16,6 +21,7 @@ import kr.dogfoot.hwplib.tool.textextractor.TextExtractor;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -92,6 +98,7 @@ public class G2bApiService {
             },
             new ThreadPoolExecutor.AbortPolicy()
     );
+
     private static final Pattern HWPX_SECTION_XML_PATTERN =
             Pattern.compile("(?i)^Contents/section\\d+\\.xml$");
     private static final List<String> EXTERNAL_REFERENCE_KEYWORDS = List.of(
@@ -209,6 +216,29 @@ public class G2bApiService {
             "입찰보증금", "보증금", "귀속", "보증서", "연대책임", "변경등록",
             "상호 및 대표자", "대표자 전원", "당사(공동수급체 구성원", "당사 (공동수급체 구성원"
     );
+
+    private final BidAwardMethodClassifier bidAwardMethodClassifier;
+    private final List<BidCandidateCollector> additionalBidCandidateCollectors;
+
+    /** 직접 생성하는 기존 단위 테스트와의 호환을 위한 기본 생성자다. */
+    public G2bApiService() {
+        this(new BidAwardMethodClassifier(), List.of());
+    }
+
+    /** 실행 환경에서는 별도 책임으로 분리된 Spring 관리 classifier를 주입받는다. */
+    public G2bApiService(BidAwardMethodClassifier bidAwardMethodClassifier) {
+        this(bidAwardMethodClassifier, List.of());
+    }
+
+    /** 나라장터에 없는 연계기관 후보 수집기를 목록으로 주입해 기존 판정 흐름에 합류시킨다. */
+    @Autowired
+    public G2bApiService(
+            BidAwardMethodClassifier bidAwardMethodClassifier,
+            List<BidCandidateCollector> additionalBidCandidateCollectors
+    ) {
+        this.bidAwardMethodClassifier = bidAwardMethodClassifier;
+        this.additionalBidCandidateCollectors = List.copyOf(additionalBidCandidateCollectors);
+    }
 
     // application.properties에 설정한 나라장터 API 기본 주소를 가져옴
     @Value("${g2b.api.base-url}")
@@ -567,6 +597,7 @@ public class G2bApiService {
             qualification.setBidClseDt(bidDto.getBidClseDt());
             qualification.setAsignBdgtAmt(bidDto.getAsignBdgtAmt());
             qualification.setBidNtceDtlUrl(bidDto.getBidNtceDtlUrl());
+            qualification.setSucsfbidMthdAppStd(bidDto.getSucsfbidMthdAppStd());
 
             // 공고 직접조회 응답에 포함된 첨부파일 정보를 DTO에 함께 보존한다.
             qualification.setAttachments(bidDetail.attachments());
@@ -574,11 +605,14 @@ public class G2bApiService {
             // 제한그룹번호를 보존하고 각 그룹의 항목을 제한순번 오름차순으로 정렬한다.
             qualification.setLicenseGroups(createLicenseGroups(licenseBody.path("items")));
 
+            // 기존 문서분석을 먼저 수행해 구조화 상세정보가 부족한 경우 낙찰방법의 보조 근거로 재사용한다.
+            applyExternalCheckResult(qualification);
+
+            // 나라장터 검색 필터와 독립적인 낙찰방법 판정 결과를 DTO에 보존한다.
+            applyAwardMethodClassification(qualification);
+
             // 조합한 참가조건을 기준으로 자동 검토 상태와 판정 사유를 설정한다.
             applyReviewResult(qualification, normalizeAllowedLicenseCodes(allowedLicenseCodes));
-
-            // 기존 참가조건 판정과 분리하여 첨부파일의 외부사이트 확인 상태를 공고 단위로 계산한다.
-            applyExternalCheckResult(qualification);
             return qualification;
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("참가조건 API 응답을 JSON으로 처리할 수 없습니다.", e);
@@ -725,12 +759,32 @@ public class G2bApiService {
         qualification.setExternalCheckReason(reason);
     }
 
+    /** 별도 classifier의 결과를 기존 API DTO에 문자열로 보존해 화면과 후속 판단에서 함께 사용한다. */
+    private void applyAwardMethodClassification(BidQualificationDto qualification) {
+        BidAwardMethodResult result = bidAwardMethodClassifier.classify(qualification);
+        qualification.setAwardMethodCategory(result.category().name());
+        qualification.setAwardMethodStatus(result.status().name());
+        qualification.setAwardMethodReason(result.reason());
+        qualification.setAwardMethodSource(result.source().name());
+    }
+
     /**
      * 참가조건을 기준으로 공고의 자동 검토 상태와 사람이 확인할 판정 사유를 설정한다.
      */
     private void applyReviewResult(BidQualificationDto qualification, Set<String> allowedLicenseCodes) {
         String sucsfbidMthdCd = getSafeValue(qualification.getSucsfbidMthdCd());
         String sucsfbidMthdNm = getSafeValue(qualification.getSucsfbidMthdNm());
+
+        // 직접 호출하는 기존 테스트와 상세 판정 흐름 모두 동일한 자체 분류 결과를 사용한다.
+        if (getSafeValue(qualification.getAwardMethodReason()).isEmpty()) {
+            applyAwardMethodClassification(qualification);
+        }
+        BidAwardMethodCategory awardMethodCategory = BidAwardMethodCategory.valueOf(
+                getSafeValue(qualification.getAwardMethodCategory())
+        );
+        BidAwardMethodStatus awardMethodStatus = BidAwardMethodStatus.valueOf(
+                getSafeValue(qualification.getAwardMethodStatus())
+        );
 
         // 협상에 의한 계약은 다른 조건과 관계없이 검토 대상에서 제외한다.
         if ("낙030005".equals(sucsfbidMthdCd) || sucsfbidMthdNm.contains("협상")) {
@@ -739,20 +793,28 @@ public class G2bApiService {
             return;
         }
 
-        boolean smallAmountEstimate = "낙030029".equals(sucsfbidMthdCd)
-                || sucsfbidMthdNm.contains("소액수의견적");
-        boolean qualificationReview = "낙030001".equals(sucsfbidMthdCd)
-                && sucsfbidMthdNm.contains("적격심사");
+        boolean smallAmountEstimate = awardMethodCategory == BidAwardMethodCategory.SMALL_AMOUNT_ESTIMATE;
+        boolean qualificationReview = awardMethodCategory == BidAwardMethodCategory.QUALIFICATION_REVIEW;
 
         // 소액수의견적 또는 적격심사제에 해당하지 않으면 자동 판정만으로는 검토 여부를 확정할 수 없다.
         if (!smallAmountEstimate && !qualificationReview) {
-            qualification.setReviewStatus("추가확인필요");
-            qualification.setReviewReason("낙찰방법이 검토대상 기준에 해당하는지 확인 필요");
+            if (awardMethodCategory == BidAwardMethodCategory.OTHER) {
+                qualification.setReviewStatus("제외");
+                qualification.setReviewReason("낙찰방법이 적격심사 또는 소액수의견적 대상이 아님");
+            } else {
+                qualification.setReviewStatus("추가확인필요");
+                qualification.setReviewReason("낙찰방법이 검토대상 기준에 해당하는지 확인 필요");
+            }
             return;
         }
 
         List<String> additionalCheckReasons = new ArrayList<>();
         String participationRegion = getSafeValue(qualification.getParticipationRegion());
+
+        // 첨부문서만으로 추정한 경우 후보에서는 유지하되 최종 확인이 필요함을 명시한다.
+        if (qualificationReview && awardMethodStatus == BidAwardMethodStatus.LIKELY) {
+            additionalCheckReasons.add("첨부문서 근거의 적격심사 여부 확인 필요");
+        }
 
         // 검토대상 공고라도 면허, 지역 및 심사 조건이 있으면 추가 확인이 필요하다.
         LicenseReviewResult licenseReviewResult = reviewLicenseGroups(
@@ -1302,6 +1364,7 @@ public class G2bApiService {
         Set<String> submissionMethods = new LinkedHashSet<>();
         Set<String> submissionDeadlines = new LinkedHashSet<>();
         Set<String> jointContractRequirements = new LinkedHashSet<>();
+        Set<String> awardMethodEvidence = new LinkedHashSet<>();
 
         // 제출서류와 참가자격은 번호가 붙은 제목 아래의 목록을 다음 번호 제목 전까지 수집한다.
         collectHeadingSections(lines, REQUIRED_DOCUMENT_HEADINGS, requiredDocuments, true);
@@ -1323,6 +1386,9 @@ public class G2bApiService {
         collectSubmissionMethodLines(lines, submissionMethods);
         collectSubmissionDeadlineLines(lines, submissionDeadlines);
         collectJointContractLines(lines, jointContractRequirements);
+        lines.stream()
+                .filter(this::isClearQualificationReviewEvidence)
+                .forEach(awardMethodEvidence::add);
 
         // 공백과 줄바꿈만 다른 동일 원문은 비교용 문자열을 정규화해 한 번만 보존한다.
         List<String> normalizedRequiredDocuments = deduplicateNormalized(requiredDocuments);
@@ -1330,27 +1396,45 @@ public class G2bApiService {
         List<String> normalizedSubmissionMethods = deduplicateNormalized(submissionMethods);
         List<String> normalizedSubmissionDeadlines = deduplicateNormalized(submissionDeadlines);
         List<String> normalizedJointRequirements = deduplicateNormalized(jointContractRequirements);
+        List<String> normalizedAwardMethodEvidence = deduplicateNormalized(awardMethodEvidence);
 
         analysis.setRequiredDocuments(normalizedRequiredDocuments);
         analysis.setQualificationRequirements(normalizedQualifications);
         analysis.setSubmissionMethods(normalizedSubmissionMethods);
         analysis.setSubmissionDeadlines(normalizedSubmissionDeadlines);
         analysis.setJointContractRequirements(normalizedJointRequirements);
+        analysis.setAwardMethodEvidence(normalizedAwardMethodEvidence);
         analysis.setAnalysisStatus("ANALYZED");
 
         int detectedItemCount = normalizedRequiredDocuments.size()
                 + normalizedQualifications.size()
                 + normalizedSubmissionMethods.size()
                 + normalizedSubmissionDeadlines.size()
-                + normalizedJointRequirements.size();
+                + normalizedJointRequirements.size()
+                + normalizedAwardMethodEvidence.size();
         analysis.setAnalysisNote(detectedItemCount == 0
                 ? "분석은 완료되었으나 지정 핵심정보가 탐지되지 않음"
                 : "문서 핵심정보 추출 완료: 제출서류 " + normalizedRequiredDocuments.size()
                         + "건, 참가자격 " + normalizedQualifications.size()
                         + "건, 제출방법 " + normalizedSubmissionMethods.size()
                         + "건, 제출기한 " + normalizedSubmissionDeadlines.size()
-                        + "건, 공동수급 " + normalizedJointRequirements.size() + "건");
+                        + "건, 공동수급 " + normalizedJointRequirements.size()
+                        + "건, 낙찰방법 근거 " + normalizedAwardMethodEvidence.size() + "건");
         return analysis;
+    }
+
+    /** 단순 '심사'가 아니라 적격심사 방식임을 나타내는 명확한 원문 문장만 보존한다. */
+    private boolean isClearQualificationReviewEvidence(String line) {
+        String normalized = getSafeValue(line).replaceAll("\\s+", "");
+        if (!normalized.contains("적격심사") || normalized.contains("부적격심사")) {
+            return false;
+        }
+        return normalized.contains("낙찰자선정방법")
+                || normalized.contains("낙찰방법")
+                || normalized.contains("적격심사제")
+                || normalized.contains("적격심사대상")
+                || normalized.contains("적격심사세부기준")
+                || normalized.contains("적격심사기준");
     }
 
     /** 빈 줄을 제외하고 같은 문장이 비교 가능하도록 반복 공백만 하나로 정리한다. */
@@ -2100,13 +2184,8 @@ public class G2bApiService {
      * 오늘의 대상 공고를 브라우저에서 전달한 허용 업종코드로 자동 판정한다.
      */
     public List<BidQualificationDto> getTargetBidQualificationList(Set<String> allowedLicenseCodes) {
-        Set<String> normalizedCodes = normalizeAllowedLicenseCodes(allowedLicenseCodes);
-        // 기존 대상 필터로 소액수의견적 및 적격심사제 공고만 먼저 조회한다.
-        return getTargetBidList().stream()
-                // 공고별 구조화 면허조건을 현재 허용 코드와 비교해 자동 판정한다.
-                .map(BidDto::getBidNtceNo)
-                .map(bidNtceNo -> getBidQualification(bidNtceNo, normalizedCodes))
-                .collect(Collectors.toList());
+        LocalDate today = LocalDate.now();
+        return getTargetBidQualificationList(today, today, allowedLicenseCodes);
     }
 
     /**
@@ -2125,11 +2204,36 @@ public class G2bApiService {
             Set<String> allowedLicenseCodes
     ) {
         Set<String> normalizedCodes = normalizeAllowedLicenseCodes(allowedLicenseCodes);
-        // 기간별 대상 공고마다 기존 통합조회 및 자동 판정 로직을 재사용한다.
-        return getTargetBidList(startDate, endDate).stream()
+        LinkedHashMap<String, BidQualificationDto> uniqueCandidates = new LinkedHashMap<>();
+
+        // 기존 6146 나라장터 모집단은 그대로 상세조회와 자체 낙찰방법 판정을 수행한다.
+        getBidDtoList(startDate, endDate).stream()
                 .map(BidDto::getBidNtceNo)
                 .map(bidNtceNo -> getBidQualification(bidNtceNo, normalizedCodes))
-                .collect(Collectors.toList());
+                .forEach(candidate -> addUniqueCandidate(uniqueCandidates, candidate));
+
+        // 나라장터 OpenAPI에 없는 연계기관 후보도 같은 classifier와 후속 검토 조건을 통과시킨다.
+        for (BidCandidateCollector collector : additionalBidCandidateCollectors) {
+            for (BidQualificationDto candidate : collector.collect(startDate, endDate)) {
+                applyExternalCheckResult(candidate);
+                applyAwardMethodClassification(candidate);
+                applyReviewResult(candidate, normalizedCodes);
+                addUniqueCandidate(uniqueCandidates, candidate);
+            }
+        }
+
+        return new ArrayList<>(uniqueCandidates.values());
+    }
+
+    private void addUniqueCandidate(
+            Map<String, BidQualificationDto> uniqueCandidates,
+            BidQualificationDto candidate
+    ) {
+        String bidNtceNo = candidate == null ? "" : getSafeValue(candidate.getBidNtceNo()).trim();
+        if (bidNtceNo.isEmpty()) {
+            throw new IllegalStateException("입찰공고 후보에 공고번호가 없는 항목이 있습니다.");
+        }
+        uniqueCandidates.putIfAbsent(bidNtceNo, candidate);
     }
 
     /**

@@ -1246,6 +1246,17 @@ td:nth-child(2), td:nth-child(9), td:nth-child(10) { min-width: 0; }
 .bid-deadline-date, .bid-deadline-time { display: block; white-space: nowrap; }
 .bid-deadline-time { margin-top: 2px; color: #667085; font-size: 12px; }
 .bid-method-cell, .bid-region-cell { color: #475467; overflow-wrap: anywhere; }
+.bid-method-name { display: block; }
+.bid-method-classification {
+    display: inline-block;
+    margin-top: 4px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: #eef3f8;
+    color: #52657a;
+    font-size: 10px;
+    font-weight: 750;
+}
 .bid-check-cell { font-size: 0; }
 .bid-check-cell > * { margin: 2px 4px 2px 0; }
 .bid-check-badge,

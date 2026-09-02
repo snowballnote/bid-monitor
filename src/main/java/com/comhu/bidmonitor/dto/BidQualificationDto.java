@@ -68,6 +68,21 @@ public class BidQualificationDto {
     // 낙찰방법코드
     private String sucsfbidMthdCd;
 
+    // 상세 응답의 낙찰방법 적용기준
+    private String sucsfbidMthdAppStd;
+
+    // 자체 낙찰방법 분류(QUALIFICATION_REVIEW, SMALL_AMOUNT_ESTIMATE, OTHER, UNKNOWN)
+    private String awardMethodCategory = "UNKNOWN";
+
+    // 자체 판정 강도(CONFIRMED, LIKELY, NOT_DETECTED, UNKNOWN)
+    private String awardMethodStatus = "UNKNOWN";
+
+    // 자체 판정에 사용한 사람이 확인할 수 있는 근거
+    private String awardMethodReason = "";
+
+    // 가장 강한 판정 근거의 출처(STRUCTURED_DETAIL, ATTACHMENT_DOCUMENT, NOT_AVAILABLE)
+    private String awardMethodSource = "NOT_AVAILABLE";
+
     // 실적경쟁여부
     private String arsltCmptYn;
 

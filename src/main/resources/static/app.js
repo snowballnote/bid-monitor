@@ -206,6 +206,31 @@ function createDeadlineCell(value) {
     return cell;
 }
 
+function getAwardMethodLabel(bid) {
+    if (bid.awardMethodCategory === "QUALIFICATION_REVIEW") {
+        return bid.awardMethodStatus === "CONFIRMED" ? "적격심사 확정" : "적격심사 추정";
+    }
+    if (bid.awardMethodCategory === "SMALL_AMOUNT_ESTIMATE") {
+        return "소액수의견적";
+    }
+    if (bid.awardMethodCategory === "OTHER") {
+        return "비대상";
+    }
+    return bid.awardMethodStatus === "UNKNOWN" ? "확인 필요" : "";
+}
+
+function createAwardMethodCell(bid) {
+    const cell = document.createElement("td");
+    cell.className = "bid-method-cell";
+    cell.dataset.label = "낙찰방법";
+    appendTextElement(cell, "span", "bid-method-name", displayValue(bid.sucsfbidMthdNm));
+    const label = getAwardMethodLabel(bid);
+    if (label) {
+        appendTextElement(cell, "span", "bid-method-classification", label);
+    }
+    return cell;
+}
+
 /** 공고 단위 외부확인 상태를 업무 화면용 한글 문구로 변환한다. */
 function getExternalCheckLabel(status) {
     if (status === "REQUIRED") {
@@ -772,9 +797,16 @@ function appendBidDecisionDetail(parent, bid) {
     const grid = document.createElement("div");
     grid.className = "bid-decision-grid";
     appendBidDetailField(grid, "낙찰방법", bid.sucsfbidMthdNm);
+    const awardMethodLabel = getAwardMethodLabel(bid);
+    if (awardMethodLabel) {
+        appendBidDetailField(grid, "적격심사 판정", awardMethodLabel);
+    }
     appendBidDetailField(grid, "지역제한", bid.participationRegion);
     appendBidDetailField(grid, "면허조건", bid.licenseLimit, true);
     appendBidDetailField(grid, "판정사유", bid.reviewReason, true);
+    if (bid.awardMethodReason) {
+        appendBidDetailField(grid, "낙찰방법 판정 근거", bid.awardMethodReason, true);
+    }
     section.appendChild(grid);
     parent.appendChild(section);
 }
@@ -886,7 +918,7 @@ function createBidRow(bid) {
     budgetCell.title = formatAmount(bid.asignBdgtAmt);
     row.appendChild(budgetCell);
     row.appendChild(createDeadlineCell(bid.bidClseDt));
-    row.appendChild(createCell(bid.sucsfbidMthdNm, "낙찰방법", "bid-method-cell"));
+    row.appendChild(createAwardMethodCell(bid));
     row.appendChild(createCell(bid.participationRegion, "지역제한", "bid-region-cell"));
 
     const checkCell = document.createElement("td");

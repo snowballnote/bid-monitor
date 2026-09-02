@@ -3,6 +3,8 @@ package com.comhu.bidmonitor.service;
 import com.comhu.bidmonitor.dto.BidDocumentAnalysisDto;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -10,6 +12,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class G2bApiServiceDocumentAnalysisTests {
 
     private final G2bApiService service = new G2bApiService();
+
+    @Test
+    void extractsOnlyClearQualificationReviewAwardMethodContext() {
+        BidDocumentAnalysisDto result = service.analyzeBidDocumentText("""
+                낙찰자선정방법 : 적격심사제
+                제안서 심사 결과는 별도 통보합니다.
+                """);
+
+        assertEquals(List.of("낙찰자선정방법 : 적격심사제"), result.getAwardMethodEvidence());
+    }
 
     @Test
     void extractsBidReviewItemsWithoutSummarizingSourceText() {

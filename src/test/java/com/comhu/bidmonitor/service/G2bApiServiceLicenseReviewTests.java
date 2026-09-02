@@ -70,6 +70,19 @@ class G2bApiServiceLicenseReviewTests {
         assertEquals("6146 면허조건 확인 필요", qualification.getReviewReason());
     }
 
+    @Test
+    void detailedQualificationReviewSystemRemainsReviewTarget() throws Exception {
+        BidQualificationDto qualification = qualification(group("1", "6146"));
+        qualification.setSucsfbidMthdCd("");
+        qualification.setSucsfbidMthdNm("적격심사제");
+
+        applyReview(qualification, DEFAULT_ALLOWED_CODES);
+
+        assertEquals("검토대상", qualification.getReviewStatus());
+        assertEquals("CONFIRMED", qualification.getAwardMethodStatus());
+        assertEquals("STRUCTURED_DETAIL", qualification.getAwardMethodSource());
+    }
+
     private BidQualificationDto qualification(LicenseRequirementGroup... groups) {
         BidQualificationDto qualification = new BidQualificationDto();
         qualification.setSucsfbidMthdCd("낙030029");

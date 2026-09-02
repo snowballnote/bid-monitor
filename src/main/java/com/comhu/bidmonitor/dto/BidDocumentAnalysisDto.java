@@ -32,6 +32,9 @@ public class BidDocumentAnalysisDto {
     // 공동수급·공동도급·공동수급협정서 관련 원문 문장 또는 목록
     private List<String> jointContractRequirements = new ArrayList<>();
 
+    // 적격심사 관련 명확한 낙찰방법 문맥을 보존한 원문 문장
+    private List<String> awardMethodEvidence = new ArrayList<>();
+
     // 문서 핵심정보 분석 상태(NOT_ANALYZED, ANALYZED, FAILED)
     private String analysisStatus = "NOT_ANALYZED";
 

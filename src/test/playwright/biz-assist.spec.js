@@ -11,6 +11,10 @@ const bidNotice = {
     asignBdgtAmt: "166564000",
     bidClseDt: "2026-09-10 10:00",
     sucsfbidMthdNm: "적격심사",
+    awardMethodCategory: "QUALIFICATION_REVIEW",
+    awardMethodStatus: "CONFIRMED",
+    awardMethodReason: "낙찰방법 필드에서 \"적격심사\" 확인",
+    awardMethodSource: "STRUCTURED_DETAIL",
     licenseLimit: "정보시스템 감리법인 등록 및 전자입찰 참가자격을 모두 충족한 업체",
     participationRegion: "제한없음",
     reviewStatus: "추가확인필요",
@@ -127,6 +131,7 @@ test("홈과 세 업무 메뉴가 Biz Assist 앱 셸에서 연결된다", async 
     await expect(bidRow).toContainText(bidNotice.reviewStatus);
     await expect(bidRow).toContainText("외부확인 필요");
     await expect(bidRow).toContainText("1.67억");
+    await expect(bidRow).toContainText("적격심사 확정");
     await expect(bidRow).not.toContainText("vendor.example.com");
     await expect(bidRow).not.toContainText(bidNotice.licenseLimit);
     await expect(bidRow.locator(".bid-cell-clamp").first()).toHaveCSS("-webkit-line-clamp", "2");
@@ -141,6 +146,7 @@ test("홈과 세 업무 메뉴가 Biz Assist 앱 셸에서 연결된다", async 
     await expect(bidModal).toContainText(bidNotice.reviewReason);
     await expect(bidModal).toContainText("vendor.example.com");
     await expect(bidModal).toContainText("166,564,000원");
+    await expect(bidModal).toContainText(bidNotice.awardMethodReason);
     await expect(bidModal.getByText("문서분석 보기")).toBeVisible();
     const bidSourceLink = bidModal.getByRole("link", { name: "나라장터 원문 보기 ↗" });
     await expect(bidSourceLink).toHaveAttribute("href", bidNotice.bidNtceDtlUrl);
