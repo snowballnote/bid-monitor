@@ -1,6 +1,6 @@
 package com.comhu.bidmonitor.externalnotice.scheduler;
 
-import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionService;
+import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeAutomaticCollectionWorkflow;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
@@ -10,7 +10,10 @@ import static org.mockito.Mockito.mock;
 class ExternalNoticeSchedulerContextTests {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
-            .withBean(ExternalNoticeCollectionService.class, () -> mock(ExternalNoticeCollectionService.class))
+            .withBean(
+                    ExternalNoticeAutomaticCollectionWorkflow.class,
+                    () -> mock(ExternalNoticeAutomaticCollectionWorkflow.class)
+            )
             .withUserConfiguration(ExternalNoticeSchedulingConfiguration.class);
 
     @Test

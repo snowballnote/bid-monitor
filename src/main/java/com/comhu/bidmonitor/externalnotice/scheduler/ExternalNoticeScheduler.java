@@ -1,7 +1,7 @@
 package com.comhu.bidmonitor.externalnotice.scheduler;
 
-import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionResult;
-import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionService;
+import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeAutomaticCollectionResult;
+import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeAutomaticCollectionWorkflow;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -17,15 +17,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 public class ExternalNoticeScheduler {
 
-    private final ExternalNoticeCollectionService collectionService;
+    private final ExternalNoticeAutomaticCollectionWorkflow automaticCollectionWorkflow;
     private final boolean runOnStartup;
     private final AtomicBoolean collectionRunning = new AtomicBoolean(false);
 
     public ExternalNoticeScheduler(
-            ExternalNoticeCollectionService collectionService,
+            ExternalNoticeAutomaticCollectionWorkflow automaticCollectionWorkflow,
             @Value("${external-notice.scheduler.run-on-startup:false}") boolean runOnStartup
     ) {
-        this.collectionService = collectionService;
+        this.automaticCollectionWorkflow = automaticCollectionWorkflow;
         this.runOnStartup = runOnStartup;
     }
 
@@ -53,17 +53,20 @@ public class ExternalNoticeScheduler {
 
         try {
             log.info("외부공지 자동 수집 시작: trigger={}", trigger);
-            ExternalNoticeCollectionResult result = collectionService.runCollection();
+            ExternalNoticeAutomaticCollectionResult automaticResult = automaticCollectionWorkflow.run();
+            var result = automaticResult.collectionResult();
             log.info(
                     "외부공지 자동 수집 완료: trigger={}, collectedCount={}, newCount={}, "
-                            + "updatedCount={}, unchangedCount={}, piaRelatedCount={}, failedCount={}",
+                            + "updatedCount={}, unchangedCount={}, piaRelatedCount={}, failedCount={}, "
+                            + "notificationCandidateCount={}",
                     trigger,
                     result.getCollectedCount(),
                     result.getNewCount(),
                     result.getUpdatedCount(),
                     result.getUnchangedCount(),
                     result.getPiaRelatedCount(),
-                    result.getFailedCount()
+                    result.getFailedCount(),
+                    automaticResult.notificationCandidates().size()
             );
         } catch (RuntimeException exception) {
             // 한 번의 전체 수집 실패가 Spring의 다음 예약 실행까지 중단시키지 않도록 여기서 경계를 만든다.

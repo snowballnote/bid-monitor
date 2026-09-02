@@ -1,7 +1,8 @@
 package com.comhu.bidmonitor.externalnotice.scheduler;
 
+import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeAutomaticCollectionResult;
+import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeAutomaticCollectionWorkflow;
 import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionResult;
-import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionService;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CountDownLatch;
@@ -22,40 +23,40 @@ class ExternalNoticeSchedulerTests {
 
     @Test
     void delegatesScheduledCollectionToOrchestrationService() {
-        ExternalNoticeCollectionService collectionService = mock(ExternalNoticeCollectionService.class);
-        when(collectionService.runCollection()).thenReturn(emptyResult());
-        ExternalNoticeScheduler scheduler = new ExternalNoticeScheduler(collectionService, false);
+        ExternalNoticeAutomaticCollectionWorkflow workflow = mock(ExternalNoticeAutomaticCollectionWorkflow.class);
+        when(workflow.run()).thenReturn(emptyAutomaticResult());
+        ExternalNoticeScheduler scheduler = new ExternalNoticeScheduler(workflow, false);
 
         scheduler.runScheduledCollection();
 
-        verify(collectionService).runCollection();
+        verify(workflow).run();
     }
 
     @Test
     void swallowsCollectionFailureSoLaterSchedulesCanRun() {
-        ExternalNoticeCollectionService collectionService = mock(ExternalNoticeCollectionService.class);
-        when(collectionService.runCollection())
+        ExternalNoticeAutomaticCollectionWorkflow workflow = mock(ExternalNoticeAutomaticCollectionWorkflow.class);
+        when(workflow.run())
                 .thenThrow(new IllegalStateException("collector unavailable"))
-                .thenReturn(emptyResult());
-        ExternalNoticeScheduler scheduler = new ExternalNoticeScheduler(collectionService, false);
+                .thenReturn(emptyAutomaticResult());
+        ExternalNoticeScheduler scheduler = new ExternalNoticeScheduler(workflow, false);
 
         assertDoesNotThrow(scheduler::runScheduledCollection);
         assertDoesNotThrow(scheduler::runScheduledCollection);
 
-        verify(collectionService, times(2)).runCollection();
+        verify(workflow, times(2)).run();
     }
 
     @Test
     void skipsOverlappingExecution() throws Exception {
-        ExternalNoticeCollectionService collectionService = mock(ExternalNoticeCollectionService.class);
+        ExternalNoticeAutomaticCollectionWorkflow workflow = mock(ExternalNoticeAutomaticCollectionWorkflow.class);
         CountDownLatch firstExecutionStarted = new CountDownLatch(1);
         CountDownLatch releaseFirstExecution = new CountDownLatch(1);
         doAnswer(invocation -> {
             firstExecutionStarted.countDown();
             assertTrue(releaseFirstExecution.await(2, TimeUnit.SECONDS));
-            return emptyResult();
-        }).when(collectionService).runCollection();
-        ExternalNoticeScheduler scheduler = new ExternalNoticeScheduler(collectionService, false);
+            return emptyAutomaticResult();
+        }).when(workflow).run();
+        ExternalNoticeScheduler scheduler = new ExternalNoticeScheduler(workflow, false);
 
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
@@ -66,7 +67,7 @@ class ExternalNoticeSchedulerTests {
             releaseFirstExecution.countDown();
             firstExecution.get(2, TimeUnit.SECONDS);
 
-            verify(collectionService).runCollection();
+            verify(workflow).run();
         } finally {
             releaseFirstExecution.countDown();
             executor.shutdownNow();
@@ -75,19 +76,25 @@ class ExternalNoticeSchedulerTests {
 
     @Test
     void runsOnApplicationReadyOnlyWhenConfigured() {
-        ExternalNoticeCollectionService disabledService = mock(ExternalNoticeCollectionService.class);
-        ExternalNoticeScheduler disabledScheduler = new ExternalNoticeScheduler(disabledService, false);
+        ExternalNoticeAutomaticCollectionWorkflow disabledWorkflow =
+                mock(ExternalNoticeAutomaticCollectionWorkflow.class);
+        ExternalNoticeScheduler disabledScheduler = new ExternalNoticeScheduler(disabledWorkflow, false);
         disabledScheduler.runCollectionOnStartup();
-        verify(disabledService, times(0)).runCollection();
+        verify(disabledWorkflow, times(0)).run();
 
-        ExternalNoticeCollectionService enabledService = mock(ExternalNoticeCollectionService.class);
-        when(enabledService.runCollection()).thenReturn(emptyResult());
-        ExternalNoticeScheduler enabledScheduler = new ExternalNoticeScheduler(enabledService, true);
+        ExternalNoticeAutomaticCollectionWorkflow enabledWorkflow =
+                mock(ExternalNoticeAutomaticCollectionWorkflow.class);
+        when(enabledWorkflow.run()).thenReturn(emptyAutomaticResult());
+        ExternalNoticeScheduler enabledScheduler = new ExternalNoticeScheduler(enabledWorkflow, true);
         enabledScheduler.runCollectionOnStartup();
-        verify(enabledService).runCollection();
+        verify(enabledWorkflow).run();
     }
 
     private ExternalNoticeCollectionResult emptyResult() {
         return ExternalNoticeCollectionResult.builder().build();
+    }
+
+    private ExternalNoticeAutomaticCollectionResult emptyAutomaticResult() {
+        return new ExternalNoticeAutomaticCollectionResult(emptyResult(), java.util.List.of());
     }
 }

@@ -1,7 +1,10 @@
 package com.comhu.bidmonitor.externalnotice.scheduler;
 
+import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeAutomaticCollectionResult;
+import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeAutomaticCollectionWorkflow;
 import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionResult;
-import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionService;
+
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -29,15 +32,18 @@ import static org.mockito.Mockito.when;
 class ExternalNoticeSchedulerPeriodTests {
 
     @MockitoBean
-    private ExternalNoticeCollectionService collectionService;
+    private ExternalNoticeAutomaticCollectionWorkflow automaticCollectionWorkflow;
 
     @BeforeEach
     void setUpResult() {
-        when(collectionService.runCollection()).thenReturn(ExternalNoticeCollectionResult.builder().build());
+        when(automaticCollectionWorkflow.run()).thenReturn(new ExternalNoticeAutomaticCollectionResult(
+                ExternalNoticeCollectionResult.builder().build(),
+                List.of()
+        ));
     }
 
     @Test
     void appliesConfiguredFixedDelay() {
-        verify(collectionService, timeout(2_000).atLeast(2)).runCollection();
+        verify(automaticCollectionWorkflow, timeout(2_000).atLeast(2)).run();
     }
 }
