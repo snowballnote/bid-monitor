@@ -30,5 +30,9 @@ class KoreaExpresswayBidCollectorLiveTests {
         assertEquals("적격심사제", notice.getSucsfbidMthdNm());
         assertEquals("D", notice.getSucsfbidMthdAppStd());
         assertTrue(notice.getBidNtceNm().contains("감리용역"));
+        assertTrue(notice.getBidNtceDtlUrl().startsWith(
+                "https://ebid.ex.co.kr/default.do?menuId=NPRO12001&noti_id="
+        ));
+        assertTrue(notice.getBidNtceDtlUrl().contains("&noti_no=202608222&bid_no=1&bid_rev=1"));
     }
 }

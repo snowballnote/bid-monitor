@@ -853,11 +853,11 @@ function appendDocumentAnalysisDisclosure(parent, attachments, merged) {
 function appendBidDetailActions(parent, bid) {
     const actions = document.createElement("div");
     actions.className = "bid-detail-actions";
-    const sourceLink = createSafeLink(bid.bidNtceDtlUrl, "나라장터 원문 보기 ↗", "bid-source-link");
+    const sourceLink = createSafeLink(bid.bidNtceDtlUrl, "원문 보기 ↗", "bid-source-link");
     if (sourceLink) {
         actions.appendChild(sourceLink);
     } else {
-        appendTextElement(actions, "span", "analysis-empty-text", "나라장터 원문 링크가 없습니다.");
+        appendTextElement(actions, "span", "analysis-empty-text", "원문 링크를 확인할 수 없습니다.");
     }
     parent.appendChild(actions);
 }

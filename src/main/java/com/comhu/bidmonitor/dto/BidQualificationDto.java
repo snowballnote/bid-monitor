@@ -35,7 +35,7 @@ public class BidQualificationDto {
     // 배정예산금액
     private String asignBdgtAmt;
 
-    // 나라장터 입찰공고 상세 URL
+    // 공고가 실제로 수집된 원본 사이트의 상세조회 URL
     private String bidNtceDtlUrl;
 
     // 공고문, 과업지시서, 제안요청서 등 나라장터 첨부문서 목록

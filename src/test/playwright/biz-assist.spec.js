@@ -35,7 +35,7 @@ const bidNotice = {
             jointContractRequirements: []
         }
     }],
-    bidNtceDtlUrl: "https://example.com/bids/20260901001"
+    bidNtceDtlUrl: "https://www.g2b.go.kr/link/PNPE027_01/single/?bidPbancNo=20260901001"
 };
 
 const piaNotice = {
@@ -75,13 +75,13 @@ test.beforeAll(() => {
     fs.mkdirSync(screenshotDirectory, { recursive: true });
 });
 
-async function mockApis(page) {
+async function mockApis(page, bids = [bidNotice]) {
     let collectionRequestCount = 0;
 
     await page.route("**/api/bids/**", (route) => route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify([bidNotice])
+        body: JSON.stringify(bids)
     }));
 
     await page.route("**/api/external-notices**", async (route) => {
@@ -148,10 +148,11 @@ test("홈과 세 업무 메뉴가 Biz Assist 앱 셸에서 연결된다", async 
     await expect(bidModal).toContainText("166,564,000원");
     await expect(bidModal).toContainText(bidNotice.awardMethodReason);
     await expect(bidModal.getByText("문서분석 보기")).toBeVisible();
-    const bidSourceLink = bidModal.getByRole("link", { name: "나라장터 원문 보기 ↗" });
+    const bidSourceLink = bidModal.getByRole("link", { name: "원문 보기 ↗" });
     await expect(bidSourceLink).toHaveAttribute("href", bidNotice.bidNtceDtlUrl);
     await expect(bidSourceLink).toHaveAttribute("target", "_blank");
     await expect(bidSourceLink).toHaveAttribute("rel", "noopener noreferrer");
+    await expect(bidModal.getByRole("link", { name: /나라장터 원문 보기/ })).toHaveCount(0);
     const expandedModalStyle = await page.addStyleTag({ content: [
         "#document-analysis-modal { position: absolute !important; align-items: flex-start !important; min-height: 100vh !important; overflow: visible !important; }",
         ".analysis-modal { max-height: none !important; margin: 24px auto !important; align-self: flex-start !important; }",
@@ -174,6 +175,32 @@ test("홈과 세 업무 메뉴가 Biz Assist 앱 셸에서 연결된다", async 
     await page.getByRole("link", { name: "외부 중요공지", exact: true }).click();
     await expect(page).toHaveURL(/\/notices\/$/);
     await expect(page.getByRole("link", { name: "외부 중요공지", exact: true })).toHaveAttribute("aria-current", "page");
+});
+
+test("원문 URL이 없거나 유효하지 않으면 상세 모달에 깨진 링크를 표시하지 않는다", async ({ page }) => {
+    const noUrlBid = {
+        ...bidNotice,
+        bidNtceNo: "NO-URL-001",
+        bidNtceNm: "원문 URL이 없는 감리 용역",
+        bidNtceDtlUrl: ""
+    };
+    const invalidUrlBid = {
+        ...bidNotice,
+        bidNtceNo: "INVALID-URL-001",
+        bidNtceNm: "잘못된 원문 URL을 가진 감리 용역",
+        bidNtceDtlUrl: "javascript:alert(1)"
+    };
+    await mockApis(page, [noUrlBid, invalidUrlBid]);
+    await page.goto("/bids/");
+
+    for (const bid of [noUrlBid, invalidUrlBid]) {
+        const row = page.locator("#bid-list tr").filter({ hasText: bid.bidNtceNm });
+        await row.getByRole("button", { name: "상세", exact: true }).click();
+        const modal = page.getByRole("dialog", { name: "입찰공고 상세" });
+        await expect(modal.getByRole("link", { name: "원문 보기 ↗" })).toHaveCount(0);
+        await expect(modal.getByText("원문 링크를 확인할 수 없습니다.")).toBeVisible();
+        await modal.getByRole("button", { name: "입찰공고 상세 닫기" }).click();
+    }
 });
 
 test("외부공지 필터, 상세, 홈의 직접 연결과 수동 수집이 동작한다", async ({ page }) => {

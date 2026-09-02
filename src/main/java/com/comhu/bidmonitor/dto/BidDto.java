@@ -35,7 +35,7 @@ public class BidDto {
     // 낙찰자결정방법명
     private String sucsfbidMthdNm;
 
-    // 입찰공고 상세조회 URL
+    // 공고가 실제로 수집된 원본 사이트의 상세조회 URL
     private String bidNtceDtlUrl;
 
     // 낙찰방법코드

@@ -18,7 +18,11 @@ class KoreaExpresswayBidCollectorTests {
         JsonNode listItem = objectMapper.readTree("""
                 {
                   "noti_no": "202608222",
-                  "noti_nm": "AI기술을 활용한 통행료정보시스템 고도화 감리용역"
+                  "noti_nm": "AI기술을 활용한 통행료정보시스템 고도화 감리용역",
+                  "noti_id": "18dfabd2-78d6-4516-9df0-719509258e03",
+                  "noti_cont_id": "203a2dd1-1f77-4a20-9796-f2366708733f",
+                  "bid_no": 1,
+                  "bid_rev": 1
                 }
                 """);
         JsonNode detail = objectMapper.readTree("""
@@ -46,6 +50,13 @@ class KoreaExpresswayBidCollectorTests {
         assertEquals("2026-08-27 10:00", result.getBidNtceDt());
         assertEquals("2026-09-04 10:00", result.getBidClseDt());
         assertEquals("134827834", result.getAsignBdgtAmt());
+        assertEquals(
+                "https://ebid.ex.co.kr/default.do?menuId=NPRO12001"
+                        + "&noti_id=18dfabd2-78d6-4516-9df0-719509258e03"
+                        + "&noti_cont_id=203a2dd1-1f77-4a20-9796-f2366708733f"
+                        + "&noti_no=202608222&bid_no=1&bid_rev=1",
+                result.getBidNtceDtlUrl()
+        );
         assertEquals("적격심사제", result.getSucsfbidMthdNm());
         assertEquals("D", result.getSucsfbidMthdAppStd());
         assertEquals("N", result.getPqEvalYn());

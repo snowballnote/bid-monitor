@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -193,7 +194,7 @@ public class KoreaExpresswayBidCollector implements BidCandidateCollector {
         qualification.setBidNtceDt(formatSourceDateTime(detail.path("bid_start_dt").asText()));
         qualification.setBidClseDt(formatSourceDateTime(detail.path("bid_end_dt").asText()));
         qualification.setAsignBdgtAmt(detail.path("dsgng_amt").asText());
-        qualification.setBidNtceDtlUrl(baseUrl + "/default.do?menuId=NPRO12001");
+        qualification.setBidNtceDtlUrl(createSourceDetailUrl(listItem));
         qualification.setAttachments(createAttachments(detailResponse.path("fileAttList")));
         qualification.setLicenseLimit(detail.path("bid_prtc_lcs").asText());
         qualification.setLicenseGroups(List.of());
@@ -239,6 +240,30 @@ public class KoreaExpresswayBidCollector implements BidCandidateCollector {
 
     private String formatNoticeNumber(String noticeNumber) {
         return noticeNumber.isBlank() ? "" : noticeNumber + "-00";
+    }
+
+    /** 공개 목록 응답의 식별자로 새 세션에서도 곧바로 해당 공고 상세를 여는 URL을 만든다. */
+    private String createSourceDetailUrl(JsonNode listItem) {
+        String notiId = listItem.path("noti_id").asText();
+        String notiContentId = listItem.path("noti_cont_id").asText();
+        String noticeNumber = listItem.path("noti_no").asText();
+        String bidNumber = listItem.path("bid_no").asText();
+        String bidRevision = listItem.path("bid_rev").asText();
+        if (List.of(notiId, notiContentId, noticeNumber, bidNumber, bidRevision)
+                .stream().anyMatch(String::isBlank)) {
+            return "";
+        }
+
+        return baseUrl + "/default.do?menuId=NPRO12001"
+                + "&noti_id=" + encodeQueryValue(notiId)
+                + "&noti_cont_id=" + encodeQueryValue(notiContentId)
+                + "&noti_no=" + encodeQueryValue(noticeNumber)
+                + "&bid_no=" + encodeQueryValue(bidNumber)
+                + "&bid_rev=" + encodeQueryValue(bidRevision);
+    }
+
+    private String encodeQueryValue(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
     private String formatSourceDateTime(String value) {
