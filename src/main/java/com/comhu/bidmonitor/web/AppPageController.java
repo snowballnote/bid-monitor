@@ -11,4 +11,9 @@ public class AppPageController {
     public String bidPage() {
         return "forward:/bids/index.html";
     }
+
+    @GetMapping({"/notifications", "/notifications/"})
+    public String notificationSubscriberPage() {
+        return "forward:/notifications/index.html";
+    }
 }

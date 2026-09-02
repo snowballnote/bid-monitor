@@ -38,6 +38,7 @@ class ExternalNoticePageTests {
                 .andExpect(content().string(containsString("Biz Assist")))
                 .andExpect(content().string(containsString("href=\"/bids/\"")))
                 .andExpect(content().string(containsString("href=\"/notices/\"")))
+                .andExpect(content().string(containsString("href=\"/notifications/\"")))
                 .andExpect(content().string(containsString("home.js")));
 
         mockMvc.perform(get("/common.css"))
@@ -85,5 +86,30 @@ class ExternalNoticePageTests {
                 .andExpect(content().string(containsString("common.css")))
                 .andExpect(content().string(containsString("id=\"range-search-form\"")))
                 .andExpect(content().string(containsString("id=\"bid-list\"")));
+    }
+
+    @Test
+    void servesNotificationSubscriberManagementPageAndAssets() throws Exception {
+        mockMvc.perform(get("/notifications/"))
+                .andExpect(status().isOk())
+                .andExpect(forwardedUrl("/notifications/index.html"));
+
+        mockMvc.perform(get("/notifications/index.html"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("id=\"open-subscriber-modal\"")))
+                .andExpect(content().string(containsString("id=\"subscriber-table-body\"")))
+                .andExpect(content().string(containsString("id=\"subscriber-modal\"")))
+                .andExpect(content().string(containsString("notifications.css")))
+                .andExpect(content().string(containsString("notifications.js")));
+
+        mockMvc.perform(get("/notifications/notifications.css"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString(".subscriber-card-list")));
+
+        mockMvc.perform(get("/notifications/notifications.js"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("/api/notification-subscribers")))
+                .andExpect(content().string(containsString("method: \"POST\"")))
+                .andExpect(content().string(containsString("method: \"PATCH\"")));
     }
 }

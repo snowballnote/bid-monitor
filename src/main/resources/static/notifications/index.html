@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>알림 신청 관리 | Biz Assist</title>
+    <link rel="stylesheet" href="/common.css">
+    <link rel="stylesheet" href="/notifications/notifications.css">
+</head>
+<body>
+<div class="app-shell">
+    <aside class="app-sidebar">
+        <a class="app-brand" href="/" aria-label="Biz Assist 홈">
+            <span class="app-brand-mark" aria-hidden="true">BA</span>
+            <span><strong>Biz Assist</strong><small>경영지원 업무지원</small></span>
+        </a>
+        <nav class="app-nav" aria-label="주요 메뉴">
+            <a class="app-nav-link" href="/">홈</a>
+            <a class="app-nav-link" href="/bids/">입찰공고</a>
+            <a class="app-nav-link" href="/notices/">외부 중요공지</a>
+            <a class="app-nav-link active" href="/notifications/" aria-current="page">알림 관리</a>
+        </nav>
+        <p class="app-sidebar-description">경영지원에 필요한 정보를 한곳에서 확인하세요.</p>
+    </aside>
+
+    <main class="app-main">
+        <div class="page-container notification-page">
+            <header class="page-header page-heading page-heading-actions">
+                <div>
+                    <span class="page-eyebrow">NOTIFICATION</span>
+                    <h1>알림 신청 관리</h1>
+                    <p>중요공지 이메일 알림 수신자를 관리합니다.</p>
+                </div>
+                <button id="open-subscriber-modal" class="ui-button ui-button-primary" type="button">+ 신청자 등록</button>
+            </header>
+
+            <section class="subscriber-summary" aria-label="알림 신청자 현황">
+                <article><span>전체 신청자 수</span><strong id="subscriber-total-count">-</strong></article>
+                <article><span>활성 신청자 수</span><strong id="subscriber-enabled-count">-</strong></article>
+                <article><span>비활성 신청자 수</span><strong id="subscriber-disabled-count">-</strong></article>
+            </section>
+
+            <div id="subscriber-toast" class="subscriber-toast hidden" role="status" aria-live="polite"></div>
+
+            <section class="subscriber-board surface-card" aria-labelledby="subscriber-list-title">
+                <header class="subscriber-board-header">
+                    <div>
+                        <h2 id="subscriber-list-title">신청자 목록</h2>
+                        <p>PIA 중요공지 이메일 알림 수신 상태를 확인합니다.</p>
+                    </div>
+                </header>
+
+                <div id="subscriber-loading" class="state-message" role="status">신청자 목록을 불러오는 중입니다.</div>
+                <div id="subscriber-error" class="state-message error hidden" role="alert"></div>
+                <div id="subscriber-empty" class="state-message hidden">
+                    <strong>등록된 알림 신청자가 없습니다.</strong>
+                    <span>신청자를 등록하면 PIA 중요공지 발생 시 이메일 알림을 받을 수 있습니다.</span>
+                </div>
+
+                <div id="subscriber-table-wrap" class="subscriber-table-wrap hidden">
+                    <table class="subscriber-table">
+                        <thead>
+                        <tr><th>이름</th><th>이메일</th><th>알림 유형</th><th>상태</th><th>등록일</th><th>관리</th></tr>
+                        </thead>
+                        <tbody id="subscriber-table-body"></tbody>
+                    </table>
+                </div>
+                <div id="subscriber-card-list" class="subscriber-card-list hidden" aria-live="polite"></div>
+            </section>
+        </div>
+    </main>
+</div>
+
+<div id="subscriber-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-hidden="true"
+     aria-labelledby="subscriber-modal-title">
+    <section class="subscriber-modal service-modal">
+        <header class="modal-header service-modal-header">
+            <div>
+                <span class="page-eyebrow">NEW SUBSCRIBER</span>
+                <h2 id="subscriber-modal-title">신청자 등록</h2>
+            </div>
+            <button id="close-subscriber-modal" class="modal-close-button" type="button" aria-label="신청자 등록 닫기">×</button>
+        </header>
+        <form id="subscriber-form" novalidate>
+            <div class="subscriber-form-body">
+                <label class="form-field" for="subscriber-name">
+                    <span>이름</span>
+                    <input id="subscriber-name" name="name" type="text" maxlength="200" autocomplete="name">
+                </label>
+                <label class="form-field" for="subscriber-email">
+                    <span>이메일 <em>필수</em></span>
+                    <input id="subscriber-email" name="email" type="email" maxlength="320" autocomplete="email" required>
+                </label>
+                <label class="form-field" for="subscriber-notification-type">
+                    <span>알림 유형</span>
+                    <select id="subscriber-notification-type" name="notificationType">
+                        <option value="PIA_EXTERNAL_NOTICE">PIA 중요공지</option>
+                    </select>
+                </label>
+                <p id="subscriber-form-error" class="form-error hidden" role="alert"></p>
+            </div>
+            <footer class="subscriber-modal-actions">
+                <button id="cancel-subscriber-modal" class="ui-button ui-button-secondary" type="button">취소</button>
+                <button id="submit-subscriber" class="ui-button ui-button-primary" type="submit">등록</button>
+            </footer>
+        </form>
+    </section>
+</div>
+
+<script src="/notifications/notifications.js"></script>
+</body>
+</html>

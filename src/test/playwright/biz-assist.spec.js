@@ -108,12 +108,12 @@ async function mockApis(page, bids = [bidNotice]) {
     return () => collectionRequestCount;
 }
 
-test("홈과 세 업무 메뉴가 Biz Assist 앱 셸에서 연결된다", async ({ page }) => {
+test("홈과 네 업무 메뉴가 Biz Assist 앱 셸에서 연결된다", async ({ page }) => {
     await mockApis(page);
     await page.goto("/");
 
     await expect(page.getByRole("heading", { name: "안녕하세요." })).toBeVisible();
-    await expect(page.locator(".app-nav-link")).toHaveCount(3);
+    await expect(page.locator(".app-nav-link")).toHaveCount(4);
     await expect(page.getByRole("link", { name: "홈", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(page.locator("#bid-total-count")).toHaveText("1건");
     await expect(page.locator("#bid-check-count")).toHaveText("1건");
@@ -262,7 +262,7 @@ test("390px 모바일 앱 셸에 가로 넘침이 없다", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockApis(page);
     await page.goto("/");
-    await expect(page.locator(".app-nav-link")).toHaveCount(3);
+    await expect(page.locator(".app-nav-link")).toHaveCount(4);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
     await page.screenshot({ path: path.join(screenshotDirectory, "biz-assist-mobile.png"), fullPage: true });
 
@@ -291,4 +291,147 @@ test("390px 모바일 앱 셸에 가로 넘침이 없다", async ({ page }) => {
     await page.screenshot({ path: path.join(screenshotDirectory, "biz-assist-notice-detail-mobile.png"), fullPage: true });
     await page.keyboard.press("Escape");
     await expect(modal).toBeHidden();
+});
+
+async function mockSubscriberApi(page, initialSubscribers = [], duplicateEmail = null) {
+    const state = {
+        subscribers: initialSubscribers.map((subscriber) => ({ ...subscriber })),
+        postBodies: [],
+        disabledIds: []
+    };
+
+    await page.route("**/api/notification-subscribers**", async (route) => {
+        const request = route.request();
+        const url = new URL(request.url());
+        const method = request.method();
+        if (method === "GET" && url.pathname === "/api/notification-subscribers") {
+            await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state.subscribers) });
+            return;
+        }
+        if (method === "POST" && url.pathname === "/api/notification-subscribers") {
+            const body = request.postDataJSON();
+            state.postBodies.push(body);
+            if (body.email === duplicateEmail) {
+                await route.fulfill({
+                    status: 409,
+                    contentType: "application/json",
+                    body: JSON.stringify({ status: 409, error: "Conflict", message: "이미 등록된 신청자입니다." })
+                });
+                return;
+            }
+            const saved = {
+                id: Math.max(0, ...state.subscribers.map((subscriber) => subscriber.id)) + 1,
+                ...body,
+                enabled: true,
+                createdAt: "2026-09-02T07:00:00Z",
+                updatedAt: "2026-09-02T07:00:00Z"
+            };
+            state.subscribers.push(saved);
+            await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify(saved) });
+            return;
+        }
+        const disableMatch = url.pathname.match(/^\/api\/notification-subscribers\/(\d+)\/disable$/);
+        if (method === "PATCH" && disableMatch) {
+            const id = Number(disableMatch[1]);
+            state.disabledIds.push(id);
+            const subscriber = state.subscribers.find((item) => item.id === id);
+            subscriber.enabled = false;
+            subscriber.updatedAt = "2026-09-02T08:00:00Z";
+            await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(subscriber) });
+            return;
+        }
+        await route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
+    });
+    return state;
+}
+
+const activeSubscriber = {
+    id: 1,
+    email: "active@example.com",
+    name: "활성 사용자",
+    notificationType: "PIA_EXTERNAL_NOTICE",
+    enabled: true,
+    createdAt: "2026-09-01T00:00:00Z",
+    updatedAt: "2026-09-01T00:00:00Z"
+};
+
+const disabledSubscriber = {
+    id: 2,
+    email: "disabled@example.com",
+    name: "비활성 사용자",
+    notificationType: "PIA_EXTERNAL_NOTICE",
+    enabled: false,
+    createdAt: "2026-08-31T00:00:00Z",
+    updatedAt: "2026-09-01T00:00:00Z"
+};
+
+test("알림 관리에서 목록 조회, 신규 등록과 비활성화가 동작한다", async ({ page }) => {
+    const state = await mockSubscriberApi(page, [activeSubscriber, disabledSubscriber]);
+    page.on("dialog", (dialog) => dialog.accept());
+    await page.goto("/notifications/");
+
+    await expect(page.getByRole("heading", { name: "알림 신청 관리" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "알림 관리", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(page.locator("#subscriber-total-count")).toHaveText("2");
+    await expect(page.locator("#subscriber-enabled-count")).toHaveText("1");
+    await expect(page.locator("#subscriber-disabled-count")).toHaveText("1");
+    await expect(page.locator("#subscriber-table-body tr")).toHaveCount(2);
+    await expect(page.locator("#subscriber-table-body")).toContainText("PIA 중요공지");
+    await expect(page.locator("#subscriber-table-body tr").filter({ hasText: "비활성 사용자" }).getByRole("button", { name: "비활성화" })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "+ 신청자 등록" }).click();
+    const modal = page.getByRole("dialog", { name: "신청자 등록" });
+    await modal.getByLabel("이름").fill("신규 사용자");
+    await modal.getByLabel("이메일 필수").fill("new@example.com");
+    await modal.getByRole("button", { name: "등록", exact: true }).click();
+
+    await expect(modal).toBeHidden();
+    await expect(page.locator("#subscriber-toast")).toHaveText("신청자를 등록했습니다.");
+    await expect(page.locator("#subscriber-total-count")).toHaveText("3");
+    await expect(page.locator("#subscriber-table-body")).toContainText("new@example.com");
+    expect(state.postBodies).toEqual([{
+        name: "신규 사용자",
+        email: "new@example.com",
+        notificationType: "PIA_EXTERNAL_NOTICE"
+    }]);
+
+    const activeRow = page.locator('#subscriber-table-body tr[data-subscriber-id="1"]');
+    await activeRow.getByRole("button", { name: "비활성화" }).click();
+    await expect(page.locator("#subscriber-toast")).toHaveText("신청자를 비활성화했습니다.");
+    await expect(activeRow).toContainText("비활성");
+    await expect(activeRow.getByRole("button", { name: "비활성화" })).toHaveCount(0);
+    expect(state.disabledIds).toEqual([1]);
+});
+
+test("알림 신청 중복 등록은 409 안내를 표시한다", async ({ page }) => {
+    await mockSubscriberApi(page, [activeSubscriber], "active@example.com");
+    await page.goto("/notifications/");
+    await page.getByRole("button", { name: "+ 신청자 등록" }).click();
+    const modal = page.getByRole("dialog", { name: "신청자 등록" });
+    await modal.getByLabel("이메일 필수").fill("active@example.com");
+    await modal.getByRole("button", { name: "등록", exact: true }).click();
+
+    await expect(modal).toBeVisible();
+    await expect(modal.getByRole("alert")).toHaveText("이미 등록된 이메일입니다.");
+});
+
+test("알림 신청자가 없으면 빈 상태를 표시한다", async ({ page }) => {
+    await mockSubscriberApi(page, []);
+    await page.goto("/notifications/");
+
+    await expect(page.getByText("등록된 알림 신청자가 없습니다.")).toBeVisible();
+    await expect(page.getByText("신청자를 등록하면 PIA 중요공지 발생 시 이메일 알림을 받을 수 있습니다.")).toBeVisible();
+    await expect(page.locator("#subscriber-table-wrap")).toBeHidden();
+});
+
+test("알림 관리 모바일 화면은 신청자를 카드 목록으로 표시한다", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockSubscriberApi(page, [activeSubscriber, disabledSubscriber]);
+    await page.goto("/notifications/");
+
+    await expect(page.locator(".app-nav-link")).toHaveCount(4);
+    await expect(page.locator("#subscriber-table-wrap")).toBeHidden();
+    await expect(page.locator(".subscriber-card")).toHaveCount(2);
+    await expect(page.locator(".subscriber-card").first()).toContainText("active@example.com");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
 });

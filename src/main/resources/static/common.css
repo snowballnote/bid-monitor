@@ -142,8 +142,8 @@ body.modal-open { overflow: hidden; }
     .app-brand { padding: 0 0 var(--space-3); }
     .app-brand-mark { width: 32px; height: 32px; }
     .app-brand small, .app-sidebar-description { display: none; }
-    .app-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; }
-    .app-nav-link { justify-content: center; min-height: 42px; padding: 0 var(--space-1); border-radius: 0; font-size: 13px; }
+    .app-nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; }
+    .app-nav-link { justify-content: center; min-height: 42px; padding: 0 var(--space-1); border-radius: 0; font-size: 12px; }
     .app-nav-link.active { border-bottom: 2px solid var(--primary); background: transparent; }
     .app-main { margin-left: 0; }
     .page-container { padding: 28px var(--space-4) 40px; }
