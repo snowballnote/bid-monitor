@@ -11,22 +11,28 @@ import com.comhu.bidmonitor.notification.model.NotificationDeliveryStatus;
 import com.comhu.bidmonitor.notification.model.NotificationType;
 import com.comhu.bidmonitor.notification.persistence.NotificationDelivery;
 import com.comhu.bidmonitor.notification.persistence.NotificationDeliveryRepository;
+import com.comhu.bidmonitor.notification.subscriber.model.NotificationSubscriber;
+import com.comhu.bidmonitor.notification.subscriber.persistence.NotificationSubscriberDelivery;
+import com.comhu.bidmonitor.notification.subscriber.persistence.NotificationSubscriberDeliveryRepository;
+import com.comhu.bidmonitor.notification.subscriber.service.NotificationSubscriberService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.doNothing;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -40,124 +46,245 @@ class NotificationDispatcherTests {
     private static final Instant SENT_AT = Instant.parse("2026-09-02T03:00:00Z");
     private static final String SOURCE_CODE = "PRIVACY_PORTAL";
 
+    private final Map<String, NotificationSubscriberDelivery> subscriberDeliveries = new LinkedHashMap<>();
+    private final AtomicLong subscriberDeliveryIds = new AtomicLong();
+
     private NotificationDeliveryRepository deliveryRepository;
+    private NotificationSubscriberDeliveryRepository subscriberDeliveryRepository;
+    private NotificationSubscriberService subscriberService;
     private ExternalNoticeRepository noticeRepository;
     private EmailSender emailSender;
-    private ExternalNoticeEmailFactory emailFactory;
 
     @BeforeEach
     void setUp() {
         deliveryRepository = mock(NotificationDeliveryRepository.class);
+        subscriberDeliveryRepository = mock(NotificationSubscriberDeliveryRepository.class);
+        subscriberService = mock(NotificationSubscriberService.class);
         noticeRepository = mock(ExternalNoticeRepository.class);
         emailSender = mock(EmailSender.class);
-        emailFactory = new ExternalNoticeEmailFactory();
+
+        when(subscriberDeliveryRepository.createPendingIfAbsent(anyLong(), anyLong(), any()))
+                .thenAnswer(invocation -> createSubscriberDelivery(
+                        invocation.getArgument(0),
+                        invocation.getArgument(1),
+                        invocation.getArgument(2)
+                ));
+        when(subscriberDeliveryRepository.findByNotificationDeliveryId(anyLong()))
+                .thenAnswer(invocation -> subscriberDeliveries.values().stream()
+                        .filter(delivery -> delivery.getNotificationDeliveryId().equals(invocation.getArgument(0)))
+                        .toList());
+        doAnswer(invocation -> {
+            updateSubscriberDelivery(
+                    invocation.getArgument(0),
+                    NotificationDeliveryStatus.SENT,
+                    invocation.getArgument(1),
+                    null
+            );
+            return null;
+        }).when(subscriberDeliveryRepository).markSent(anyLong(), any());
+        doAnswer(invocation -> {
+            updateSubscriberDelivery(
+                    invocation.getArgument(0),
+                    NotificationDeliveryStatus.FAILED,
+                    null,
+                    invocation.getArgument(1)
+            );
+            return null;
+        }).when(subscriberDeliveryRepository).markFailed(anyLong(), any());
     }
 
     @Test
-    void pendingNewSendsOneEmailAndMarksSent() {
-        NotificationDelivery delivery = delivery(1L, "notice-new", NoticeChangeType.NEW);
-        arrange(delivery, notice("notice-new", "신규 공지", "https://example.com/new"));
+    void sendsThreeSeparateEmailsAndMarksEventSent() {
+        NotificationDelivery event = event(1L, "notice-new", NoticeChangeType.NEW, 'a');
+        arrangeEvents(List.of(event));
+        List<NotificationSubscriber> subscribers = List.of(
+                subscriber(11L, "one@example.com", true),
+                subscriber(12L, "two@example.com", true),
+                subscriber(13L, "three@example.com", true)
+        );
+        when(subscriberService.findEnabled(NotificationType.PIA_EXTERNAL_NOTICE)).thenReturn(subscribers);
 
         NotificationDispatchResult result = dispatcher(true).dispatchPending();
 
-        assertEquals(1, result.sentCount());
-        assertEquals(0, result.failedCount());
-        verify(emailSender).send(any());
-        verify(deliveryRepository).markSent(1L, SENT_AT);
+        assertEquals(3, result.sentCount());
+        verify(emailSender).send(eq("one@example.com"), any());
+        verify(emailSender).send(eq("two@example.com"), any());
+        verify(emailSender).send(eq("three@example.com"), any());
+        verify(deliveryRepository).markSent(eq(1L), any());
         verify(deliveryRepository, never()).markFailed(anyLong(), any());
     }
 
     @Test
-    void pendingUpdatedSendsOneEmailAndMarksSent() {
-        NotificationDelivery delivery = delivery(2L, "notice-updated", NoticeChangeType.UPDATED);
-        arrange(delivery, notice("notice-updated", "변경 공지", "https://example.com/updated"));
+    void oneSubscriberFailureDoesNotStopRemainingSubscribers() {
+        NotificationDelivery event = event(2L, "notice-failure", NoticeChangeType.NEW, 'b');
+        arrangeEvents(List.of(event));
+        when(subscriberService.findEnabled(NotificationType.PIA_EXTERNAL_NOTICE)).thenReturn(List.of(
+                subscriber(21L, "first@example.com", true),
+                subscriber(22L, "failed@example.com", true),
+                subscriber(23L, "last@example.com", true)
+        ));
+        doThrow(new IllegalStateException("credential-like-sensitive-value"))
+                .when(emailSender).send(eq("failed@example.com"), any());
 
         NotificationDispatchResult result = dispatcher(true).dispatchPending();
 
-        assertEquals(1, result.sentCount());
-        verify(emailSender).send(any());
-        verify(deliveryRepository).markSent(2L, SENT_AT);
-    }
-
-    @Test
-    void sendFailureMarksFailedWithCredentialFreeReason() {
-        NotificationDelivery delivery = delivery(3L, "notice-failed", NoticeChangeType.NEW);
-        arrange(delivery, notice("notice-failed", "실패 공지", null));
-        doThrow(new IllegalStateException("secret-password should never be persisted"))
-                .when(emailSender).send(any());
-
-        NotificationDispatchResult result = dispatcher(true).dispatchPending();
-
-        ArgumentCaptor<String> reasonCaptor = ArgumentCaptor.forClass(String.class);
+        assertEquals(2, result.sentCount());
         assertEquals(1, result.failedCount());
-        verify(deliveryRepository).markFailed(org.mockito.ArgumentMatchers.eq(3L), reasonCaptor.capture());
-        assertFalse(reasonCaptor.getValue().contains("secret-password"));
-        verify(deliveryRepository, never()).markSent(anyLong(), any());
+        verify(emailSender).send(eq("last@example.com"), any());
+        verify(deliveryRepository).markFailed(2L, "One or more subscriber deliveries failed");
+        assertEquals(
+                NotificationDeliveryStatus.FAILED,
+                subscriberDeliveries.get("2:22").getStatus()
+        );
+        assertEquals(
+                "Email delivery failed (IllegalStateException)",
+                subscriberDeliveries.get("2:22").getFailureReason()
+        );
     }
 
     @Test
-    void oneFailureDoesNotStopTheNextPendingDelivery() {
-        NotificationDelivery first = delivery(4L, "notice-first", NoticeChangeType.NEW);
-        NotificationDelivery second = delivery(5L, "notice-second", NoticeChangeType.UPDATED);
-        when(deliveryRepository.findPending(NotificationChannel.EMAIL, NotificationType.PIA_EXTERNAL_NOTICE))
-                .thenReturn(List.of(first, second));
-        when(noticeRepository.findByExternalId("notice-first"))
-                .thenReturn(Optional.of(notice("notice-first", "첫 번째", null)));
-        when(noticeRepository.findByExternalId("notice-second"))
-                .thenReturn(Optional.of(notice("notice-second", "두 번째", null)));
-        doThrow(new IllegalStateException("first failed"))
-                .doNothing()
-                .when(emailSender).send(any());
+    void oneSubscriberReservationFailureDoesNotStopRemainingSubscribers() {
+        NotificationDelivery event = event(7L, "notice-reservation-failure", NoticeChangeType.NEW, 'g');
+        arrangeEvents(List.of(event));
+        when(subscriberService.findEnabled(NotificationType.PIA_EXTERNAL_NOTICE)).thenReturn(List.of(
+                subscriber(71L, "first-db@example.com", true),
+                subscriber(72L, "failed-db@example.com", true),
+                subscriber(73L, "last-db@example.com", true)
+        ));
+        when(subscriberDeliveryRepository.createPendingIfAbsent(eq(7L), eq(72L), any()))
+                .thenThrow(new IllegalStateException("temporary DB failure"));
 
         NotificationDispatchResult result = dispatcher(true).dispatchPending();
 
-        assertEquals(1, result.sentCount());
+        assertEquals(2, result.sentCount());
         assertEquals(1, result.failedCount());
-        verify(emailSender, times(2)).send(any());
-        verify(deliveryRepository).markFailed(org.mockito.ArgumentMatchers.eq(4L), any());
-        verify(deliveryRepository).markSent(5L, SENT_AT);
+        verify(emailSender).send(eq("last-db@example.com"), any());
+        verify(deliveryRepository).markFailed(7L, "One or more subscriber deliveries failed");
     }
 
     @Test
-    void sentDeliveryIsNotSentAgainWhenRepositoryNoLongerReturnsItAsPending() {
-        NotificationDelivery delivery = delivery(6L, "notice-once", NoticeChangeType.NEW);
-        when(deliveryRepository.findPending(NotificationChannel.EMAIL, NotificationType.PIA_EXTERNAL_NOTICE))
-                .thenReturn(List.of(delivery))
-                .thenReturn(List.of());
-        when(noticeRepository.findByExternalId("notice-once"))
-                .thenReturn(Optional.of(notice("notice-once", "한 번만", null)));
+    void sameEventAndSubscriberIsNeverSentTwice() {
+        NotificationDelivery event = event(3L, "notice-once", NoticeChangeType.NEW, 'c');
+        arrangeEvents(List.of(event));
+        when(subscriberService.findEnabled(NotificationType.PIA_EXTERNAL_NOTICE))
+                .thenReturn(List.of(subscriber(31L, "once@example.com", true)));
         NotificationDispatcher dispatcher = dispatcher(true);
 
         dispatcher.dispatchPending();
         dispatcher.dispatchPending();
 
-        verify(emailSender).send(any());
-        verify(deliveryRepository).markSent(6L, SENT_AT);
+        verify(emailSender).send(eq("once@example.com"), any());
+        assertEquals(1, subscriberDeliveries.size());
     }
 
     @Test
-    void disabledDispatcherDoesNotQuerySendOrChangeStatus() {
+    void updatedFingerprintCreatesAnotherEventForTheSameSubscriber() {
+        NotificationDelivery first = event(4L, "notice-updated", NoticeChangeType.NEW, 'd');
+        NotificationDelivery updated = event(5L, "notice-updated", NoticeChangeType.UPDATED, 'e');
+        when(deliveryRepository.findPending(NotificationChannel.EMAIL, NotificationType.PIA_EXTERNAL_NOTICE))
+                .thenReturn(List.of(first))
+                .thenReturn(List.of(updated));
+        when(noticeRepository.findByExternalId("notice-updated"))
+                .thenReturn(Optional.of(notice("notice-updated")));
+        when(subscriberService.findEnabled(NotificationType.PIA_EXTERNAL_NOTICE))
+                .thenReturn(List.of(subscriber(41L, "updates@example.com", true)));
+        NotificationDispatcher dispatcher = dispatcher(true);
+
+        dispatcher.dispatchPending();
+        dispatcher.dispatchPending();
+
+        verify(emailSender, times(2)).send(eq("updates@example.com"), any());
+        assertEquals(2, subscriberDeliveries.size());
+    }
+
+    @Test
+    void noActiveSubscribersLeavesEventPendingWithoutSending() {
+        arrangeEvents(List.of(event(6L, "notice-no-subscriber", NoticeChangeType.NEW, 'f')));
+        when(subscriberService.findEnabled(NotificationType.PIA_EXTERNAL_NOTICE)).thenReturn(List.of());
+
+        dispatcher(true).dispatchPending();
+
+        verifyNoInteractions(emailSender);
+        verify(deliveryRepository, never()).markSent(anyLong(), any());
+        verify(deliveryRepository, never()).markFailed(anyLong(), any());
+    }
+
+    @Test
+    void disabledMailDoesNotQuerySendOrChangeAnyStatus() {
         NotificationDispatchResult result = dispatcher(false).dispatchPending();
 
         assertEquals(NotificationDispatchResult.disabledResult(), result);
-        verifyNoInteractions(deliveryRepository, noticeRepository, emailSender);
+        verifyNoInteractions(
+                deliveryRepository,
+                subscriberDeliveryRepository,
+                subscriberService,
+                noticeRepository,
+                emailSender
+        );
     }
 
-    private void arrange(NotificationDelivery delivery, ExternalNotice notice) {
+    private void arrangeEvents(List<NotificationDelivery> events) {
         when(deliveryRepository.findPending(NotificationChannel.EMAIL, NotificationType.PIA_EXTERNAL_NOTICE))
-                .thenReturn(List.of(delivery));
-        when(noticeRepository.findByExternalId(delivery.getExternalId())).thenReturn(Optional.of(notice));
+                .thenReturn(events);
+        for (NotificationDelivery event : events) {
+            when(noticeRepository.findByExternalId(event.getExternalId()))
+                    .thenReturn(Optional.of(notice(event.getExternalId())));
+        }
     }
 
     private NotificationDispatcher dispatcher(boolean enabled) {
         return new NotificationDispatcher(
                 deliveryRepository,
+                subscriberDeliveryRepository,
+                subscriberService,
                 noticeRepository,
                 emailSender,
-                emailFactory,
+                new ExternalNoticeEmailFactory(),
                 properties(enabled),
                 Clock.fixed(SENT_AT, ZoneOffset.UTC)
         );
+    }
+
+    private Optional<NotificationSubscriberDelivery> createSubscriberDelivery(
+            Long eventId,
+            Long subscriberId,
+            Instant createdAt
+    ) {
+        String key = eventId + ":" + subscriberId;
+        if (subscriberDeliveries.containsKey(key)) {
+            return Optional.empty();
+        }
+        NotificationSubscriberDelivery delivery = NotificationSubscriberDelivery.builder()
+                .id(subscriberDeliveryIds.incrementAndGet())
+                .notificationDeliveryId(eventId)
+                .subscriberId(subscriberId)
+                .status(NotificationDeliveryStatus.PENDING)
+                .createdAt(createdAt)
+                .build();
+        subscriberDeliveries.put(key, delivery);
+        return Optional.of(delivery);
+    }
+
+    private void updateSubscriberDelivery(
+            Long id,
+            NotificationDeliveryStatus status,
+            Instant sentAt,
+            String failureReason
+    ) {
+        Map.Entry<String, NotificationSubscriberDelivery> entry = subscriberDeliveries.entrySet().stream()
+                .filter(candidate -> candidate.getValue().getId().equals(id))
+                .findFirst()
+                .orElseThrow();
+        NotificationSubscriberDelivery current = entry.getValue();
+        entry.setValue(NotificationSubscriberDelivery.builder()
+                .id(current.getId())
+                .notificationDeliveryId(current.getNotificationDeliveryId())
+                .subscriberId(current.getSubscriberId())
+                .status(status)
+                .createdAt(current.getCreatedAt())
+                .sentAt(sentAt)
+                .failureReason(failureReason)
+                .build());
     }
 
     private BizAssistMailProperties properties(boolean enabled) {
@@ -168,7 +295,6 @@ class NotificationDispatcherTests {
                 "username",
                 "password",
                 "sender@example.com",
-                "recipient@example.com",
                 true,
                 true,
                 false,
@@ -178,7 +304,24 @@ class NotificationDispatcherTests {
         );
     }
 
-    private NotificationDelivery delivery(Long id, String externalId, NoticeChangeType changeType) {
+    private NotificationSubscriber subscriber(Long id, String email, boolean enabled) {
+        return NotificationSubscriber.builder()
+                .id(id)
+                .email(email)
+                .name("신청자 " + id)
+                .notificationType(NotificationType.PIA_EXTERNAL_NOTICE)
+                .enabled(enabled)
+                .createdAt(SENT_AT.minusSeconds(100))
+                .updatedAt(SENT_AT.minusSeconds(100))
+                .build();
+    }
+
+    private NotificationDelivery event(
+            Long id,
+            String externalId,
+            NoticeChangeType changeType,
+            char fingerprintCharacter
+    ) {
         return NotificationDelivery.builder()
                 .id(id)
                 .channel(NotificationChannel.EMAIL)
@@ -186,24 +329,24 @@ class NotificationDispatcherTests {
                 .sourceCode(SOURCE_CODE)
                 .externalId(externalId)
                 .changeType(changeType)
-                .contentFingerprint(String.valueOf(id).repeat(64).substring(0, 64))
+                .contentFingerprint(String.valueOf(fingerprintCharacter).repeat(64))
                 .status(NotificationDeliveryStatus.PENDING)
                 .createdAt(SENT_AT.minusSeconds(60))
                 .build();
     }
 
-    private ExternalNotice notice(String externalId, String title, String detailUrl) {
+    private ExternalNotice notice(String externalId) {
         return ExternalNotice.builder()
                 .id(100L)
                 .sourceCode(SOURCE_CODE)
                 .externalId(externalId)
                 .sourceNoticeId(externalId)
-                .title(title)
+                .title("PIA 중요공지")
                 .publishedDate(LocalDate.of(2026, 9, 1))
-                .detailUrl(detailUrl)
+                .detailUrl("https://example.com/notices/" + externalId)
                 .piaRelated(true)
                 .matchedKeywords(List.of("개인정보 영향평가", "전문교육"))
-                .fingerprint("f".repeat(64))
+                .fingerprint("z".repeat(64))
                 .build();
     }
 }

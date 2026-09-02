@@ -16,7 +16,6 @@ class SmtpEmailSenderLiveTests {
                 required("BIZ_ASSIST_MAIL_USERNAME"),
                 required("BIZ_ASSIST_MAIL_PASSWORD"),
                 required("BIZ_ASSIST_MAIL_FROM"),
-                required("BIZ_ASSIST_MAIL_TO"),
                 Boolean.parseBoolean(environment("BIZ_ASSIST_MAIL_AUTH", "true")),
                 Boolean.parseBoolean(environment("BIZ_ASSIST_MAIL_STARTTLS_ENABLED", "true")),
                 Boolean.parseBoolean(environment("BIZ_ASSIST_MAIL_SSL_ENABLED", "false")),
@@ -30,10 +29,13 @@ class SmtpEmailSenderLiveTests {
                 properties
         );
 
-        sender.send(new EmailMessage(
-                "[Biz Assist] SMTP 연결 테스트",
-                "Biz Assist 실제 SMTP 수동 검증 메일입니다.\n\nBiz Assist"
-        ));
+        sender.send(
+                required("BIZ_ASSIST_MAIL_TO"),
+                new EmailMessage(
+                        "[Biz Assist] SMTP 연결 테스트",
+                        "Biz Assist 실제 SMTP 수동 검증 메일입니다.\n\nBiz Assist"
+                )
+        );
     }
 
     private String required(String name) {

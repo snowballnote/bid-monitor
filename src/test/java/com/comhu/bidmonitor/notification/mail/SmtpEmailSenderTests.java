@@ -22,7 +22,6 @@ class SmtpEmailSenderTests {
                 "user",
                 "password",
                 "sender@example.com",
-                "first@example.com, second@example.com",
                 true,
                 true,
                 false,
@@ -32,14 +31,14 @@ class SmtpEmailSenderTests {
         );
         SmtpEmailSender sender = new SmtpEmailSender(mailSender, properties);
 
-        sender.send(new EmailMessage("테스트 제목", "테스트 본문"));
+        sender.send("recipient@example.com", new EmailMessage("테스트 제목", "테스트 본문"));
 
         ArgumentCaptor<SimpleMailMessage> captor = ArgumentCaptor.forClass(SimpleMailMessage.class);
         verify(mailSender).send(captor.capture());
         SimpleMailMessage sent = captor.getValue();
         assertEquals("sender@example.com", sent.getFrom());
         assertArrayEquals(
-                new String[]{"first@example.com", "second@example.com"},
+                new String[]{"recipient@example.com"},
                 sent.getTo()
         );
         assertEquals("테스트 제목", sent.getSubject());

@@ -11,7 +11,6 @@ public record BizAssistMailProperties(
         String username,
         String password,
         String from,
-        String to,
         boolean auth,
         boolean starttlsEnabled,
         boolean sslEnabled,
