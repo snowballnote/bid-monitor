@@ -74,16 +74,33 @@ public class JdbcNotificationDeliveryRepository implements NotificationDeliveryR
     }
 
     @Override
+    public List<NotificationDelivery> findPending(
+            NotificationChannel channel,
+            NotificationType notificationType
+    ) {
+        return jdbcTemplate.query(
+                "SELECT " + DELIVERY_COLUMNS + " FROM notification_delivery "
+                        + "WHERE channel = ? AND notification_type = ? AND status = ? "
+                        + "ORDER BY created_at, id",
+                this::mapDelivery,
+                channel.name(),
+                notificationType.name(),
+                NotificationDeliveryStatus.PENDING.name()
+        );
+    }
+
+    @Override
     public void markSent(Long deliveryId, Instant sentAt) {
         int updatedRows = jdbcTemplate.update(
                 """
                         UPDATE notification_delivery
                         SET status = ?, sent_at = ?, failure_reason = NULL
-                        WHERE id = ?
+                        WHERE id = ? AND status = ?
                         """,
                 NotificationDeliveryStatus.SENT.name(),
                 Timestamp.from(sentAt),
-                deliveryId
+                deliveryId,
+                NotificationDeliveryStatus.PENDING.name()
         );
         requireSingleUpdatedRow(updatedRows, deliveryId);
     }
@@ -94,11 +111,12 @@ public class JdbcNotificationDeliveryRepository implements NotificationDeliveryR
                 """
                         UPDATE notification_delivery
                         SET status = ?, sent_at = NULL, failure_reason = ?
-                        WHERE id = ?
+                        WHERE id = ? AND status = ?
                         """,
                 NotificationDeliveryStatus.FAILED.name(),
                 failureReason,
-                deliveryId
+                deliveryId,
+                NotificationDeliveryStatus.PENDING.name()
         );
         requireSingleUpdatedRow(updatedRows, deliveryId);
     }

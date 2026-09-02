@@ -1,6 +1,7 @@
 package com.comhu.bidmonitor.externalnotice.orchestration;
 
 import com.comhu.bidmonitor.notification.model.ExternalNoticeNotificationCandidate;
+import com.comhu.bidmonitor.notification.dispatch.NotificationDispatcher;
 import com.comhu.bidmonitor.notification.service.ExternalNoticeNotificationService;
 import org.springframework.stereotype.Service;
 
@@ -12,19 +13,23 @@ public class ExternalNoticeAutomaticCollectionWorkflow {
 
     private final ExternalNoticeCollectionService collectionService;
     private final ExternalNoticeNotificationService notificationService;
+    private final NotificationDispatcher notificationDispatcher;
 
     public ExternalNoticeAutomaticCollectionWorkflow(
             ExternalNoticeCollectionService collectionService,
-            ExternalNoticeNotificationService notificationService
+            ExternalNoticeNotificationService notificationService,
+            NotificationDispatcher notificationDispatcher
     ) {
         this.collectionService = collectionService;
         this.notificationService = notificationService;
+        this.notificationDispatcher = notificationDispatcher;
     }
 
     public ExternalNoticeAutomaticCollectionResult run() {
         ExternalNoticeCollectionResult collectionResult = collectionService.runCollection();
         List<ExternalNoticeNotificationCandidate> candidates =
                 notificationService.createCandidates(collectionResult);
+        notificationDispatcher.dispatchPending();
         return new ExternalNoticeAutomaticCollectionResult(collectionResult, candidates);
     }
 }

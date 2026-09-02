@@ -1,5 +1,8 @@
 package com.comhu.bidmonitor.notification.persistence;
 
+import com.comhu.bidmonitor.notification.model.NotificationChannel;
+import com.comhu.bidmonitor.notification.model.NotificationType;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -8,6 +11,11 @@ import java.util.Optional;
 public interface NotificationDeliveryRepository {
 
     Optional<NotificationDelivery> createPendingIfAbsent(NotificationDelivery delivery);
+
+    List<NotificationDelivery> findPending(
+            NotificationChannel channel,
+            NotificationType notificationType
+    );
 
     void markSent(Long deliveryId, Instant sentAt);
 

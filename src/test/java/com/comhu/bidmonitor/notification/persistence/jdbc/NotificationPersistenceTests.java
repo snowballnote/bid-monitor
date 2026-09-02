@@ -107,6 +107,19 @@ class NotificationPersistenceTests {
         assertNotNull(sent.getId());
     }
 
+    @Test
+    void pendingQueryReturnsOnlyTargetTypeAndStopsReturningSentDelivery() {
+        NotificationDelivery delivery = deliveryRepository.createPendingIfAbsent(
+                pendingDelivery("external-5", fingerprint('f'), NoticeChangeType.NEW)
+        ).orElseThrow();
+
+        assertEquals(1, deliveryRepository.findPending(CHANNEL, TYPE).size());
+
+        deliveryRepository.markSent(delivery.getId(), DETECTED_AT.plusSeconds(10));
+
+        assertTrue(deliveryRepository.findPending(CHANNEL, TYPE).isEmpty());
+    }
+
     private NotificationDelivery pendingDelivery(
             String externalId,
             String contentFingerprint,
