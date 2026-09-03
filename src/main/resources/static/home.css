@@ -40,3 +40,25 @@
     .recent-notice-item { grid-template-columns: 1fr auto; gap: var(--space-2); padding: var(--space-4) var(--space-5); }
     .recent-notice-date { grid-column: 1 / -1; }
 }
+
+/* Home keeps the shared violet accent while summary surfaces carry subtle task tints. */
+:root { --surface-tint: #fbfbff; }
+.dashboard-heading { position: relative; }
+.summary-card, .dashboard-panel { border-color: rgba(216, 219, 229, .9); border-radius: 16px; box-shadow: var(--shadow-card); }
+.summary-card { position: relative; overflow: hidden; transition: transform 160ms ease, box-shadow 160ms ease; }
+.summary-card:hover { box-shadow: var(--shadow-hover); transform: translateY(-2px); }
+.summary-card:nth-child(1) { background: #f6f9ff; }
+.summary-card:nth-child(2) { background: #faf7ff; }
+.summary-card-kicker { display: inline-flex; align-items: center; gap: 7px; color: #62697b; }
+.summary-card-kicker::before { display: inline-grid; width: 25px; height: 25px; place-items: center; border-radius: 8px; background: #e6efff; color: #3567c9; content: "B"; font-size: 11px; font-weight: 800; }
+.summary-card:nth-child(2) .summary-card-kicker::before { background: #eee7ff; color: #7654c8; content: "N"; }
+.summary-metrics div { border: 1px solid rgba(220, 224, 235, .7); background: rgba(255,255,255,.70); }
+.summary-metrics dd { font-size: 28px; font-weight: 750; letter-spacing: -.03em; }
+.summary-card-header a, .dashboard-panel-header a { padding: 6px 9px; border-radius: 8px; background: rgba(255,255,255,.68); }
+.summary-card-header a:hover, .dashboard-panel-header a:hover { background: var(--primary-soft); text-decoration: none; transform: translateY(-1px); }
+.dashboard-panel { background: #fbfbfe; }
+.dashboard-panel-header { background: rgba(247,247,252,.8); }
+.recent-notice-list { padding: 8px; gap: 3px; }
+.recent-notice-item { border-bottom: 0; border-radius: 10px; transition: background 150ms ease, transform 150ms ease; }
+.recent-notice-item:hover { background: #f2f1ff; transform: translateX(2px); }
+.recent-keyword { border-color: #ddd9fb; background: #f2f0ff; color: #5b55a0; }

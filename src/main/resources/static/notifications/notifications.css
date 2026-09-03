@@ -107,3 +107,256 @@
     .subscriber-form-body { padding: var(--space-5) var(--space-4); }
     .subscriber-modal-actions { padding: var(--space-3) var(--space-4); }
 }
+
+/* Final notification visual reference, scoped so the other App Shell pages stay untouched. */
+.notification-management-page {
+    --sidebar-width: 232px;
+    --background: #f5f7fa;
+    --surface: #ffffff;
+    --surface-subtle: #f8fafc;
+    --surface-tint: #ffffff;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --border-strong: #d1d5db;
+    --primary: #3b82f6;
+    --primary-hover: #2563eb;
+    --primary-soft: #eef4ff;
+    background: var(--background);
+    color: var(--text);
+    font-family: "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+}
+
+.notification-management-page .app-sidebar {
+    padding: 20px 14px;
+    border-right: 0;
+    background: #18212f;
+    box-shadow: 4px 0 16px rgba(15,23,42,.05);
+}
+.notification-management-page .app-brand {
+    height: auto;
+    margin: 0 0 24px;
+    padding: 0 8px;
+    border-bottom: 0;
+    color: #f8fafc;
+}
+.notification-management-page .app-brand-mark {
+    width: 34px;
+    height: 34px;
+    border: 1px solid rgba(147,197,253,.25);
+    border-radius: 9px;
+    background: #3b82f6;
+    color: #ffffff;
+    box-shadow: 0 4px 10px rgba(37,99,235,.22);
+    font-size: 11px;
+}
+.notification-management-page .app-brand strong { color: #f8fafc; font-size: 15px; }
+.notification-management-page .app-brand small { color: #94a3b8; font-size: 10px; }
+.notification-management-page .app-nav { gap: 5px; }
+.notification-management-page .app-nav::before {
+    display: block;
+    padding: 0 10px 7px;
+    color: #64748b;
+    content: "MENU";
+    font-size: 9px;
+    letter-spacing: .12em;
+}
+.notification-management-page .app-nav-link {
+    min-height: 40px;
+    padding: 0 12px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: #aab5c5;
+    font-size: 13px;
+    font-weight: 600;
+}
+.notification-management-page .app-nav-link:hover {
+    border-color: rgba(148,163,184,.12);
+    background: rgba(255,255,255,.06);
+    color: #f8fafc;
+    transform: translateX(2px);
+}
+.notification-management-page .app-nav-link.active {
+    border-color: rgba(96,165,250,.22);
+    border-radius: 8px;
+    background: rgba(59,130,246,.18);
+    color: #ffffff;
+    box-shadow: inset 3px 0 0 #3b82f6;
+    font-weight: 700;
+}
+.notification-management-page .app-sidebar-description {
+    border-top-color: rgba(148,163,184,.13);
+    color: #7f8da1;
+}
+
+.notification-topbar {
+    display: flex;
+    height: 54px;
+    padding: 0 28px;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid #e5e7eb;
+    background: #ffffff;
+    color: #9ca3af;
+    font-size: 12px;
+}
+.notification-topbar-divider { color: #d1d5db; }
+.notification-topbar strong { color: #4b5563; font-weight: 600; }
+.notification-page { max-width: 1380px; padding: 30px 32px 48px; }
+.notification-page .page-heading { margin-bottom: 28px; }
+.notification-page .page-eyebrow {
+    margin-bottom: 5px;
+    color: #3b82f6;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: .1em;
+}
+.notification-page .page-heading h1 { margin-bottom: 7px; font-size: 26px; line-height: 1.1; letter-spacing: -.04em; }
+.notification-page .page-heading p { color: #6b7280; font-size: 13px; }
+.notification-page .ui-button { min-height: 36px; border-radius: 7px; font-size: 12.5px; box-shadow: none; }
+.notification-page .ui-button-primary {
+    border-color: #3b82f6;
+    background: #3b82f6;
+    color: #fff;
+    box-shadow: 0 1px 2px rgba(37,99,235,.18);
+}
+.notification-page .ui-button-primary:hover { border-color: #2563eb; background: #2563eb; box-shadow: 0 3px 8px rgba(37,99,235,.2); transform: translateY(-1px); }
+
+.subscriber-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+    border-top: 0;
+}
+.subscriber-summary article {
+    min-height: 104px;
+    padding: 18px 20px;
+    align-items: flex-start;
+    justify-content: center;
+    flex-direction: column;
+    gap: 8px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(15,23,42,.03);
+}
+.subscriber-summary article:first-child { padding-left: 20px; border-left: 1px solid #e5e7eb; }
+.subscriber-summary article::before { display: none; }
+.subscriber-summary article:hover { border-color: #dbe3ef; box-shadow: 0 4px 12px rgba(15,23,42,.05); transform: translateY(-1px); }
+.subscriber-summary span {
+    color: #6b7280;
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: 0;
+    text-transform: none;
+}
+.subscriber-summary strong { color: #1f2937; font-size: 28px; font-weight: 700; line-height: 1; letter-spacing: -.035em; }
+.subscriber-summary article:nth-child(2) strong { color: #2f7d5b; }
+
+.subscriber-toast {
+    border-color: #bfe6d4;
+    border-radius: 7px;
+    background: #eaf7f1;
+    color: #2f7d5b;
+    font-size: 12px;
+}
+.subscriber-toast.error { border-color: #f3caca; background: #fdecec; color: #b94a48; }
+.subscriber-board {
+    border-color: #e5e7eb;
+    border-radius: 10px;
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(15,23,42,.04);
+}
+.subscriber-board-header { padding: 16px 18px; border-bottom-color: #e5e7eb; background: #ffffff; }
+.subscriber-board-header h2 { margin-bottom: 3px; color: #1f2937; font-size: 15px; font-weight: 700; }
+.subscriber-board-header p { color: #6b7280; font-size: 12px; }
+.subscriber-table-wrap { padding: 0; background: #ffffff; }
+.subscriber-table { border-collapse: collapse; border-spacing: 0; }
+.subscriber-table th, .subscriber-table td { padding: 10px 14px; }
+.subscriber-table th {
+    border-bottom: 1px solid #e5e7eb;
+    background: #f8fafc;
+    color: #6b7280;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .02em;
+}
+.subscriber-table td { border: 0; border-bottom: 1px solid #eef0f3; background: transparent; color: #4b5563; font-size: 12.5px; }
+.subscriber-table td:first-child { border-left: 0; border-radius: 0; color: #1f2937; font-size: 13.5px; font-weight: 650; }
+.subscriber-table td:nth-child(2), .subscriber-table td:nth-child(5) { font-size: 12px; }
+.subscriber-table td:last-child { border-right: 0; border-radius: 0; }
+.subscriber-table tbody tr:hover td { border-color: #e7edf5; background: #f8fbff; box-shadow: none; }
+.subscriber-status {
+    min-height: 22px;
+    padding: 3px 7px 3px 6px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .03em;
+}
+.subscriber-status::before { width: 4px; height: 4px; margin-right: 5px; border-radius: 50%; background: currentColor; content: ""; }
+.subscriber-status.enabled { border-color: #cfeadf; background: #eaf7f1; color: #2f7d5b; }
+.subscriber-status.disabled { border-color: #e5e7eb; background: #f3f4f6; color: #6b7280; }
+.subscriber-disable-button {
+    min-height: 26px;
+    padding: 0 9px;
+    border-color: #e5e7eb;
+    border-radius: 6px;
+    background: transparent;
+    color: #b94a48;
+    font-size: 11.5px;
+    box-shadow: none;
+}
+.subscriber-disable-button:hover { border-color: #f3caca; background: #fdecec; color: #9f3735; transform: none; }
+
+.notification-management-page .modal-overlay { background: rgba(15,23,42,.48); backdrop-filter: none; }
+.subscriber-modal { width: min(480px, 100%); border-color: #e5e7eb; border-radius: 12px; background: #ffffff; box-shadow: 0 20px 48px rgba(15,23,42,.16); }
+.subscriber-modal .modal-header { padding: 20px 22px 16px; border-bottom-color: #e5e7eb; background: #ffffff; }
+.subscriber-modal .modal-header h2 { color: #1f2937; font-size: 17px; letter-spacing: -.02em; }
+.subscriber-modal .modal-close-button { width: 30px; height: 30px; border: 1px solid #e5e7eb; border-radius: 7px; color: #6b7280; font-size: 19px; }
+.subscriber-modal .modal-close-button:hover { border-color: #d1d5db; background: #f3f4f6; color: #1f2937; transform: none; }
+.subscriber-form-body { padding: 20px 22px; gap: 14px; }
+.form-field { gap: 6px; color: #374151; font-size: 12px; font-weight: 650; letter-spacing: 0; }
+.form-field em { color: #b94a48; font-size: 10px; }
+.form-field input, .form-field select {
+    min-height: 34px;
+    padding: 0 10px;
+    border-color: #d1d5db;
+    border-radius: 7px;
+    background: #ffffff;
+    color: #1f2937;
+    font-size: 12.5px;
+}
+.form-field input:focus, .form-field select:focus { border-color: #3b82f6; outline: 3px solid rgba(59,130,246,.13); }
+.form-error { color: #b94a48; font-size: 11.5px; }
+.subscriber-modal-actions { padding: 12px 22px; border-top-color: #e5e7eb; background: #f8fafc; }
+.subscriber-modal-actions .ui-button-secondary { border-color: #d1d5db; background: #ffffff; color: #4b5563; }
+.subscriber-modal-actions .ui-button-secondary:hover { border-color: #bfdbfe; background: #eef4ff; color: #2563eb; transform: none; }
+
+@media (max-width: 800px) {
+    .notification-management-page { --sidebar-width: 100%; }
+    .notification-management-page .app-sidebar { padding: 12px 14px 0; border-bottom-color: #253246; }
+    .notification-management-page .app-brand { height: auto; margin: 0; padding: 0 0 12px; border-bottom: 0; }
+    .notification-management-page .app-nav::before { display: none; }
+    .notification-management-page .app-nav-link { border-bottom-color: transparent; border-radius: 0; font-size: 11.5px; }
+    .notification-management-page .app-nav-link.active { border-radius: 7px 7px 0 0; border-bottom-color: #3b82f6; box-shadow: inset 0 -2px 0 #3b82f6; }
+    .notification-topbar { display: none; }
+    .notification-page { padding: 26px 16px 40px; }
+}
+
+@media (max-width: 720px) {
+    .subscriber-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .subscriber-summary article { min-height: 74px; padding: 11px 10px; }
+    .subscriber-summary article:first-child { padding-left: 10px; }
+    .subscriber-summary span { font-size: 9px; letter-spacing: .02em; }
+    .subscriber-summary strong { font-size: 23px; }
+    .subscriber-card-list { padding: 8px; gap: 8px; background: #f5f7fa; }
+    .subscriber-card { border: 1px solid #e5e7eb; border-radius: 8px; background: #ffffff; box-shadow: 0 1px 2px rgba(15,23,42,.03); }
+    .subscriber-card:last-child { border-bottom: 1px solid #e5e7eb; }
+    .subscriber-card-name { color: #1f2937; font-size: 13.5px; }
+    .subscriber-card-email { color: #4b5563; font-size: 11.5px; }
+    .subscriber-card-meta { font-size: 11px; }
+    .subscriber-card-meta dt { color: #6b7280; }
+    .subscriber-card-meta dd { color: #374151; }
+    .subscriber-modal { border-radius: 10px; }
+}
