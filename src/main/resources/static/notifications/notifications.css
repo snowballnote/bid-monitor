@@ -108,87 +108,6 @@
     .subscriber-modal-actions { padding: var(--space-3) var(--space-4); }
 }
 
-/* Final notification visual reference, scoped so the other App Shell pages stay untouched. */
-.notification-management-page {
-    --sidebar-width: 232px;
-    --background: #f5f7fa;
-    --surface: #ffffff;
-    --surface-subtle: #f8fafc;
-    --surface-tint: #ffffff;
-    --text: #1f2937;
-    --muted: #6b7280;
-    --border: #e5e7eb;
-    --border-strong: #d1d5db;
-    --primary: #3b82f6;
-    --primary-hover: #2563eb;
-    --primary-soft: #eef4ff;
-    background: var(--background);
-    color: var(--text);
-    font-family: "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
-}
-
-.notification-management-page .app-sidebar {
-    padding: 20px 14px;
-    border-right: 0;
-    background: #18212f;
-    box-shadow: 4px 0 16px rgba(15,23,42,.05);
-}
-.notification-management-page .app-brand {
-    height: auto;
-    margin: 0 0 24px;
-    padding: 0 8px;
-    border-bottom: 0;
-    color: #f8fafc;
-}
-.notification-management-page .app-brand-mark {
-    width: 34px;
-    height: 34px;
-    border: 1px solid rgba(147,197,253,.25);
-    border-radius: 9px;
-    background: #3b82f6;
-    color: #ffffff;
-    box-shadow: 0 4px 10px rgba(37,99,235,.22);
-    font-size: 11px;
-}
-.notification-management-page .app-brand strong { color: #f8fafc; font-size: 15px; }
-.notification-management-page .app-brand small { color: #94a3b8; font-size: 10px; }
-.notification-management-page .app-nav { gap: 5px; }
-.notification-management-page .app-nav::before {
-    display: block;
-    padding: 0 10px 7px;
-    color: #64748b;
-    content: "MENU";
-    font-size: 9px;
-    letter-spacing: .12em;
-}
-.notification-management-page .app-nav-link {
-    min-height: 40px;
-    padding: 0 12px;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    color: #aab5c5;
-    font-size: 13px;
-    font-weight: 600;
-}
-.notification-management-page .app-nav-link:hover {
-    border-color: rgba(148,163,184,.12);
-    background: rgba(255,255,255,.06);
-    color: #f8fafc;
-    transform: translateX(2px);
-}
-.notification-management-page .app-nav-link.active {
-    border-color: rgba(96,165,250,.22);
-    border-radius: 8px;
-    background: rgba(59,130,246,.18);
-    color: #ffffff;
-    box-shadow: inset 3px 0 0 #3b82f6;
-    font-weight: 700;
-}
-.notification-management-page .app-sidebar-description {
-    border-top-color: rgba(148,163,184,.13);
-    color: #7f8da1;
-}
-
 .notification-topbar {
     display: flex;
     height: 54px;
@@ -309,7 +228,6 @@
 }
 .subscriber-disable-button:hover { border-color: #f3caca; background: #fdecec; color: #9f3735; transform: none; }
 
-.notification-management-page .modal-overlay { background: rgba(15,23,42,.48); backdrop-filter: none; }
 .subscriber-modal { width: min(480px, 100%); border-color: #e5e7eb; border-radius: 12px; background: #ffffff; box-shadow: 0 20px 48px rgba(15,23,42,.16); }
 .subscriber-modal .modal-header { padding: 20px 22px 16px; border-bottom-color: #e5e7eb; background: #ffffff; }
 .subscriber-modal .modal-header h2 { color: #1f2937; font-size: 17px; letter-spacing: -.02em; }
@@ -334,12 +252,6 @@
 .subscriber-modal-actions .ui-button-secondary:hover { border-color: #bfdbfe; background: #eef4ff; color: #2563eb; transform: none; }
 
 @media (max-width: 800px) {
-    .notification-management-page { --sidebar-width: 100%; }
-    .notification-management-page .app-sidebar { padding: 12px 14px 0; border-bottom-color: #253246; }
-    .notification-management-page .app-brand { height: auto; margin: 0; padding: 0 0 12px; border-bottom: 0; }
-    .notification-management-page .app-nav::before { display: none; }
-    .notification-management-page .app-nav-link { border-bottom-color: transparent; border-radius: 0; font-size: 11.5px; }
-    .notification-management-page .app-nav-link.active { border-radius: 7px 7px 0 0; border-bottom-color: #3b82f6; box-shadow: inset 0 -2px 0 #3b82f6; }
     .notification-topbar { display: none; }
     .notification-page { padding: 26px 16px 40px; }
 }

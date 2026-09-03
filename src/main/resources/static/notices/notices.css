@@ -156,37 +156,28 @@
     .attachment-link, .source-link { font-size: 12px; }
 }
 
-/* Violet notice workspace: editorial list cards with compact app-like feedback. */
-:root {
-    --primary: #7657d6;
-    --primary-hover: #6546c4;
-    --primary-soft: #f1edff;
-    --surface-tint: #fcfaff;
-}
+/* Notice-specific list layout on the shared Biz Assist palette. */
 .notice-summary-strip { gap: var(--space-3); overflow: visible; border: 0; background: transparent; }
-.notice-summary-item { position: relative; border: 1px solid #e2dcf3; border-radius: 14px; background: #faf7ff; box-shadow: var(--shadow-card); }
-.notice-summary-item::before { display: inline-grid; width: 32px; height: 32px; flex: 0 0 auto; margin-right: 2px; place-items: center; border-radius: 10px; background: #eee7ff; color: #7051c6; content: "◆"; font-size: 11px; }
-.notice-summary-item:nth-child(2)::before { background: #f0edfa; color: #6b6480; content: "◷"; font-size: 16px; }
+.notice-summary-item { position: relative; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-card); }
 .notice-summary-item span { margin-right: auto; }
 .notice-summary-item strong { font-size: 19px; font-weight: 750; }
-.toolbar { background: rgba(250,247,255,.76); }
-.filter-buttons { border-color: #ded8ef; background: #f1eef8; }
-.filter-button.active { color: var(--primary); box-shadow: 0 3px 10px rgba(80, 57, 142, .10); }
-.notice-list { padding: 9px; gap: 6px; background: #f5f2fa; }
-.notice-item { border: 1px solid transparent; border-radius: 12px; background: rgba(255,255,255,.84); transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease, transform 150ms ease; }
+.toolbar { background: var(--surface); }
+.filter-buttons { border-color: var(--border); background: var(--surface-subtle); }
+.filter-button.active { color: var(--primary); box-shadow: 0 1px 3px rgba(15,23,42,.08); }
+.notice-list { padding: 9px; gap: 6px; background: var(--background); }
+.notice-item { border: 1px solid transparent; border-radius: 8px; background: var(--surface); transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease, transform 150ms ease; }
 .notice-item:last-child { border-bottom: 1px solid transparent; }
-.notice-item:hover { border-color: #ddd5f2; background: #fff; box-shadow: 0 8px 22px rgba(64, 44, 111, .08); transform: translateY(-1px); }
+.notice-item:hover { border-color: #dbe3ef; background: #fff; box-shadow: var(--shadow-hover); transform: translateY(-1px); }
 .notice-title-button { font-weight: 700; }
-.badge-pia { border-color: #d9cdf8; background: #f0eaff; color: #6848bc; }
-.badge-pia::before { width: 5px; height: 5px; margin-right: 5px; border-radius: 50%; background: #7c5ce7; content: ""; }
-.badge-normal { background: #f3f3f7; }
-.keyword { border-color: #e3def0; background: #f8f5fc; color: #605775; }
-.notice-preview { border-color: #ebe5f4; background: #faf8fd; }
-.source-link { border-radius: 9px; box-shadow: 0 5px 14px rgba(92, 65, 166, .20); }
+.badge-pia { border-color: #dbeafe; background: var(--info-bg); color: var(--info-text); }
+.badge-pia::before { width: 5px; height: 5px; margin-right: 5px; border-radius: 50%; background: currentColor; content: ""; }
+.badge-normal { background: #f3f4f6; }
+.keyword { border-color: var(--border); background: var(--surface-subtle); color: #4b5563; }
+.notice-preview { border-color: var(--border); background: var(--surface-subtle); }
+.source-link { border-radius: 7px; box-shadow: 0 1px 2px rgba(37,99,235,.18); }
 
 @media (max-width: 720px) {
     .notice-summary-strip { gap: var(--space-2); }
-    .notice-summary-item::before { width: 28px; height: 28px; }
     .notice-list { padding: 8px; }
     .notice-item:hover { transform: none; }
 }
