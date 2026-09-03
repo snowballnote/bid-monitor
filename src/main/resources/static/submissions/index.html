@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>서류 모으기 | Biz Assist</title>
+    <link rel="stylesheet" href="/common.css">
+    <link rel="stylesheet" href="/submissions/submissions.css">
+</head>
+<body>
+<div class="app-shell">
+    <aside class="app-sidebar">
+        <a class="app-brand" href="/" aria-label="Biz Assist 홈">
+            <span class="app-brand-mark" aria-hidden="true">BA</span>
+            <span><strong>Biz Assist</strong><small>경영지원 업무지원</small></span>
+        </a>
+        <nav class="app-nav" aria-label="주요 메뉴">
+            <a class="app-nav-link" href="/">홈</a>
+            <a class="app-nav-link" href="/bids/">입찰공고</a>
+            <a class="app-nav-link" href="/notices/">외부 중요공지</a>
+            <a class="app-nav-link" href="/notifications/">알림 관리</a>
+            <a class="app-nav-link active" href="/submissions/" aria-current="page">서류 모으기</a>
+        </nav>
+        <p class="app-sidebar-description">경영지원에 필요한 정보를 한곳에서 확인하세요.</p>
+    </aside>
+
+    <main class="app-main">
+        <header class="submission-topbar" aria-label="현재 위치">
+            <span>Biz Assist</span><span aria-hidden="true">/</span><strong>서류 모으기</strong>
+        </header>
+        <div class="page-container submission-page">
+            <header class="page-header page-heading">
+                <span class="page-eyebrow">SUBMISSION</span>
+                <h1>서류 모으기</h1>
+                <p>사업별 필요서류를 확인하고 제출할 회사 파일을 선택합니다.</p>
+            </header>
+
+            <section id="project-picker" class="project-picker surface-card" aria-labelledby="project-picker-title">
+                <div class="project-picker-heading">
+                    <h2 id="project-picker-title">사업 선택</h2>
+                    <p>사업명, 공고번호, 내부 사업번호, 사업코드 또는 발주기관으로 검색하세요.</p>
+                </div>
+                <form id="project-form" class="project-form">
+                    <label for="project-query">사업 검색</label>
+                    <div class="project-input-group">
+                        <input id="project-query" name="query" type="search" maxlength="100"
+                               placeholder="사업명, 공고번호 또는 발주기관을 입력하세요" autocomplete="off" required>
+                        <button id="project-search-button" class="ui-button ui-button-primary" type="submit">검색</button>
+                    </div>
+                </form>
+                <p id="project-message" class="submission-message hidden" role="alert"></p>
+
+                <div id="selected-project" class="selected-project hidden" aria-live="polite">
+                    <div>
+                        <span>선택한 사업</span>
+                        <strong id="selected-project-name">-</strong>
+                        <small id="selected-project-meta">-</small>
+                    </div>
+                    <span id="selected-project-status" class="selected-project-status">작업 생성 중</span>
+                </div>
+
+                <div id="project-search-guide" class="project-search-state">
+                    <strong>준비할 사업을 먼저 찾아주세요.</strong>
+                    <span>검색 결과에서 사업을 선택하면 제출서류 준비 작업이 생성됩니다.</span>
+                </div>
+                <div id="project-search-loading" class="project-search-state hidden" role="status">회사 PMS에서 사업을 검색하는 중입니다.</div>
+                <div id="project-search-empty" class="project-search-state hidden">
+                    <strong>검색 결과가 없습니다.</strong>
+                    <span>사업명이나 공고번호를 바꾸어 다시 검색해 주세요.</span>
+                </div>
+                <div id="project-search-error" class="project-search-state error hidden" role="alert"></div>
+
+                <div id="project-search-results" class="project-search-results hidden" aria-live="polite">
+                    <div class="project-result-summary"><strong>검색 결과</strong><span id="project-result-count">0건</span></div>
+                    <div class="project-result-table-wrap">
+                        <table class="project-result-table">
+                            <thead><tr><th>사업명</th><th>발주기관</th><th>공고번호</th><th><span class="visually-hidden">선택</span></th></tr></thead>
+                            <tbody id="project-result-table-body"></tbody>
+                        </table>
+                    </div>
+                    <div id="project-result-cards" class="project-result-cards"></div>
+                </div>
+            </section>
+
+            <div id="workspace-loading" class="workspace-state hidden" role="status">제출서류 작업을 불러오는 중입니다.</div>
+            <div id="workspace-error" class="workspace-state error hidden" role="alert"></div>
+
+            <div id="submission-workspace" class="submission-workspace hidden">
+                <section class="case-overview surface-card" aria-labelledby="case-project-name">
+                    <div class="case-identity">
+                        <span class="case-label">선택한 사업</span>
+                        <h2 id="case-project-name">-</h2>
+                        <p id="case-project-meta">-</p>
+                    </div>
+                    <div class="case-progress" aria-label="제출서류 준비 진행률">
+                        <div><span>준비 진행률</span><strong id="progress-percent">0%</strong></div>
+                        <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                            <span id="progress-bar"></span>
+                        </div>
+                        <p id="progress-caption">0개 중 0개 선택</p>
+                    </div>
+                    <button id="change-project-button" class="ui-button ui-button-secondary" type="button">다른 사업 선택</button>
+                </section>
+
+                <div class="submission-columns">
+                    <section class="requirement-panel surface-card" aria-labelledby="requirement-title">
+                        <header class="panel-header">
+                            <div><h2 id="requirement-title">필요 제출서류</h2><p id="requirement-count">0건</p></div>
+                        </header>
+                        <div id="requirement-empty" class="panel-state hidden">
+                            <strong>추출된 제출서류가 없습니다.</strong>
+                            <span>RFP와 입찰 첨부문서에서 요구서류를 확인하지 못했습니다.</span>
+                        </div>
+                        <div id="requirement-list" class="requirement-list" aria-live="polite"></div>
+                    </section>
+
+                    <section class="candidate-panel surface-card" aria-labelledby="candidate-title">
+                        <header class="panel-header">
+                            <div><span class="panel-kicker">파일 후보</span><h2 id="candidate-title">요구서류를 선택하세요</h2></div>
+                            <span id="candidate-count" class="count-badge hidden">0건</span>
+                        </header>
+                        <div id="candidate-guide" class="panel-state">
+                            <strong>확인할 요구서류를 선택하세요.</strong>
+                            <span>파일명 일치도와 최신 수정일을 기준으로 회사 파일 후보를 보여드립니다.</span>
+                        </div>
+                        <div id="candidate-loading" class="panel-state hidden" role="status">회사 파일 후보를 찾는 중입니다.</div>
+                        <div id="candidate-empty" class="panel-state hidden">
+                            <strong>후보 없음</strong>
+                            <span>현재 요구서류명과 일치하는 활성 파일을 찾지 못했습니다.</span>
+                        </div>
+                        <div id="candidate-error" class="panel-state error hidden" role="alert"></div>
+                        <div id="candidate-list" class="candidate-list hidden" aria-live="polite"></div>
+                    </section>
+
+                    <aside class="package-panel surface-card" aria-labelledby="package-title">
+                        <header class="panel-header">
+                            <div><span class="panel-kicker">PACKAGE</span><h2 id="package-title">제출 패키지</h2></div>
+                        </header>
+                        <div class="package-metric">
+                            <span>선택 완료</span><strong id="package-selection-count">0 / 0</strong>
+                        </div>
+                        <div id="package-empty" class="package-empty">선택한 파일이 아직 없습니다.</div>
+                        <ul id="package-list" class="package-list hidden"></ul>
+                        <p class="package-note">파일은 자동으로 선택되지 않습니다. 각 요구서류의 후보를 직접 확인해 주세요.</p>
+                    </aside>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+<script src="/submissions/submissions.js"></script>
+</body>
+</html>

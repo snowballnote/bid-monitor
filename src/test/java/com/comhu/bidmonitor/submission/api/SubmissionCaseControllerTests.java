@@ -146,4 +146,34 @@ class SubmissionCaseControllerTests {
                         .content("{\"projectId\":999}"))
                 .andExpect(status().isServiceUnavailable());
     }
+
+    @Test
+    void searchesPmsProjectsWithOnlySelectionFields() throws Exception {
+        when(projectQueryPort.searchProjects("고도화", 20)).thenReturn(List.of(
+                new PmsProjectQueryPort.PmsProjectSummary(
+                        301L, "공공정보시스템 고도화 사업", "테스트 발주기관", "20260903-01"
+                )
+        ));
+
+        mockMvc.perform(get("/api/submission-projects").param("query", "고도화"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].projectId").value(301))
+                .andExpect(jsonPath("$[0].projectName").value("공공정보시스템 고도화 사업"))
+                .andExpect(jsonPath("$[0].organizationName").value("테스트 발주기관"))
+                .andExpect(jsonPath("$[0].bidNoticeNo").value("20260903-01"))
+                .andExpect(jsonPath("$[0].internalBizNo").doesNotExist())
+                .andExpect(jsonPath("$[0].storagePath").doesNotExist());
+    }
+
+    @Test
+    void rejectsBlankProjectSearchAndMapsUnavailableCompanyDatabase() throws Exception {
+        mockMvc.perform(get("/api/submission-projects").param("query", " "))
+                .andExpect(status().isBadRequest());
+
+        when(projectQueryPort.searchProjects("검색", 20))
+                .thenThrow(new com.comhu.bidmonitor.submission.service.CompanyDatabaseUnavailableException());
+        mockMvc.perform(get("/api/submission-projects").param("query", "검색"))
+                .andExpect(status().isServiceUnavailable());
+    }
 }
