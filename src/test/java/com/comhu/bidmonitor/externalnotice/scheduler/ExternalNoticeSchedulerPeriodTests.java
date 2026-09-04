@@ -1,7 +1,7 @@
 package com.comhu.bidmonitor.externalnotice.scheduler;
 
-import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeAutomaticCollectionResult;
-import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeAutomaticCollectionWorkflow;
+import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionWorkflow;
+import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionWorkflowResult;
 import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionResult;
 
 import java.util.List;
@@ -25,18 +25,18 @@ import static org.mockito.Mockito.when;
         "spring.datasource.password=",
         "spring.sql.init.mode=always",
         "external-notice.scheduler.enabled=true",
-        "external-notice.scheduler.fixed-delay=100",
-        "external-notice.scheduler.initial-delay=250",
+        "external-notice.scheduler.fixed-delay-ms=100",
+        "external-notice.scheduler.initial-delay-ms=250",
         "external-notice.scheduler.run-on-startup=false"
 })
 class ExternalNoticeSchedulerPeriodTests {
 
     @MockitoBean
-    private ExternalNoticeAutomaticCollectionWorkflow automaticCollectionWorkflow;
+    private ExternalNoticeCollectionWorkflow collectionWorkflow;
 
     @BeforeEach
     void setUpResult() {
-        when(automaticCollectionWorkflow.run()).thenReturn(new ExternalNoticeAutomaticCollectionResult(
+        when(collectionWorkflow.run()).thenReturn(new ExternalNoticeCollectionWorkflowResult(
                 ExternalNoticeCollectionResult.builder().build(),
                 List.of()
         ));
@@ -44,6 +44,6 @@ class ExternalNoticeSchedulerPeriodTests {
 
     @Test
     void appliesConfiguredFixedDelay() {
-        verify(automaticCollectionWorkflow, timeout(2_000).atLeast(2)).run();
+        verify(collectionWorkflow, timeout(2_000).atLeast(2)).run();
     }
 }

@@ -12,7 +12,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class ExternalNoticeAutomaticCollectionWorkflowTests {
+class ExternalNoticeCollectionWorkflowTests {
 
     @Test
     void connectsAutomaticCollectionResultToNotificationCandidateService() {
@@ -25,14 +25,14 @@ class ExternalNoticeAutomaticCollectionWorkflowTests {
         );
         when(collectionService.runCollection()).thenReturn(collectionResult);
         when(notificationService.createCandidates(collectionResult)).thenReturn(candidates);
-        ExternalNoticeAutomaticCollectionWorkflow workflow =
-                new ExternalNoticeAutomaticCollectionWorkflow(
+        ExternalNoticeCollectionWorkflow workflow =
+                new ExternalNoticeCollectionWorkflow(
                         collectionService,
                         notificationService,
                         notificationDispatcher
                 );
 
-        ExternalNoticeAutomaticCollectionResult result = workflow.run();
+        ExternalNoticeCollectionWorkflowResult result = workflow.run();
 
         assertSame(collectionResult, result.collectionResult());
         assertSame(candidates, result.notificationCandidates());

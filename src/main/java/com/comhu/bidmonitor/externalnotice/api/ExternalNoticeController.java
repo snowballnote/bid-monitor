@@ -3,7 +3,7 @@ package com.comhu.bidmonitor.externalnotice.api;
 import com.comhu.bidmonitor.externalnotice.api.dto.ExternalNoticeCollectionResponse;
 import com.comhu.bidmonitor.externalnotice.api.dto.ExternalNoticeDetailResponse;
 import com.comhu.bidmonitor.externalnotice.api.dto.ExternalNoticeListResponse;
-import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionService;
+import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionWorkflow;
 import com.comhu.bidmonitor.externalnotice.persistence.ExternalNotice;
 import com.comhu.bidmonitor.externalnotice.persistence.ExternalNoticeRepository;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,20 +20,20 @@ import java.util.List;
 @RequestMapping("/api/external-notices")
 public class ExternalNoticeController {
 
-    private final ExternalNoticeCollectionService collectionService;
+    private final ExternalNoticeCollectionWorkflow collectionWorkflow;
     private final ExternalNoticeRepository repository;
 
     public ExternalNoticeController(
-            ExternalNoticeCollectionService collectionService,
+            ExternalNoticeCollectionWorkflow collectionWorkflow,
             ExternalNoticeRepository repository
     ) {
-        this.collectionService = collectionService;
+        this.collectionWorkflow = collectionWorkflow;
         this.repository = repository;
     }
 
     @PostMapping("/collect")
     public ExternalNoticeCollectionResponse collect() {
-        return ExternalNoticeCollectionResponse.from(collectionService.runCollection());
+        return ExternalNoticeCollectionResponse.from(collectionWorkflow.run().collectionResult());
     }
 
     @GetMapping

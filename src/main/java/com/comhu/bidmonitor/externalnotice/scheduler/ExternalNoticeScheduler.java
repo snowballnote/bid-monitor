@@ -1,7 +1,7 @@
 package com.comhu.bidmonitor.externalnotice.scheduler;
 
-import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeAutomaticCollectionResult;
-import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeAutomaticCollectionWorkflow;
+import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionWorkflow;
+import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionWorkflowResult;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -17,21 +17,21 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 public class ExternalNoticeScheduler {
 
-    private final ExternalNoticeAutomaticCollectionWorkflow automaticCollectionWorkflow;
+    private final ExternalNoticeCollectionWorkflow collectionWorkflow;
     private final boolean runOnStartup;
     private final AtomicBoolean collectionRunning = new AtomicBoolean(false);
 
     public ExternalNoticeScheduler(
-            ExternalNoticeAutomaticCollectionWorkflow automaticCollectionWorkflow,
+            ExternalNoticeCollectionWorkflow collectionWorkflow,
             @Value("${external-notice.scheduler.run-on-startup:false}") boolean runOnStartup
     ) {
-        this.automaticCollectionWorkflow = automaticCollectionWorkflow;
+        this.collectionWorkflow = collectionWorkflow;
         this.runOnStartup = runOnStartup;
     }
 
     @Scheduled(
-            fixedDelayString = "${external-notice.scheduler.fixed-delay:3600000}",
-            initialDelayString = "${external-notice.scheduler.initial-delay:3600000}"
+            fixedDelayString = "${external-notice.scheduler.fixed-delay-ms:600000}",
+            initialDelayString = "${external-notice.scheduler.initial-delay-ms:10000}"
     )
     public void runScheduledCollection() {
         runCollectionSafely("scheduled");
@@ -53,7 +53,7 @@ public class ExternalNoticeScheduler {
 
         try {
             log.info("외부공지 자동 수집 시작: trigger={}", trigger);
-            ExternalNoticeAutomaticCollectionResult automaticResult = automaticCollectionWorkflow.run();
+            ExternalNoticeCollectionWorkflowResult automaticResult = collectionWorkflow.run();
             var result = automaticResult.collectionResult();
             log.info(
                     "외부공지 자동 수집 완료: trigger={}, collectedCount={}, newCount={}, "

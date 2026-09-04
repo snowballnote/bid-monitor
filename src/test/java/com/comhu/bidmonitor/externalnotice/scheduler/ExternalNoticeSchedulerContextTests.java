@@ -1,6 +1,6 @@
 package com.comhu.bidmonitor.externalnotice.scheduler;
 
-import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeAutomaticCollectionWorkflow;
+import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionWorkflow;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
@@ -11,8 +11,8 @@ class ExternalNoticeSchedulerContextTests {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withBean(
-                    ExternalNoticeAutomaticCollectionWorkflow.class,
-                    () -> mock(ExternalNoticeAutomaticCollectionWorkflow.class)
+                    ExternalNoticeCollectionWorkflow.class,
+                    () -> mock(ExternalNoticeCollectionWorkflow.class)
             )
             .withUserConfiguration(ExternalNoticeSchedulingConfiguration.class);
 
@@ -21,13 +21,13 @@ class ExternalNoticeSchedulerContextTests {
         contextRunner
                 .withPropertyValues(
                         "external-notice.scheduler.enabled=true",
-                        "external-notice.scheduler.fixed-delay=7200000",
-                        "external-notice.scheduler.initial-delay=7200000"
+                        "external-notice.scheduler.fixed-delay-ms=7200000",
+                        "external-notice.scheduler.initial-delay-ms=7200000"
                 )
                 .run(context -> {
                     assertThat(context).hasSingleBean(ExternalNoticeScheduler.class);
                     assertThat(context.getEnvironment().getProperty(
-                            "external-notice.scheduler.fixed-delay",
+                            "external-notice.scheduler.fixed-delay-ms",
                             Long.class
                     )).isEqualTo(7_200_000L);
                 });

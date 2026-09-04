@@ -5,7 +5,8 @@ import com.comhu.bidmonitor.externalnotice.api.dto.ExternalNoticeListResponse;
 import com.comhu.bidmonitor.externalnotice.change.NoticeChangeResult;
 import com.comhu.bidmonitor.externalnotice.change.NoticeChangeType;
 import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionResult;
-import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionService;
+import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionWorkflow;
+import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionWorkflowResult;
 import com.comhu.bidmonitor.externalnotice.persistence.ExternalNotice;
 import com.comhu.bidmonitor.externalnotice.persistence.ExternalNoticeAttachment;
 import com.comhu.bidmonitor.externalnotice.persistence.ExternalNoticeRepository;
@@ -51,13 +52,16 @@ class ExternalNoticeControllerTests {
     private ExternalNoticeRepository repository;
 
     @MockitoBean
-    private ExternalNoticeCollectionService collectionService;
+    private ExternalNoticeCollectionWorkflow collectionWorkflow;
 
     @Test
     void collectsManuallyAndReturnsNewThenUnchangedCounts() throws Exception {
         ExternalNoticeCollectionResult firstResult = collectionResult(2, 2, 0);
         ExternalNoticeCollectionResult secondResult = collectionResult(2, 0, 2);
-        when(collectionService.runCollection()).thenReturn(firstResult, secondResult);
+        when(collectionWorkflow.run()).thenReturn(
+                workflowResult(firstResult),
+                workflowResult(secondResult)
+        );
 
         mockMvc.perform(post("/api/external-notices/collect"))
                 .andExpect(status().isOk())
@@ -159,6 +163,12 @@ class ExternalNoticeControllerTests {
                         .currentFingerprint("a".repeat(64))
                         .build())
                 .build();
+    }
+
+    private ExternalNoticeCollectionWorkflowResult workflowResult(
+            ExternalNoticeCollectionResult collectionResult
+    ) {
+        return new ExternalNoticeCollectionWorkflowResult(collectionResult, List.of());
     }
 
     private ExternalNotice notice(String sourceNoticeId, LocalDate publishedDate, boolean piaRelated) {

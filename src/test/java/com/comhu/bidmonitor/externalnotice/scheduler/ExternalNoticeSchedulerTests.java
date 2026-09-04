@@ -1,7 +1,7 @@
 package com.comhu.bidmonitor.externalnotice.scheduler;
 
-import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeAutomaticCollectionResult;
-import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeAutomaticCollectionWorkflow;
+import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionWorkflow;
+import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionWorkflowResult;
 import com.comhu.bidmonitor.externalnotice.orchestration.ExternalNoticeCollectionResult;
 import org.junit.jupiter.api.Test;
 
@@ -23,7 +23,7 @@ class ExternalNoticeSchedulerTests {
 
     @Test
     void delegatesScheduledCollectionToOrchestrationService() {
-        ExternalNoticeAutomaticCollectionWorkflow workflow = mock(ExternalNoticeAutomaticCollectionWorkflow.class);
+        ExternalNoticeCollectionWorkflow workflow = mock(ExternalNoticeCollectionWorkflow.class);
         when(workflow.run()).thenReturn(emptyAutomaticResult());
         ExternalNoticeScheduler scheduler = new ExternalNoticeScheduler(workflow, false);
 
@@ -34,7 +34,7 @@ class ExternalNoticeSchedulerTests {
 
     @Test
     void swallowsCollectionFailureSoLaterSchedulesCanRun() {
-        ExternalNoticeAutomaticCollectionWorkflow workflow = mock(ExternalNoticeAutomaticCollectionWorkflow.class);
+        ExternalNoticeCollectionWorkflow workflow = mock(ExternalNoticeCollectionWorkflow.class);
         when(workflow.run())
                 .thenThrow(new IllegalStateException("collector unavailable"))
                 .thenReturn(emptyAutomaticResult());
@@ -48,7 +48,7 @@ class ExternalNoticeSchedulerTests {
 
     @Test
     void skipsOverlappingExecution() throws Exception {
-        ExternalNoticeAutomaticCollectionWorkflow workflow = mock(ExternalNoticeAutomaticCollectionWorkflow.class);
+        ExternalNoticeCollectionWorkflow workflow = mock(ExternalNoticeCollectionWorkflow.class);
         CountDownLatch firstExecutionStarted = new CountDownLatch(1);
         CountDownLatch releaseFirstExecution = new CountDownLatch(1);
         doAnswer(invocation -> {
@@ -76,14 +76,14 @@ class ExternalNoticeSchedulerTests {
 
     @Test
     void runsOnApplicationReadyOnlyWhenConfigured() {
-        ExternalNoticeAutomaticCollectionWorkflow disabledWorkflow =
-                mock(ExternalNoticeAutomaticCollectionWorkflow.class);
+        ExternalNoticeCollectionWorkflow disabledWorkflow =
+                mock(ExternalNoticeCollectionWorkflow.class);
         ExternalNoticeScheduler disabledScheduler = new ExternalNoticeScheduler(disabledWorkflow, false);
         disabledScheduler.runCollectionOnStartup();
         verify(disabledWorkflow, times(0)).run();
 
-        ExternalNoticeAutomaticCollectionWorkflow enabledWorkflow =
-                mock(ExternalNoticeAutomaticCollectionWorkflow.class);
+        ExternalNoticeCollectionWorkflow enabledWorkflow =
+                mock(ExternalNoticeCollectionWorkflow.class);
         when(enabledWorkflow.run()).thenReturn(emptyAutomaticResult());
         ExternalNoticeScheduler enabledScheduler = new ExternalNoticeScheduler(enabledWorkflow, true);
         enabledScheduler.runCollectionOnStartup();
@@ -94,7 +94,7 @@ class ExternalNoticeSchedulerTests {
         return ExternalNoticeCollectionResult.builder().build();
     }
 
-    private ExternalNoticeAutomaticCollectionResult emptyAutomaticResult() {
-        return new ExternalNoticeAutomaticCollectionResult(emptyResult(), java.util.List.of());
+    private ExternalNoticeCollectionWorkflowResult emptyAutomaticResult() {
+        return new ExternalNoticeCollectionWorkflowResult(emptyResult(), java.util.List.of());
     }
 }
