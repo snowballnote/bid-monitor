@@ -176,4 +176,27 @@ class SubmissionCaseControllerTests {
         mockMvc.perform(get("/api/submission-projects").param("query", "검색"))
                 .andExpect(status().isServiceUnavailable());
     }
+
+    @Test
+    void createsManualChecklistCaseWithoutPmsProject() throws Exception {
+        String response = mockMvc.perform(post("/api/submission-cases")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"requirements":[
+                                  {"category":"COMPANY_GENERAL","documentName":"사업자등록증","sourceReference":"BUSINESS_REGISTRATION"},
+                                  {"category":"PERFORMANCE","documentName":"실적증명서","sourceReference":"PERFORMANCE"}
+                                ]}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.projectId").isEmpty())
+                .andExpect(jsonPath("$.projectName").value("직접 선택 제출서류"))
+                .andReturn().getResponse().getContentAsString();
+
+        Long caseId = ((Number) com.jayway.jsonpath.JsonPath.read(response, "$.id")).longValue();
+        mockMvc.perform(get("/api/submission-cases/{id}/requirements", caseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[0].sourceType").value("USER_SELECTED"))
+                .andExpect(jsonPath("$[1].performanceSelectionRequired").value(true));
+    }
 }

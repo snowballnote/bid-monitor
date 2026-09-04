@@ -437,27 +437,14 @@ test("알림 관리 모바일 화면은 신청자를 카드 목록으로 표시�
 });
 
 const submissionCase = {
-    id: 71, projectId: 301, projectPublicId: "f9ef02ea-716c-40e9-a1b1-281105449b15",
-    projectCode: "P-301", internalBizNo: "BIZ-301", projectName: "공공정보시스템 고도화 사업",
-    bidNoticeNo: "20260903-01", status: "DRAFT",
+    id: 71, projectId: null, projectPublicId: null, projectCode: null, internalBizNo: null,
+    projectName: "직접 선택 제출서류", bidNoticeNo: null, status: "DRAFT",
     createdAt: "2026-09-03T01:00:00Z", updatedAt: "2026-09-03T01:00:00Z"
 };
 
-const submissionProjects = [{
-    projectId: 301,
-    projectName: "공공정보시스템 고도화 사업",
-    organizationName: "한국정보화진흥원",
-    bidNoticeNo: "20260903-01"
-}, {
-    projectId: 302,
-    projectName: "행정서비스 운영 사업",
-    organizationName: "테스트 발주기관",
-    bidNoticeNo: "20260903-02"
-}];
-
 const submissionRequirements = [
-    { id: 81, submissionCaseId: 71, category: "COMPANY_GENERAL", documentName: "사업자등록증", required: true, evidenceText: "사업자등록증 1부", sourceType: "PMS_RFP_ITEM", sourceReference: "401" },
-    { id: 82, submissionCaseId: 71, category: "PERFORMANCE", documentName: "실적증명서", required: true, evidenceText: "최근 3년 실적증명서", sourceType: "PMS_RFP_ITEM", sourceReference: "402" }
+    { id: 81, submissionCaseId: 71, category: "COMPANY_GENERAL", documentName: "사업자등록증", required: true, evidenceText: "사용자가 직접 선택한 제출서류", sourceType: "USER_SELECTED", sourceReference: "BUSINESS_REGISTRATION", performanceSelectionRequired: false },
+    { id: 82, submissionCaseId: 71, category: "PERFORMANCE", documentName: "실적증명서", required: true, evidenceText: "사용자가 직접 선택한 제출서류", sourceType: "USER_SELECTED", sourceReference: "PERFORMANCE", performanceSelectionRequired: true }
 ];
 
 const submissionCandidates = {
@@ -476,17 +463,13 @@ const submissionCandidates = {
 };
 
 async function mockSubmissionApi(page, options = {}) {
-    const apiState = { selections: [], putBodies: [] };
-    await page.route("**/api/submission-projects?**", async (route) => {
-        await route.fulfill(options.unavailable
-            ? { status: 503, contentType: "application/json", body: JSON.stringify({ message: "unavailable" }) }
-            : { status: 200, contentType: "application/json", body: JSON.stringify(options.empty ? [] : submissionProjects) });
-    });
+    const apiState = { selections: [], putBodies: [], postBodies: [], candidateRequests: [] };
     await page.route("**/api/submission-cases**", async (route) => {
         const request = route.request();
         const pathname = new URL(request.url()).pathname;
         const method = request.method();
         if (method === "POST" && pathname === "/api/submission-cases") {
+            apiState.postBodies.push(request.postDataJSON());
             await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify(submissionCase) });
             return;
         }
@@ -500,7 +483,10 @@ async function mockSubmissionApi(page, options = {}) {
         }
         const candidateMatch = pathname.match(/^\/api\/submission-cases\/71\/requirements\/(\d+)\/candidates$/);
         if (method === "GET" && candidateMatch) {
-            await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(submissionCandidates[Number(candidateMatch[1])] || []) });
+            apiState.candidateRequests.push(Number(candidateMatch[1]));
+            await route.fulfill(options.unavailable
+                ? { status: 503, contentType: "application/json", body: JSON.stringify({ message: "unavailable" }) }
+                : { status: 200, contentType: "application/json", body: JSON.stringify(options.empty ? [] : submissionCandidates[Number(candidateMatch[1])] || []) });
             return;
         }
         if (method === "PUT" && pathname === "/api/submission-cases/71/selections") {
@@ -525,19 +511,23 @@ async function mockSubmissionApi(page, options = {}) {
     return apiState;
 }
 
-test("서류 모으기에서 사업, 요구서류, 후보 선택과 패키지 진행률을 확인한다", async ({ page }) => {
+test("서류 체크 후 후보 선택과 패키지 진행률을 확인한다", async ({ page }) => {
     const apiState = await mockSubmissionApi(page);
     await page.goto("/submissions/");
 
     await expect(page.getByRole("link", { name: "서류 모으기", exact: true })).toHaveAttribute("aria-current", "page");
-    await page.getByLabel("사업 검색").fill("고도화");
-    await page.getByRole("button", { name: "검색", exact: true }).click();
-    await expect(page.locator("#project-result-table-body tr")).toHaveCount(2);
-    await expect(page.locator("#project-result-table-body")).toContainText("한국정보화진흥원");
-    await expect(page.locator("#project-result-table-body")).not.toContainText("301");
-    await page.locator("#project-result-table-body tr").first().getByRole("button", { name: "선택", exact: true }).click();
-    await expect(page.getByRole("heading", { name: submissionCase.projectName })).toBeVisible();
+    await page.getByLabel("사업자등록증", { exact: true }).check();
+    await page.getByLabel("실적증명서", { exact: true }).check();
+    await expect(page.locator("#checked-document-count")).toHaveText("2");
+    await page.getByRole("button", { name: "선택한 서류 찾기" }).click();
+    await expect(page.getByRole("heading", { name: "선택한 제출서류" })).toBeVisible();
     await expect(page.locator("#requirement-list .requirement-item")).toHaveCount(2);
+    expect(apiState.postBodies).toEqual([{ requirements: [
+        { category: "COMPANY_GENERAL", documentName: "사업자등록증", sourceReference: "BUSINESS_REGISTRATION" },
+        { category: "PERFORMANCE", documentName: "실적증명서", sourceReference: "PERFORMANCE" }
+    ] }]);
+    await expect(page.locator(".requirement-item").filter({ hasText: "사업자등록증" })).toContainText("2개 후보");
+    expect(apiState.candidateRequests).toEqual([81]);
     await expect(page.locator("#progress-percent")).toHaveText("0%");
 
     await page.locator(".requirement-item").filter({ hasText: "사업자등록증" }).click();
@@ -552,25 +542,42 @@ test("서류 모으기에서 사업, 요구서류, 후보 선택과 패키지 �
     expect(apiState.putBodies).toEqual([{ selections: [{ requirementId: 81, fileId: 901 }] }]);
 
     await page.locator(".requirement-item").filter({ hasText: "실적증명서" }).click();
-    await expect(page.getByText("후보 없음", { exact: true })).toBeVisible();
+    await expect(page.getByText("실적 선택이 필요합니다.", { exact: true })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("storage_path");
 });
 
 test("서류 모으기는 회사 DB 503을 사용자 안내로 표시한다", async ({ page }) => {
     await mockSubmissionApi(page, { unavailable: true });
     await page.goto("/submissions/");
-    await page.getByLabel("사업 검색").fill("고도화");
-    await page.getByRole("button", { name: "검색", exact: true }).click();
-    await expect(page.locator("#project-search-error")).toContainText("회사 DB에 연결할 수 없습니다");
+    await page.getByLabel("사업자등록증", { exact: true }).check();
+    await page.getByRole("button", { name: "선택한 서류 찾기" }).click();
+    const requirement = page.locator(".requirement-item").filter({ hasText: "사업자등록증" });
+    await expect(requirement).toContainText("조회 실패");
+    await requirement.click();
+    await expect(page.locator("#candidate-error")).toContainText("회사 DB에 연결할 수 없습니다");
 });
 
-test("서류 모으기 사업 검색 결과가 없으면 빈 상태를 표시한다", async ({ page }) => {
+test("서류 후보가 없으면 요구서류와 상세 영역에 빈 상태를 표시한다", async ({ page }) => {
     await mockSubmissionApi(page, { empty: true });
     await page.goto("/submissions/");
-    await page.getByLabel("사업 검색").fill("없는 사업");
-    await page.getByRole("button", { name: "검색", exact: true }).click();
-    await expect(page.locator("#project-search-empty")).toContainText("검색 결과가 없습니다");
-    await expect(page.locator("#project-search-results")).toBeHidden();
+    await page.getByLabel("사업자등록증", { exact: true }).check();
+    await page.getByRole("button", { name: "선택한 서류 찾기" }).click();
+    const requirement = page.locator(".requirement-item").filter({ hasText: "사업자등록증" });
+    await expect(requirement).toContainText("후보 없음");
+    await requirement.click();
+    await expect(page.locator("#candidate-empty")).toContainText("후보 없음");
+});
+
+test("사용자 정의 서류를 추가하고 중복 입력을 막는다", async ({ page }) => {
+    await mockSubmissionApi(page);
+    await page.goto("/submissions/");
+    await page.getByPlaceholder("직접 입력할 서류명").fill("보안서약서");
+    await page.getByRole("button", { name: "추가", exact: true }).click();
+    await expect(page.locator("#custom-document-list")).toContainText("보안서약서");
+    await expect(page.locator("#checked-document-count")).toHaveText("1");
+    await page.getByPlaceholder("직접 입력할 서류명").fill("보안서약서");
+    await page.getByRole("button", { name: "추가", exact: true }).click();
+    await expect(page.locator("#document-message")).toContainText("이미 선택하거나 추가한 서류");
 });
 
 test("서류 모으기 모바일 화면은 카드 흐름과 진행률을 유지한다", async ({ page }) => {
@@ -579,11 +586,9 @@ test("서류 모으기 모바일 화면은 카드 흐름과 진행률을 유지�
     await page.goto("/submissions/");
 
     await expect(page.locator(".app-nav-link")).toHaveCount(5);
-    await page.getByLabel("사업 검색").fill("고도화");
-    await page.getByRole("button", { name: "검색", exact: true }).click();
-    await expect(page.locator(".project-result-table-wrap")).toBeHidden();
-    await expect(page.locator(".project-result-card")).toHaveCount(2);
-    await page.locator(".project-result-card").first().getByRole("button", { name: "선택", exact: true }).click();
+    await page.getByLabel("사업자등록증", { exact: true }).check();
+    await page.getByLabel("실적증명서", { exact: true }).check();
+    await page.getByRole("button", { name: "선택한 서류 찾기" }).click();
     await expect(page.locator("#requirement-list .requirement-item")).toHaveCount(2);
     await expect(page.locator("#progress-percent")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);

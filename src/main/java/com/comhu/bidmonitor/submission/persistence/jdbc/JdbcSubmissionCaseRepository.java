@@ -14,6 +14,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -47,7 +48,11 @@ public class JdbcSubmissionCaseRepository implements SubmissionCaseRepository {
                                 """,
                         Statement.RETURN_GENERATED_KEYS
                 );
-                statement.setLong(1, submissionCase.getProjectId());
+                if (submissionCase.getProjectId() == null) {
+                    statement.setNull(1, Types.BIGINT);
+                } else {
+                    statement.setLong(1, submissionCase.getProjectId());
+                }
                 statement.setString(2, submissionCase.getProjectPublicId() == null
                         ? null : submissionCase.getProjectPublicId().toString());
                 statement.setString(3, submissionCase.getProjectCode());
@@ -60,7 +65,10 @@ public class JdbcSubmissionCaseRepository implements SubmissionCaseRepository {
                 return statement;
             }, keyHolder);
         } catch (DuplicateKeyException exception) {
-            return findByProjectId(submissionCase.getProjectId()).orElseThrow(() -> exception);
+            if (submissionCase.getProjectId() != null) {
+                return findByProjectId(submissionCase.getProjectId()).orElseThrow(() -> exception);
+            }
+            throw exception;
         }
 
         Long id = keyHolder.getKeyAs(Long.class);
@@ -77,6 +85,9 @@ public class JdbcSubmissionCaseRepository implements SubmissionCaseRepository {
 
     @Override
     public Optional<SubmissionCase> findByProjectId(Long projectId) {
+        if (projectId == null) {
+            return Optional.empty();
+        }
         return find("SELECT " + COLUMNS + " FROM submission_case WHERE project_id = ?", projectId);
     }
 
@@ -88,7 +99,7 @@ public class JdbcSubmissionCaseRepository implements SubmissionCaseRepository {
     private SubmissionCase map(ResultSet resultSet, int rowNumber) throws SQLException {
         return SubmissionCase.builder()
                 .id(resultSet.getLong("id"))
-                .projectId(resultSet.getLong("project_id"))
+                .projectId(resultSet.getObject("project_id", Long.class))
                 .projectPublicId(toUuid(resultSet.getString("project_public_id")))
                 .projectCode(resultSet.getString("project_code"))
                 .internalBizNo(resultSet.getString("internal_biz_no"))

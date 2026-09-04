@@ -7,7 +7,9 @@ import com.comhu.bidmonitor.submission.api.dto.SubmissionCaseResponse;
 import com.comhu.bidmonitor.submission.api.dto.SubmissionPackageResponse;
 import com.comhu.bidmonitor.submission.api.dto.SubmissionRequirementResponse;
 import com.comhu.bidmonitor.submission.api.dto.SubmissionSelectionResponse;
+import com.comhu.bidmonitor.submission.domain.RequirementCategory;
 import com.comhu.bidmonitor.submission.service.SubmissionCaseService;
+import com.comhu.bidmonitor.submission.service.SubmissionCaseService.ManualRequirement;
 import com.comhu.bidmonitor.submission.service.SubmissionCaseService.SelectionChoice;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,6 +39,14 @@ public class SubmissionCaseController {
     public SubmissionCaseResponse create(@RequestBody CreateSubmissionCaseRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("요청 본문이 필요합니다.");
+        }
+        if (request.requirements() != null && !request.requirements().isEmpty()) {
+            List<ManualRequirement> requirements = request.requirements().stream()
+                    .map(item -> new ManualRequirement(
+                            parseCategory(item.category()), item.documentName(), item.sourceReference()
+                    ))
+                    .toList();
+            return SubmissionCaseResponse.from(service.createManual(requirements));
         }
         return SubmissionCaseResponse.from(service.create(request.projectId()));
     }
@@ -75,5 +85,13 @@ public class SubmissionCaseController {
     @GetMapping("/{id}/package")
     public SubmissionPackageResponse getPackage(@PathVariable Long id) {
         return SubmissionPackageResponse.from(service.getPackage(id));
+    }
+
+    private RequirementCategory parseCategory(String value) {
+        try {
+            return RequirementCategory.valueOf(value == null ? "" : value.trim());
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("지원하지 않는 제출서류 카테고리입니다.");
+        }
     }
 }

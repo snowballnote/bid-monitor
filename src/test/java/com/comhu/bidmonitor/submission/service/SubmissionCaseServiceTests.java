@@ -129,6 +129,36 @@ class SubmissionCaseServiceTests {
                 .containsExactly(DocumentMatchLevel.EXACT, DocumentMatchLevel.EXACT, DocumentMatchLevel.RECOMMENDED);
     }
 
+    @Test
+    void createsManualRequirementsWithoutReadingPmsAndDefersPerformanceSearch() {
+        when(caseRepository.save(any())).thenAnswer(invocation -> {
+            SubmissionCase value = invocation.getArgument(0);
+            return value.toBuilder().id(30L).build();
+        });
+
+        SubmissionCase created = service.createManual(List.of(
+                new SubmissionCaseService.ManualRequirement(
+                        RequirementCategory.COMPANY_GENERAL, "사업자등록증", "BUSINESS_REGISTRATION"
+                ),
+                new SubmissionCaseService.ManualRequirement(
+                        RequirementCategory.PERFORMANCE, "실적증명서", "PERFORMANCE"
+                )
+        ));
+
+        assertThat(created.getProjectId()).isNull();
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<SubmissionDocumentRequirement>> captor = ArgumentCaptor.forClass(List.class);
+        verify(requirementRepository).saveAll(captor.capture());
+        assertThat(captor.getValue()).extracting(SubmissionDocumentRequirement::getSourceType)
+                .containsOnly(RequirementSourceType.USER_SELECTED);
+        verify(projectQueryPort, never()).findProjectById(any());
+
+        SubmissionDocumentRequirement performance = captor.getValue().get(1).toBuilder().id(32L).build();
+        when(requirementRepository.findById(32L)).thenReturn(Optional.of(performance));
+        assertThat(service.findCandidates(30L, 32L)).isEmpty();
+        verify(fileSearchPort, never()).searchByKeywords(any(), any(Integer.class));
+    }
+
     private void stubNewProject() {
         when(caseRepository.findByProjectId(101L)).thenReturn(Optional.empty());
         when(projectQueryPort.findProjectById(101L)).thenReturn(Optional.of(

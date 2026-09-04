@@ -2,6 +2,8 @@ package com.comhu.bidmonitor.submission.service;
 
 import com.comhu.bidmonitor.submission.domain.DocumentCandidate;
 import com.comhu.bidmonitor.submission.domain.DocumentMatchLevel;
+import com.comhu.bidmonitor.submission.domain.RequirementCategory;
+import com.comhu.bidmonitor.submission.domain.RequirementSourceType;
 import com.comhu.bidmonitor.submission.domain.SubmissionCase;
 import com.comhu.bidmonitor.submission.domain.SubmissionCaseStatus;
 import com.comhu.bidmonitor.submission.domain.SubmissionDocumentRequirement;
@@ -103,6 +105,36 @@ public class SubmissionCaseService {
         return savedCase;
     }
 
+    /** PMS/RFP 없이 사용자가 고른 서류만으로 독립적인 제출 준비 작업을 만든다. */
+    @Transactional
+    public SubmissionCase createManual(List<ManualRequirement> requestedRequirements) {
+        if (requestedRequirements == null || requestedRequirements.isEmpty()) {
+            throw new IllegalArgumentException("필요한 제출서류를 하나 이상 선택해 주세요.");
+        }
+        if (requestedRequirements.size() > 30) {
+            throw new IllegalArgumentException("제출서류는 한 번에 30개까지 선택할 수 있습니다.");
+        }
+
+        Instant now = clock.instant();
+        SubmissionCase savedCase = caseRepository.save(SubmissionCase.builder()
+                .projectName("직접 선택 제출서류")
+                .status(SubmissionCaseStatus.DRAFT)
+                .createdAt(now)
+                .updatedAt(now)
+                .build());
+
+        Set<String> documentNames = new HashSet<>();
+        List<SubmissionDocumentRequirement> requirements = requestedRequirements.stream()
+                .map(requirement -> toManualRequirement(savedCase.getId(), requirement, documentNames, now))
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        if (requirements.isEmpty()) {
+            throw new IllegalArgumentException("유효한 제출서류를 하나 이상 입력해 주세요.");
+        }
+        requirementRepository.saveAll(requirements);
+        return savedCase;
+    }
+
     public SubmissionCase get(Long caseId) {
         return caseRepository.findById(caseId)
                 .orElseThrow(() -> new SubmissionNotFoundException("제출서류 작업을 찾을 수 없습니다."));
@@ -115,6 +147,9 @@ public class SubmissionCaseService {
 
     public List<DocumentCandidate> findCandidates(Long caseId, Long requirementId) {
         SubmissionDocumentRequirement requirement = requireRequirement(caseId, requirementId);
+        if (requiresPerformanceSelection(requirement)) {
+            return List.of();
+        }
         List<String> keywords = extractor.searchKeywords(requirement.getDocumentName());
         String exactName = extractor.normalizeForMatch(requirement.getDocumentName());
 
@@ -206,6 +241,50 @@ public class SubmissionCaseService {
                 );
     }
 
+    private SubmissionDocumentRequirement toManualRequirement(
+            Long caseId,
+            ManualRequirement requirement,
+            Set<String> documentNames,
+            Instant now
+    ) {
+        if (requirement == null || requirement.category() == null) {
+            throw new IllegalArgumentException("제출서류 카테고리가 필요합니다.");
+        }
+        String name = requirement.documentName() == null ? "" : requirement.documentName().trim();
+        if (name.isEmpty() || name.length() > 200) {
+            throw new IllegalArgumentException("제출서류명은 1자 이상 200자 이하로 입력해 주세요.");
+        }
+        if (!documentNames.add(normalizeManualName(name))) {
+            return null;
+        }
+        return SubmissionDocumentRequirement.builder()
+                .submissionCaseId(caseId)
+                .category(requirement.category())
+                .documentName(name)
+                .required(true)
+                .evidenceText("사용자가 직접 선택한 제출서류")
+                .sourceType(RequirementSourceType.USER_SELECTED)
+                .sourceReference(requirement.sourceReference())
+                .createdAt(now)
+                .build();
+    }
+
+    private String normalizeManualName(String name) {
+        return name.replaceAll("\\s+", "").toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private boolean requiresPerformanceSelection(SubmissionDocumentRequirement requirement) {
+        return requirement.getCategory() == RequirementCategory.PERFORMANCE
+                && "실적증명서".equals(requirement.getDocumentName().trim());
+    }
+
     public record SelectionChoice(Long requirementId, Long fileId) {
+    }
+
+    public record ManualRequirement(
+            RequirementCategory category,
+            String documentName,
+            String sourceReference
+    ) {
     }
 }
