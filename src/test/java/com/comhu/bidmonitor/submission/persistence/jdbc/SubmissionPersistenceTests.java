@@ -1,12 +1,15 @@
 package com.comhu.bidmonitor.submission.persistence.jdbc;
 
 import com.comhu.bidmonitor.submission.domain.RequirementCategory;
+import com.comhu.bidmonitor.submission.domain.CommonDocumentType;
+import com.comhu.bidmonitor.submission.domain.DocumentRefreshPolicy;
 import com.comhu.bidmonitor.submission.domain.RequirementSourceType;
 import com.comhu.bidmonitor.submission.domain.SubmissionCase;
 import com.comhu.bidmonitor.submission.domain.SubmissionCaseStatus;
 import com.comhu.bidmonitor.submission.domain.SubmissionDocumentRequirement;
 import com.comhu.bidmonitor.submission.domain.SubmissionDocumentSelection;
 import com.comhu.bidmonitor.submission.persistence.SubmissionCaseRepository;
+import com.comhu.bidmonitor.submission.persistence.CommonSubmissionDocumentRepository;
 import com.comhu.bidmonitor.submission.persistence.SubmissionRequirementRepository;
 import com.comhu.bidmonitor.submission.persistence.SubmissionSelectionRepository;
 import org.junit.jupiter.api.Test;
@@ -44,6 +47,25 @@ class SubmissionPersistenceTests {
 
     @Autowired
     private SubmissionSelectionRepository selectionRepository;
+
+    @Autowired
+    private CommonSubmissionDocumentRepository commonDocumentRepository;
+
+    @Test
+    void initializesAdministrativeCommonDocumentPolicies() {
+        assertThat(commonDocumentRepository.findAllActive()).hasSize(12);
+        assertThat(commonDocumentRepository.findByDocumentType(CommonDocumentType.BUSINESS_REGISTRATION))
+                .get().extracting(document -> document.getRefreshPolicy())
+                .isEqualTo(DocumentRefreshPolicy.NONE);
+        assertThat(commonDocumentRepository.findByDocumentType(CommonDocumentType.CORPORATE_SEAL_CERTIFICATE))
+                .get().satisfies(document -> {
+                    assertThat(document.getRefreshPolicy()).isEqualTo(DocumentRefreshPolicy.PERIODIC);
+                    assertThat(document.getRefreshIntervalMonths()).isEqualTo(3);
+                });
+        assertThat(commonDocumentRepository.findByDocumentType(CommonDocumentType.PIA_INSTITUTION_CERTIFICATE))
+                .get().extracting(document -> document.getRefreshPolicy())
+                .isEqualTo(DocumentRefreshPolicy.EXPIRATION_BASED);
+    }
 
     @Test
     void storesCaseRequirementsAndSafeFileSelectionSnapshotsInPrimaryH2() {

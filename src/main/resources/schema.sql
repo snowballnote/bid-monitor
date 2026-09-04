@@ -151,3 +151,77 @@ CREATE TABLE IF NOT EXISTS submission_document_selection (
 
 CREATE INDEX IF NOT EXISTS ix_submission_selection_case
     ON submission_document_selection (submission_case_id, requirement_id);
+
+-- 회사 DB 파일을 복제하지 않고 공통 제출서류의 현재 사용본 reference와 갱신 정보만 보관한다.
+CREATE TABLE IF NOT EXISTS submission_common_document (
+    document_type VARCHAR(100) PRIMARY KEY,
+    display_name VARCHAR(500) NOT NULL,
+    file_id BIGINT,
+    file_public_id VARCHAR(36),
+    original_filename VARCHAR(2000),
+    file_ext VARCHAR(100),
+    issued_at DATE,
+    expires_at DATE,
+    refresh_policy VARCHAR(30) NOT NULL,
+    refresh_interval_months INTEGER,
+    active BOOLEAN NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT ck_common_document_refresh_policy
+        CHECK (refresh_policy IN ('NONE', 'EXPIRATION_BASED', 'PERIODIC')),
+    CONSTRAINT ck_common_document_periodic_interval
+        CHECK ((refresh_policy = 'PERIODIC' AND refresh_interval_months > 0)
+            OR (refresh_policy <> 'PERIODIC' AND refresh_interval_months IS NULL)),
+    CONSTRAINT ck_common_document_file_reference
+        CHECK ((file_id IS NULL AND file_public_id IS NULL AND original_filename IS NULL)
+            OR (file_id IS NOT NULL AND file_public_id IS NOT NULL AND original_filename IS NOT NULL))
+);
+
+INSERT INTO submission_common_document
+    (document_type, display_name, refresh_policy, refresh_interval_months, active, created_at, updated_at)
+SELECT 'BUSINESS_REGISTRATION', '사업자등록증', 'NONE', NULL, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM submission_common_document WHERE document_type = 'BUSINESS_REGISTRATION');
+INSERT INTO submission_common_document
+    (document_type, display_name, refresh_policy, refresh_interval_months, active, created_at, updated_at)
+SELECT 'BID_PARTICIPATION_REGISTRATION', '경쟁입찰참가자격등록증', 'NONE', NULL, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM submission_common_document WHERE document_type = 'BID_PARTICIPATION_REGISTRATION');
+INSERT INTO submission_common_document
+    (document_type, display_name, refresh_policy, refresh_interval_months, active, created_at, updated_at)
+SELECT 'CORPORATE_REGISTRY', '법인등기사항전부증명서', 'NONE', NULL, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM submission_common_document WHERE document_type = 'CORPORATE_REGISTRY');
+INSERT INTO submission_common_document
+    (document_type, display_name, refresh_policy, refresh_interval_months, active, created_at, updated_at)
+SELECT 'CORPORATE_SEAL_CERTIFICATE', '법인인감증명서', 'PERIODIC', 3, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM submission_common_document WHERE document_type = 'CORPORATE_SEAL_CERTIFICATE');
+INSERT INTO submission_common_document
+    (document_type, display_name, refresh_policy, refresh_interval_months, active, created_at, updated_at)
+SELECT 'PIA_INSTITUTION_CERTIFICATE', '개인정보 영향평가 기관 인증서', 'EXPIRATION_BASED', NULL, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM submission_common_document WHERE document_type = 'PIA_INSTITUTION_CERTIFICATE');
+INSERT INTO submission_common_document
+    (document_type, display_name, refresh_policy, refresh_interval_months, active, created_at, updated_at)
+SELECT 'AUDIT_CORPORATION_REGISTRATION', '감리법인등록증', 'EXPIRATION_BASED', NULL, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM submission_common_document WHERE document_type = 'AUDIT_CORPORATION_REGISTRATION');
+INSERT INTO submission_common_document
+    (document_type, display_name, refresh_policy, refresh_interval_months, active, created_at, updated_at)
+SELECT 'SMALL_BUSINESS_CERTIFICATE', '중소기업확인서', 'EXPIRATION_BASED', NULL, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM submission_common_document WHERE document_type = 'SMALL_BUSINESS_CERTIFICATE');
+INSERT INTO submission_common_document
+    (document_type, display_name, refresh_policy, refresh_interval_months, active, created_at, updated_at)
+SELECT 'WOMEN_OWNED_BUSINESS_CERTIFICATE', '여성기업확인서', 'EXPIRATION_BASED', NULL, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM submission_common_document WHERE document_type = 'WOMEN_OWNED_BUSINESS_CERTIFICATE');
+INSERT INTO submission_common_document
+    (document_type, display_name, refresh_policy, refresh_interval_months, active, created_at, updated_at)
+SELECT 'STARTUP_BUSINESS_CERTIFICATE', '창업기업확인서', 'EXPIRATION_BASED', NULL, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM submission_common_document WHERE document_type = 'STARTUP_BUSINESS_CERTIFICATE');
+INSERT INTO submission_common_document
+    (document_type, display_name, refresh_policy, refresh_interval_months, active, created_at, updated_at)
+SELECT 'CREDIT_RATING_CERTIFICATE', '신용평가등급확인서', 'EXPIRATION_BASED', NULL, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM submission_common_document WHERE document_type = 'CREDIT_RATING_CERTIFICATE');
+INSERT INTO submission_common_document
+    (document_type, display_name, refresh_policy, refresh_interval_months, active, created_at, updated_at)
+SELECT 'SOFTWARE_BUSINESS_STATUS_CERTIFICATE', '소프트웨어사업자 일반현황 관리확인서', 'EXPIRATION_BASED', NULL, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM submission_common_document WHERE document_type = 'SOFTWARE_BUSINESS_STATUS_CERTIFICATE');
+INSERT INTO submission_common_document
+    (document_type, display_name, refresh_policy, refresh_interval_months, active, created_at, updated_at)
+SELECT 'DIRECT_PRODUCTION_CERTIFICATE', '직접생산확인증명서', 'EXPIRATION_BASED', NULL, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM submission_common_document WHERE document_type = 'DIRECT_PRODUCTION_CERTIFICATE');

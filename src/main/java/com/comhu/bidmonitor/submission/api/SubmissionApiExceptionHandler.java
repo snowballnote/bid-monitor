@@ -9,7 +9,11 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-@RestControllerAdvice(assignableTypes = {SubmissionCaseController.class, SubmissionProjectController.class})
+@RestControllerAdvice(assignableTypes = {
+        SubmissionCaseController.class,
+        SubmissionProjectController.class,
+        CommonSubmissionDocumentController.class
+})
 public class SubmissionApiExceptionHandler {
 
     @ExceptionHandler(SubmissionNotFoundException.class)

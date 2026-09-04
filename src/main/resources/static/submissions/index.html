@@ -45,12 +45,17 @@
                         <fieldset class="checklist-group">
                             <legend>회사 공통</legend>
                             <label><input class="document-option" type="checkbox" data-category="COMPANY_GENERAL" data-reference="BUSINESS_REGISTRATION" value="사업자등록증"><span>사업자등록증</span></label>
+                            <label><input class="document-option" type="checkbox" data-category="COMPANY_GENERAL" data-reference="BID_PARTICIPATION_REGISTRATION" value="경쟁입찰참가자격등록증"><span>경쟁입찰참가자격등록증</span></label>
                             <label><input class="document-option" type="checkbox" data-category="COMPANY_GENERAL" data-reference="CORPORATE_REGISTRY" value="법인등기사항전부증명서"><span>법인등기사항전부증명서</span></label>
-                            <label><input class="document-option" type="checkbox" data-category="FINANCIAL" data-reference="NATIONAL_TAX" value="국세 완납증명서"><span>국세 완납증명서</span></label>
-                            <label><input class="document-option" type="checkbox" data-category="FINANCIAL" data-reference="LOCAL_TAX" value="지방세 완납증명서"><span>지방세 완납증명서</span></label>
-                            <label><input class="document-option" type="checkbox" data-category="FINANCIAL" data-reference="SOCIAL_INSURANCE" value="4대보험 완납증명서"><span>4대보험 완납증명서</span></label>
-                            <label><input class="document-option" type="checkbox" data-category="CERTIFICATION_LICENSE" data-reference="SMALL_BUSINESS" value="중소기업확인서"><span>중소기업확인서</span></label>
-                            <label><input class="document-option" type="checkbox" data-category="CERTIFICATION_LICENSE" data-reference="DIRECT_PRODUCTION" value="직접생산확인증명서"><span>직접생산확인증명서</span></label>
+                            <label><input class="document-option" type="checkbox" data-category="COMPANY_GENERAL" data-reference="CORPORATE_SEAL_CERTIFICATE" value="법인인감증명서"><span>법인인감증명서</span></label>
+                            <label><input class="document-option" type="checkbox" data-category="CERTIFICATION_LICENSE" data-reference="PIA_INSTITUTION_CERTIFICATE" value="개인정보 영향평가 기관 인증서"><span>개인정보 영향평가 기관 인증서</span></label>
+                            <label><input class="document-option" type="checkbox" data-category="CERTIFICATION_LICENSE" data-reference="AUDIT_CORPORATION_REGISTRATION" value="감리법인등록증"><span>감리법인등록증</span></label>
+                            <label><input class="document-option" type="checkbox" data-category="CERTIFICATION_LICENSE" data-reference="SMALL_BUSINESS_CERTIFICATE" value="중소기업확인서"><span>중소기업확인서</span></label>
+                            <label><input class="document-option" type="checkbox" data-category="CERTIFICATION_LICENSE" data-reference="WOMEN_OWNED_BUSINESS_CERTIFICATE" value="여성기업확인서"><span>여성기업확인서</span></label>
+                            <label><input class="document-option" type="checkbox" data-category="CERTIFICATION_LICENSE" data-reference="STARTUP_BUSINESS_CERTIFICATE" value="창업기업확인서"><span>창업기업확인서</span></label>
+                            <label><input class="document-option" type="checkbox" data-category="FINANCIAL" data-reference="CREDIT_RATING_CERTIFICATE" value="신용평가등급확인서"><span>신용평가등급확인서</span></label>
+                            <label><input class="document-option" type="checkbox" data-category="CERTIFICATION_LICENSE" data-reference="SOFTWARE_BUSINESS_STATUS_CERTIFICATE" value="소프트웨어사업자 일반현황 관리확인서"><span>소프트웨어사업자 일반현황 관리확인서</span></label>
+                            <label><input class="document-option" type="checkbox" data-category="CERTIFICATION_LICENSE" data-reference="DIRECT_PRODUCTION_CERTIFICATE" value="직접생산확인증명서"><span>직접생산확인증명서</span></label>
                         </fieldset>
                         <fieldset class="checklist-group">
                             <legend>인력 / 자격</legend>
@@ -151,6 +156,22 @@
         </div>
     </main>
 </div>
+<dialog id="common-document-dialog" class="common-document-dialog">
+    <form id="common-document-form" method="dialog">
+        <header>
+            <div><span class="panel-kicker">CURRENT DOCUMENT</span><h2 id="common-document-title">공통서류 관리정보</h2></div>
+            <button id="common-document-close" class="dialog-close" type="button" aria-label="닫기">×</button>
+        </header>
+        <p id="common-document-help" class="common-document-help"></p>
+        <label id="issued-at-field">발급일<input id="common-document-issued-at" type="date"></label>
+        <label id="expires-at-field">만료일<input id="common-document-expires-at" type="date"></label>
+        <p id="common-document-message" class="submission-message hidden" role="alert"></p>
+        <footer>
+            <button id="common-document-cancel" class="ui-button ui-button-secondary" type="button">취소</button>
+            <button class="ui-button ui-button-primary" type="submit">관리정보 저장</button>
+        </footer>
+    </form>
+</dialog>
 <script src="/submissions/submissions.js"></script>
 </body>
 </html>

@@ -1,4 +1,5 @@
 const API_BASE = "/api/submission-cases";
+const COMMON_DOCUMENT_API = "/api/submission-common-documents";
 
 const elements = {
     documentPicker: document.querySelector("#document-picker"),
@@ -33,7 +34,18 @@ const elements = {
     candidateList: document.querySelector("#candidate-list"),
     packageSelectionCount: document.querySelector("#package-selection-count"),
     packageEmpty: document.querySelector("#package-empty"),
-    packageList: document.querySelector("#package-list")
+    packageList: document.querySelector("#package-list"),
+    commonDocumentDialog: document.querySelector("#common-document-dialog"),
+    commonDocumentForm: document.querySelector("#common-document-form"),
+    commonDocumentTitle: document.querySelector("#common-document-title"),
+    commonDocumentHelp: document.querySelector("#common-document-help"),
+    commonDocumentIssuedAt: document.querySelector("#common-document-issued-at"),
+    commonDocumentExpiresAt: document.querySelector("#common-document-expires-at"),
+    issuedAtField: document.querySelector("#issued-at-field"),
+    expiresAtField: document.querySelector("#expires-at-field"),
+    commonDocumentMessage: document.querySelector("#common-document-message"),
+    commonDocumentClose: document.querySelector("#common-document-close"),
+    commonDocumentCancel: document.querySelector("#common-document-cancel")
 };
 
 const state = {
@@ -44,7 +56,9 @@ const state = {
     activeRequirementId: null,
     candidates: new Map(),
     candidateLoadingIds: new Set(),
-    candidateErrors: new Map()
+    candidateErrors: new Map(),
+    commonDocuments: new Map(),
+    commonDocumentEditor: null
 };
 
 class ApiError extends Error {
@@ -104,6 +118,45 @@ function selectedRequirements() {
 
 function updateCheckedCount() {
     elements.checkedDocumentCount.textContent = String(selectedRequirements().length);
+}
+
+function commonStatusClass(status) {
+    return ({ AVAILABLE: "available", REFRESH_RECOMMENDED: "refresh", EXPIRING_SOON: "expiring",
+        EXPIRED: "expired", UNREGISTERED: "unregistered" })[status] || "unregistered";
+}
+
+function renderCommonDocumentStatuses() {
+    elements.documentOptions.forEach((option) => {
+        option.setAttribute("aria-label", option.value);
+        const managed = state.commonDocuments.get(option.dataset.reference);
+        const label = option.closest("label");
+        let badge = label.querySelector(".document-admin-status");
+        if (!managed) {
+            badge?.remove();
+            return;
+        }
+        if (!badge) {
+            badge = document.createElement("small");
+            badge.className = "document-admin-status";
+            label.append(badge);
+        }
+        badge.className = `document-admin-status ${commonStatusClass(managed.status)}`;
+        badge.textContent = managed.statusDisplayName;
+        const policy = managed.refreshPolicy === "PERIODIC"
+            ? `${managed.refreshIntervalMonths}개월 주기`
+            : managed.refreshPolicy === "EXPIRATION_BASED" ? "유효기간 관리" : "유효기간 없음";
+        badge.title = managed.originalFilename ? `${policy} · ${managed.originalFilename}` : policy;
+    });
+}
+
+async function loadCommonDocuments() {
+    try {
+        const documents = await requestJson(COMMON_DOCUMENT_API);
+        state.commonDocuments = new Map((documents || []).map((item) => [item.documentType, item]));
+        renderCommonDocumentStatuses();
+    } catch {
+        state.commonDocuments.clear();
+    }
 }
 
 function renderCustomDocuments() {
@@ -256,6 +309,14 @@ function renderCandidates(requirement, candidates) {
         select.disabled = selected;
         select.addEventListener("click", () => saveSelection(requirement, candidate));
         actions.append(select);
+        if (selected && state.commonDocuments.has(requirement.sourceReference)) {
+            const manage = document.createElement("button");
+            manage.type = "button";
+            manage.className = "ui-button ui-button-ghost candidate-manage";
+            manage.textContent = "갱신정보 관리";
+            manage.addEventListener("click", () => openCommonDocumentEditor(requirement, candidate));
+            actions.append(manage);
+        }
         card.append(head, meta, reason, actions);
         elements.candidateList.append(card);
     });
@@ -327,6 +388,52 @@ async function saveSelection(requirement, candidate) {
         showCandidateState("error");
         renderRequirements();
         renderPackage();
+    }
+}
+
+function openCommonDocumentEditor(requirement, candidate) {
+    const managed = state.commonDocuments.get(requirement.sourceReference);
+    if (!managed) return;
+    state.commonDocumentEditor = { requirement, candidate };
+    elements.commonDocumentTitle.textContent = managed.displayName;
+    elements.commonDocumentIssuedAt.value = managed.fileId === candidate.fileId && managed.issuedAt ? managed.issuedAt : "";
+    elements.commonDocumentExpiresAt.value = managed.fileId === candidate.fileId && managed.expiresAt ? managed.expiresAt : "";
+    setHidden(elements.issuedAtField, managed.refreshPolicy === "NONE");
+    setHidden(elements.expiresAtField, managed.refreshPolicy !== "EXPIRATION_BASED");
+    elements.commonDocumentHelp.textContent = managed.refreshPolicy === "PERIODIC"
+        ? `발급일로부터 ${managed.refreshIntervalMonths}개월이 지나면 갱신을 권고합니다.`
+        : managed.refreshPolicy === "EXPIRATION_BASED"
+            ? "만료일 30일 전부터 만료 임박 상태로 표시합니다."
+            : "이 서류는 별도 유효기간을 관리하지 않습니다.";
+    setHidden(elements.commonDocumentMessage, true);
+    elements.commonDocumentDialog.showModal();
+}
+
+function closeCommonDocumentEditor() {
+    state.commonDocumentEditor = null;
+    elements.commonDocumentDialog.close();
+}
+
+async function saveCommonDocumentManagement(event) {
+    event.preventDefault();
+    if (!state.commonDocumentEditor) return;
+    const { requirement, candidate } = state.commonDocumentEditor;
+    try {
+        const updated = await requestJson(`${COMMON_DOCUMENT_API}/${encodeURIComponent(requirement.sourceReference)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                fileId: candidate.fileId,
+                issuedAt: elements.commonDocumentIssuedAt.value || null,
+                expiresAt: elements.commonDocumentExpiresAt.value || null
+            })
+        });
+        state.commonDocuments.set(updated.documentType, updated);
+        renderCommonDocumentStatuses();
+        closeCommonDocumentEditor();
+    } catch (error) {
+        elements.commonDocumentMessage.textContent = friendlyError(error, "selection");
+        setHidden(elements.commonDocumentMessage, false);
     }
 }
 
@@ -431,5 +538,8 @@ elements.customDocumentName.addEventListener("keydown", (event) => {
 });
 elements.documentForm.addEventListener("submit", createManualCase);
 elements.changeDocumentsButton.addEventListener("click", resetWorkspace);
+elements.commonDocumentForm.addEventListener("submit", saveCommonDocumentManagement);
+elements.commonDocumentClose.addEventListener("click", closeCommonDocumentEditor);
+elements.commonDocumentCancel.addEventListener("click", closeCommonDocumentEditor);
 updateCheckedCount();
-restoreCaseFromUrl();
+loadCommonDocuments().finally(restoreCaseFromUrl);

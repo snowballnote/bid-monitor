@@ -24,6 +24,7 @@ module.exports = defineConfig({
             SERVER_PORT: "4173",
             G2B_SERVICE_KEY: "playwright-test-key",
             SPRING_DATASOURCE_URL: "jdbc:h2:mem:playwright;DB_CLOSE_DELAY=-1",
+            COMPANY_DB_ENABLED: "false",
             EXTERNAL_NOTICE_SCHEDULER_ENABLED: "false"
         }
     }

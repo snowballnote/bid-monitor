@@ -464,6 +464,42 @@ const submissionCandidates = {
 
 async function mockSubmissionApi(page, options = {}) {
     const apiState = { selections: [], putBodies: [], postBodies: [], candidateRequests: [] };
+    let commonDocument = {
+        documentType: "BUSINESS_REGISTRATION",
+        displayName: "사업자등록증",
+        fileId: null,
+        filePublicId: null,
+        originalFilename: null,
+        fileExt: null,
+        issuedAt: null,
+        expiresAt: null,
+        refreshPolicy: "NONE",
+        refreshIntervalMonths: null,
+        status: "UNREGISTERED",
+        statusDisplayName: "미등록"
+    };
+    await page.route("**/api/submission-common-documents**", async (route) => {
+        const request = route.request();
+        const pathname = new URL(request.url()).pathname;
+        if (request.method() === "GET" && pathname === "/api/submission-common-documents") {
+            await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([commonDocument]) });
+            return;
+        }
+        if (request.method() === "PUT" && pathname === "/api/submission-common-documents/BUSINESS_REGISTRATION") {
+            commonDocument = {
+                ...commonDocument,
+                fileId: 901,
+                filePublicId: "10c7f0ba-caad-444c-9b33-5db57a6477d2",
+                originalFilename: "사업자등록증_최신.pdf",
+                fileExt: "pdf",
+                status: "AVAILABLE",
+                statusDisplayName: "사용 가능"
+            };
+            await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(commonDocument) });
+            return;
+        }
+        await route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
+    });
     await page.route("**/api/submission-cases**", async (route) => {
         const request = route.request();
         const pathname = new URL(request.url()).pathname;
@@ -516,6 +552,8 @@ test("서류 체크 후 후보 선택과 패키지 진행률을 확인한다", a
     await page.goto("/submissions/");
 
     await expect(page.getByRole("link", { name: "서류 모으기", exact: true })).toHaveAttribute("aria-current", "page");
+    const businessRegistrationOption = page.locator('input[data-reference="BUSINESS_REGISTRATION"]').locator("..");
+    await expect(businessRegistrationOption).toContainText("미등록");
     await page.getByLabel("사업자등록증", { exact: true }).check();
     await page.getByLabel("실적증명서", { exact: true }).check();
     await expect(page.locator("#checked-document-count")).toHaveText("2");
@@ -539,6 +577,7 @@ test("서류 체크 후 후보 선택과 패키지 진행률을 확인한다", a
     await expect(page.locator("#package-selection-count")).toHaveText("1 / 2");
     await expect(page.locator("#package-list")).toContainText("사업자등록증_최신.pdf");
     await expect(page.locator(".requirement-item").filter({ hasText: "사업자등록증" })).toContainText("선택 완료");
+    await expect(businessRegistrationOption).toContainText("미등록");
     expect(apiState.putBodies).toEqual([{ selections: [{ requirementId: 81, fileId: 901 }] }]);
 
     await page.locator(".requirement-item").filter({ hasText: "실적증명서" }).click();
