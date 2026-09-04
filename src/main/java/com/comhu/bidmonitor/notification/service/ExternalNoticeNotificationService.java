@@ -48,7 +48,7 @@ public class ExternalNoticeNotificationService {
         this.clock = clock;
     }
 
-    /** 자동 수집 결과만 이 진입점으로 전달되며, 출처별 첫 실행은 baseline으로만 기록한다. */
+    /** 자동·수동 공통 수집 결과를 처리하며, 출처별 첫 실행은 baseline으로만 기록한다. */
     @Transactional
     public List<ExternalNoticeNotificationCandidate> createCandidates(
             ExternalNoticeCollectionResult collectionResult
