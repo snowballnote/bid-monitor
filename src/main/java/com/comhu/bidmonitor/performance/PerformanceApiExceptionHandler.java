@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.io.IOException;
 import java.util.Map;
 
-@RestControllerAdvice(assignableTypes = PerformanceController.class)
+@RestControllerAdvice(assignableTypes = {PerformanceController.class, DriveFileIndexController.class})
 public class PerformanceApiExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     ResponseEntity<?> invalid(IllegalArgumentException exception) { return error(400, exception.getMessage()); }

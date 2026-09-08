@@ -22,6 +22,8 @@ class DriveEvidenceServiceTests {
     private PerformanceDriveFileRepository registry;
     private PerformanceRepository repository;
     private DriveEvidenceService drive;
+    private DriveFileIndexRepository index;
+    private DriveFileIndexRefreshService refresh;
     private PerformanceService service;
     private CompanyFileSearchPort company;
     private String project;
@@ -39,7 +41,9 @@ class DriveEvidenceServiceTests {
         config.setCertificateFolders(List.of("/cert"));
         config.setContractFolders(List.of("/contracts"));
         port = mock(FmsDrivePort.class);
-        drive = new DriveEvidenceService(port, config, registry);
+        index = new DriveFileIndexRepository(jdbc);
+        refresh = new DriveFileIndexRefreshService(port, config, index);
+        drive = new DriveEvidenceService(port, config, registry, index);
         company = mock(CompanyFileSearchPort.class);
         service = new PerformanceService(repository, new PerformanceTableParser(), company, drive);
         project = service.create(new ProjectInput("FMS", LocalDate.now())).id();
@@ -53,7 +57,7 @@ class DriveEvidenceServiceTests {
         var input = new EntryInput("1", "AI콜봇구축사업 개인정보 영향평가", "2024.01 ~ 2025.12",
                 "100", "한국장학재단", BusinessStatus.COMPLETED, null, null, KitcStatus.NEEDED, null, null);
         var entry = repository.insert(project, input);
-        var result = service.candidates(project, entry.id());
+        var result = indexedCandidates(entry.id());
         assertThat(result.candidates()).singleElement().satisfies(candidate -> {
             assertThat(candidate.file().originalFilename()).isEqualTo(filename);
             assertThat(candidate.evidenceType()).isEqualTo(EvidenceType.CERTIFICATE);
@@ -66,14 +70,12 @@ class DriveEvidenceServiceTests {
 
     @Test
     void completedOnlyRequestsKitcAfterBothSourcesHaveNoMatches() {
-        when(port.list("/cert")).thenReturn(List.of());
+        doReturn(List.of()).when(port).list("/cert");
         when(port.list("/contracts")).thenReturn(List.of());
-        var result = service.candidates(project, entry("1", false).id());
+        var result = indexedCandidates(entry("1", false).id());
         assertThat(result.candidates()).isEmpty();
         assertThat(result.nextAction()).isEqualTo("KITC 요청 필요");
-        var order = inOrder(port);
-        order.verify(port).list("/cert");
-        order.verify(port).list("/contracts");
+        verifyNoInteractions(port);
         verifyNoInteractions(company);
     }
     @Test
@@ -83,7 +85,7 @@ class DriveEvidenceServiceTests {
                 item("/cert", "2026 AI기반 지역관광 문제해결 프로젝트 가이드라인 수립 실적증명서.pdf"),
                 item("/cert", "한국관광공사 전혀다른사업 실적증명서.pdf")));
         var entry = entry("1", false);
-        var result = service.candidates(project, entry.id());
+        var result = indexedCandidates(entry.id());
         assertThat(result.candidates()).hasSize(2).allSatisfy(c -> {
             assertThat(c.file().driveFileId()).isNotBlank();
             assertThat(c.file().fileId()).isNull();
@@ -98,7 +100,7 @@ class DriveEvidenceServiceTests {
     void completedFallsBackToContractOnlyWhenCertificateMatchesAreAbsent() {
         when(port.list("/cert")).thenReturn(List.of(item("/cert", "무관한 실적증명서.pdf")));
         when(port.list("/contracts")).thenReturn(List.of(item("/contracts", BUSINESS + " 계약서.pdf")));
-        assertThat(service.candidates(project, entry("1", false).id()).candidates())
+        assertThat(indexedCandidates(entry("1", false).id()).candidates())
                 .extracting(Candidate::evidenceType).containsExactly(EvidenceType.CONTRACT);
         verifyNoInteractions(company);
     }
@@ -106,7 +108,7 @@ class DriveEvidenceServiceTests {
     @Test
     void ongoingNeverQueriesCertificateRootsAndNoMatchesMeansKitc() {
         when(port.list("/contracts")).thenReturn(List.of(item("/contracts", BUSINESS + " 실적증명원.pdf")));
-        var result = service.candidates(project, entry("1", true).id());
+        var result = indexedCandidates(entry("1", true).id());
         assertThat(result.candidates()).isEmpty();
         assertThat(result.nextAction()).isEqualTo("KITC 요청 필요");
         verify(port, never()).list("/cert");
@@ -117,10 +119,10 @@ class DriveEvidenceServiceTests {
     void listErrorOrMissingConfigurationCannotMasqueradeAsNoCandidates() {
         var entry = entry("1", false);
         when(port.list("/cert")).thenThrow(new FmsDriveException("FMS 연결 실패"));
-        assertThatThrownBy(() -> service.candidates(project, entry.id())).isInstanceOf(FmsDriveException.class);
+        assertThatThrownBy(() -> indexedCandidates(entry.id())).isInstanceOf(FmsDriveException.class);
         verify(port, never()).list("/contracts");
         config.setCertificateFolders(List.of());
-        assertThatThrownBy(() -> service.candidates(project, entry.id())).hasMessageContaining("설정");
+        assertThatThrownBy(() -> indexedCandidates(entry.id())).hasMessageContaining("설정");
     }
 
     @Test
@@ -128,20 +130,20 @@ class DriveEvidenceServiceTests {
         when(port.list("/cert")).thenReturn(List.of(new FmsDrivePort.Item("2026", "/cert/2026", true, 0, null)));
         when(port.list("/cert/2026")).thenReturn(List.of(item("/cert/2026", BUSINESS + " 실적증명원.pdf")));
         var entry = entry("1", false);
-        assertThat(service.candidates(project, entry.id()).candidates()).hasSize(1);
+        assertThat(indexedCandidates(entry.id()).candidates()).hasSize(1);
         config.setMaxDepth(0);
-        assertThatThrownBy(() -> service.candidates(project, entry.id())).hasMessageContaining("깊이");
+        assertThatThrownBy(() -> indexedCandidates(entry.id())).hasMessageContaining("인덱스");
+        assertThat(index.state("http://fms.test", "CNH", "/cert").status()).isEqualTo("FAILED");
         when(port.list("/cert")).thenReturn(List.of(item("/other", BUSINESS + " 실적증명원.pdf")));
-        assertThatThrownBy(() -> service.candidates(project, entry.id())).hasMessageContaining("범위");
+        assertThatThrownBy(() -> indexedCandidates(entry.id())).hasMessageContaining("인덱스");
     }
-
     @Test
     void driveSelectionSurvivesSchemaRerunAndSameFileCanProduceTwoZipEntries() throws Exception {
         var file = item("/cert", BUSINESS + " 실적증명원.pdf");
         when(port.list("/cert")).thenReturn(List.of(file));
         var first = entry("01", false);
         var second = entry("02", false);
-        String ref = service.candidates(project, first.id()).candidates().getFirst().file().driveFileId();
+        String ref = indexedCandidates(first.id()).candidates().getFirst().file().driveFileId();
         service.update(project, first.id(), selected(first, ref));
         service.update(project, second.id(), selected(second, ref));
         new ResourceDatabasePopulator(new ClassPathResource("schema.sql")).execute(ds);
@@ -168,7 +170,7 @@ class DriveEvidenceServiceTests {
         var file = item("/cert", BUSINESS + " 실적증명원.pdf");
         when(port.list("/cert")).thenReturn(List.of(file));
         var entry = entry("1", false);
-        String id = service.candidates(project, entry.id()).candidates().getFirst().file().driveFileId();
+        String id = indexedCandidates(entry.id()).candidates().getFirst().file().driveFileId();
         service.update(project, entry.id(), selected(entry, id));
         when(port.canDownload(file.path())).thenReturn(false);
         var legacy = mock(PerformanceFileContentPort.class);
@@ -185,8 +187,8 @@ class DriveEvidenceServiceTests {
                 .isInstanceOf(IllegalArgumentException.class);
         var file = item("/cert", BUSINESS + " 실적증명서.pdf");
         when(port.list("/cert")).thenReturn(List.of(file));
-        String id = service.candidates(project, entry.id()).candidates().getFirst().file().driveFileId();
-        when(port.list("/cert")).thenReturn(List.of());
+        String id = indexedCandidates(entry.id()).candidates().getFirst().file().driveFileId();
+        doReturn(List.of()).when(port).list("/cert");
         assertThatThrownBy(() -> service.update(project, entry.id(), selected(entry, id))).hasMessageContaining("다시 조회");
         var input = selected(entry, id);
         assertThatThrownBy(() -> service.update(project, entry.id(), new EntryInput(input.pptNumber(),
@@ -194,6 +196,110 @@ class DriveEvidenceServiceTests {
                 5L, EvidenceType.CERTIFICATE, KitcStatus.NEEDED, null, null, id))).hasMessageContaining("하나만");
     }
 
+    private Recommendations indexedCandidates(String id) {
+        refresh.refresh();
+        clearInvocations(port);
+        var result = service.candidates(project, id);
+        verifyNoInteractions(port);
+        return result;
+    }
+
+    @Test
+    void unbuiltAndFailedIndexesNeverLookLikeAnEmptySuccessfulIndex() {
+        var entry = entry("1", false);
+        assertThatThrownBy(() -> service.candidates(project, entry.id())).hasMessageContaining("인덱스");
+        doReturn(List.of()).when(port).list("/cert");
+        when(port.list("/contracts")).thenReturn(List.of());
+        refresh.refresh();
+        assertThat(service.candidates(project, entry.id()).candidates()).isEmpty();
+        when(port.list("/cert")).thenThrow(new FmsDriveException("secret path cookie"));
+        refresh.refresh();
+        assertThatThrownBy(() -> service.candidates(project, entry.id())).hasMessageContaining("인덱스");
+    }
+
+    @Test
+    void refreshPreservesSnapshotOnFailureDeduplicatesRootsAndExcludesHiddenFiles() {
+        config.setCertificateFolders(List.of("/cert", "/cert/"));
+        config.setContractFolders(List.of("/cert"));
+        var file = item("/cert", BUSINESS + " 실적증명서.pdf");
+        when(port.list("/cert")).thenAnswer(call -> {
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            return List.of(file, item("/cert", ".hidden.pdf"), item("/cert", "~$temp.pdf"));
+        });
+        assertThat(refresh.refresh()).hasSize(1);
+        verify(port, times(1)).list("/cert");
+        assertThat(index.files("http://fms.test", "CNH", "/cert")).hasSize(1);
+        var before = index.state("http://fms.test", "CNH", "/cert");
+        when(port.list("/cert")).thenThrow(new FmsDriveException("private-path secret"));
+        refresh.refresh();
+        var after = index.state("http://fms.test", "CNH", "/cert");
+        assertThat(after.status()).isEqualTo("FAILED");
+        assertThat(after.lastSuccessAt()).isEqualTo(before.lastSuccessAt());
+        assertThat(after.fileCount()).isEqualTo(1);
+        assertThat(after.errorCode()).isEqualTo("REFRESH_FAILED");
+        var jdbc = new JdbcTemplate(ds);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM drive_file_index", Integer.class)).isEqualTo(1);
+        doReturn(List.of()).when(port).list("/cert");
+        refresh.refresh();
+        assertThat(index.files("http://fms.test", "CNH", "/cert")).isEmpty();
+        assertThat(index.state("http://fms.test", "CNH", "/cert").status()).isEqualTo("SUCCESS");
+    }
+
+    @Test
+    void indexReplacementRollsBackAllChangesWhenOneMetadataRowCannotBeStored() {
+        when(port.list("/cert")).thenReturn(List.of(item("/cert", "old.pdf")));
+        refresh.refresh();
+        index.started("http://fms.test", "CNH", "/cert");
+        assertThatThrownBy(() -> index.replace("http://fms.test", "CNH", "/cert",
+                List.of(item("/cert", "new.pdf"), item("/cert", "x".repeat(2100))), 1)).isInstanceOf(RuntimeException.class);
+        assertThat(new JdbcTemplate(ds).queryForObject("SELECT name FROM drive_file_index WHERE root='/cert'", String.class)).isEqualTo("old.pdf");
+    }
+    @Test
+    void overlappingRootsDeduplicateCandidatesAndRepeatedSearchDoesNotCallFms() {
+        config.setCertificateFolders(List.of("/cert", "/cert/2026"));
+        when(port.list("/cert")).thenReturn(List.of(new FmsDrivePort.Item("2026", "/cert/2026", true, 0, null)));
+        when(port.list("/cert/2026")).thenReturn(List.of(item("/cert/2026", BUSINESS + " 실적증명서.pdf")));
+        refresh.refresh();
+        var entry = entry("1", false);
+        clearInvocations(port);
+        assertThat(service.candidates(project, entry.id()).candidates()).hasSize(1);
+        assertThat(service.candidates(project, entry.id()).candidates()).hasSize(1);
+        verifyNoInteractions(port);
+    }
+
+    @Test
+    void limitsAndConcurrentRefreshFailWithoutPublishingPartialSnapshots() {
+        config.setMaxFiles(1);
+        when(port.list("/cert")).thenReturn(List.of(item("/cert", "a.pdf"), item("/cert", "b.pdf")));
+        refresh.refresh();
+        assertThat(index.state("http://fms.test", "CNH", "/cert").status()).isEqualTo("FAILED");
+        config.setMaxFolders(1);
+        when(port.list("/cert")).thenReturn(List.of(new FmsDrivePort.Item("child", "/cert/child", true, 0, null)));
+        refresh.refresh();
+        assertThat(index.state("http://fms.test", "CNH", "/cert").status()).isEqualTo("FAILED");
+        when(port.list("/cert")).thenAnswer(call -> {
+            assertThatThrownBy(() -> refresh.refresh()).hasMessageContaining("이미 갱신");
+            return List.of();
+        });
+        refresh.refresh();
+        assertThat(index.state("http://fms.test", "CNH", "/cert").status()).isEqualTo("SUCCESS");
+    }
+
+    @Test
+    void managementApiExposesOnlySafeStatusAndCounts() throws Exception {
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new DriveFileIndexController(refresh))
+                .setControllerAdvice(new PerformanceApiExceptionHandler()).build();
+        var initial = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/drive-index"))
+                .andReturn().getResponse();
+        assertThat(initial.getStatus()).isEqualTo(200);
+        assertThat(initial.getContentAsString()).contains("NOT_BUILT").doesNotContain("/cert", "fms.test", "session");
+        when(port.list("/cert")).thenThrow(new FmsDriveException("/private secret SESSION=token"));
+        var result = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/drive-index/refresh"))
+                .andReturn().getResponse();
+        assertThat(result.getStatus()).isEqualTo(200);
+        assertThat(result.getContentAsString()).contains("FAILED", "REFRESH_FAILED")
+                .doesNotContain("/private", "secret", "SESSION", "/cert", "fms.test");
+    }
     private Entry entry(String number, boolean ongoing) {
         return service.paste(project, new PasteInput(number + "\t" + BUSINESS
                 + (ongoing ? "\t2024.01 ~ 수행중" : "\t2024.01 ~ 2025.12") + "\t100\t한국관광공사", null)).saved().getFirst();

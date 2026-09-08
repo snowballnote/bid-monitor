@@ -37,6 +37,11 @@
             </header>
             <p id="message" class="submission-message" role="status" aria-live="polite"></p>
 
+            <section class="surface-card project-overview" aria-label="Drive 검색 인덱스">
+                <div><h2>Drive 검색 인덱스</h2><p>원본 파일은 FMS에 유지됩니다. 파일이 추가되거나 변경되면 인덱스를 갱신하세요.</p></div>
+                <button id="refresh-drive-index" class="ui-button ui-button-secondary" type="button">Drive 인덱스 갱신</button>
+                <div id="drive-index-status" role="status" aria-live="polite">인덱스 상태 확인 중</div>
+            </section>
             <section id="project-list" class="surface-card" aria-labelledby="projects-title">
                 <header class="document-picker-heading">
                     <div><span class="panel-kicker">PROJECT</span><h2 id="projects-title">프로젝트 목록</h2></div>

@@ -11,10 +11,11 @@ public class DriveEvidenceService {
     private final FmsDrivePort drive;
     private final FmsDriveProperties properties;
     private final PerformanceDriveFileRepository references;
-    public DriveEvidenceService(FmsDrivePort drive, FmsDriveProperties properties, PerformanceDriveFileRepository references) {
-        this.drive = drive; this.properties = properties; this.references = references;
+    private final DriveFileIndexRepository index;
+    public DriveEvidenceService(FmsDrivePort drive, FmsDriveProperties properties, PerformanceDriveFileRepository references, DriveFileIndexRepository index) {
+        this.drive = drive; this.properties = properties; this.references = references; this.index = index;
     }
-    private record Folder(String path, int depth) { }
+
     private record Match(FmsDrivePort.Item item, double score, String reason) { }
 
     public Recommendations recommend(Entry entry) {
@@ -30,35 +31,12 @@ public class DriveEvidenceService {
         if (roots == null || roots.isEmpty() || roots.stream().allMatch(String::isBlank)) {
             throw new FmsDriveException(type.label + " 검색 폴더를 설정하세요.");
         }
-        ArrayDeque<Folder> queue = new ArrayDeque<>();
-        roots.stream().filter(root -> !root.isBlank()).map(FmsDriveHttpAdapter::normalizedPath)
-                .distinct().forEach(root -> queue.add(new Folder(root, 0)));
-        Set<String> visited = new HashSet<>();
         Set<String> seenFiles = new HashSet<>();
         List<Match> matches = new ArrayList<>();
-        while (!queue.isEmpty()) {
-            Folder folder = queue.removeFirst();
-            if (!visited.add(folder.path())) continue;
-            if (visited.size() > Math.max(1, properties.getMaxFolders())) {
-                throw new FmsDriveException("검색 폴더 수 제한을 초과했습니다. 검색 범위를 좁혀주세요.");
-            }
-            for (var item : drive.list(folder.path())) {
-                String path = FmsDriveHttpAdapter.normalizedPath(item.path());
-                if (!FmsDriveHttpAdapter.parentOf(path).equals(folder.path())) {
-                    throw new FmsDriveException("Drive 목록이 검색 폴더 범위를 벗어났습니다.");
-                }
-                if (item.directory()) {
-                    if (folder.depth() >= Math.max(0, properties.getMaxDepth())) {
-                        throw new FmsDriveException("하위 폴더 검색 깊이를 초과했습니다. 대상 폴더를 직접 설정하세요.");
-                    }
-                    queue.add(new Folder(path, folder.depth() + 1));
-                    continue;
-                }
-                if (!seenFiles.add(path)) continue;
-                if (seenFiles.size() > Math.max(1, properties.getMaxFiles())) {
-                    throw new FmsDriveException("검색 파일 수 제한을 초과했습니다. 검색 범위를 좁혀주세요.");
-                }
-                if (evidenceType(item.name()) != type) continue;
+        for (String root : roots.stream().filter(value -> !value.isBlank())
+                .map(FmsDriveHttpAdapter::normalizedPath).distinct().toList()) {
+            for (var item : index.files(origin(), properties.getCompany(), root)) {
+                if (!seenFiles.add(item.path()) || evidenceType(item.name()) != type) continue;
                 Match match = match(entry.info(), item);
                 if (match != null) matches.add(match);
             }

@@ -53,7 +53,7 @@ test('FMS recommendation requires explicit choice and save; type is automatic', 
     await expect(page.locator('.performance-entry')).toContainText('저장된 파일: 증빙.pdf');
     await expect(page.locator('#entry-summary')).toContainText('1건 처리');
 });
-test('Empty successful search means KITC; failed search remains unsearched', async ({ page, fixture, context }) => {
+test('Empty successful search means KITC; failed search shows an error', async ({ page, fixture, context }) => {
     fixture.entries = entries(1, 0);
     await page.goto('/performances/index.html?project=p1');
     await page.getByRole('button', {name: '저장된 실적으로 후보 추천'}).click();
@@ -62,7 +62,7 @@ test('Empty successful search means KITC; failed search remains unsearched', asy
     await context.route('**/candidates', route => route.fulfill({status:503,json:{message:'FMS 실패'}}));
     await page.getByRole('button', {name: '저장된 실적으로 후보 추천'}).click();
     await expect(page.locator('#message')).toHaveText('FMS 실패');
-    await expect(page.locator('.entry-evidence-status')).toHaveText('증빙 상태 · 미검색');
+    await expect(page.locator('.entry-evidence-status')).toHaveText('증빙 상태 · 검색 오류');
 });
 test('Contract selection assigns CONTRACT and failed save cannot mark selected', async ({ page, fixture }) => {
     fixture.entries = entries(1, 0);
@@ -146,6 +146,94 @@ test('Candidate click remains connected after save replaces the card and after a
     assert.equal((await retried).method(), 'GET');
     await expect(page.locator('.candidates button')).toHaveText('재시도 계약서.pdf · 일치');
 });
+test('Import automatically searches every valid row; one failure cannot block sample candidates or empty results', async ({ page, fixture, context }) => {
+    fixture.entries = [];
+    fixture.imported = entries(3, 0);
+    fixture.imported[1].info.businessName = 'AI콜봇구축사업 개인정보 영향평가';
+    fixture.imported[1].info.client = '한국장학재단';
+    fixture.importErrors = [{row:4,cells:['4'],message:'사업명 확인'}];
+    const sample = '154_260515_실적증명서(한국장학재단) AI콜봇 구축 사업 개인정보 영향평가.pdf';
+    const calls = [];
+    await context.route('**/candidates', async route => {
+        const url = new URL(route.request().url()).pathname;
+        calls.push(url);
+        if (url.includes('/e0/')) return route.fulfill({status:503,json:{message:'실적증명서 검색 폴더를 설정하세요.'}});
+        await route.fulfill({json: {candidates: url.includes('/e1/') ? [
+            {file:{driveFileId:'sample',originalFilename:sample},evidenceType:'CERTIFICATE',reason:'사업명·발주처 일치'}
+        ] : [], nextAction:'후보 확인'}});
+    });
+    await page.goto('/performances/index.html?project=p1');
+    await page.locator('#paste-table').fill('표');
+    await page.locator('#import').click();
+    const cards = page.locator('.performance-entry');
+    await expect(cards.nth(0).locator('.entry-evidence-status')).toHaveText('증빙 상태 · 검색 오류');
+    await expect(cards.nth(1).locator('.candidates button')).toContainText(sample);
+    await expect(cards.nth(2).locator('.entry-evidence-status')).toHaveText('증빙 상태 · KITC 요청 필요');
+    assert.deepEqual(calls, [0,1,2].map(i => '/api/performance-projects/p1/entries/e' + i + '/candidates'));
+    await expect(page.locator('#errors')).toContainText('사업명 확인');
+    await expect(cards.nth(1).locator('[name=selectedDriveFileId]')).toHaveValue('');
+    assert(!fixture.requests.some(r => r.method === 'PUT'));
+});
+test('Queued imported rows remain unsearched until started; malformed response is an error', async ({ page, fixture, context }) => {
+    fixture.entries = [];
+    fixture.imported = entries(2, 0);
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    await context.route('**/candidates', async route => {
+        if (route.request().url().includes('/e0/')) await gate;
+        await route.fulfill({json:{}});
+    });
+    await page.goto('/performances/index.html?project=p1');
+    await page.locator('#paste-table').fill('표');
+    await page.locator('#import').click();
+    const cards = page.locator('.performance-entry');
+    try {
+        await expect(cards.nth(0).locator('.entry-evidence-status')).toHaveText('증빙 상태 · 검색 중');
+        await expect(cards.nth(1).locator('.entry-evidence-status')).toHaveText('증빙 상태 · 미검색');
+    } finally { release(); }
+    await expect(cards.nth(0).locator('.entry-evidence-status')).toHaveText('증빙 상태 · 검색 오류');
+    await expect(cards.nth(1).locator('.entry-evidence-status')).toHaveText('증빙 상태 · 검색 오류');
+});
+test('Corrected import error row also starts candidate search automatically', async ({ page, fixture }) => {
+    fixture.entries = [];
+    fixture.imported = [];
+    fixture.importErrors = [{row:1,cells:['1','사업','2024.01 ~ 2025.12','100','발주처'],message:'확인'}];
+    await page.goto('/performances/index.html?project=p1');
+    await page.locator('#paste-table').fill('표');
+    await page.locator('#import').click();
+    await expect(page.locator('#errors .error-row')).toHaveCount(1);
+    fixture.imported = entries(1,0);
+    fixture.importErrors = [];
+    await page.locator('#errors button[type=submit]').click();
+    await expect(page.locator('.entry-evidence-status')).toHaveText('증빙 상태 · KITC 요청 필요');
+    assert.equal(fixture.requests.filter(r => r.url.endsWith('/e0/candidates')).length,1);
+});
+test('Index management displays status/count/time and refreshes explicitly without exposing locators', async ({ page, context }) => {
+    await context.route('**/api/drive-index', route => route.fulfill({json:[
+        {label:'검색 범위 1',state:{status:'NOT_BUILT',fileCount:0,lastSuccessAt:null}}
+    ]}));
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    await context.route('**/api/drive-index/refresh', async route => {
+        assert.equal(route.request().method(),'POST');
+        await gate;
+        await route.fulfill({json:[
+            {label:'검색 범위 1',state:{status:'SUCCESS',fileCount:19,lastSuccessAt:'2026-09-08T01:00:00Z'}},
+            {label:'검색 범위 2',state:{status:'FAILED',fileCount:2,lastSuccessAt:null}}
+        ]});
+    });
+    await page.goto('/performances/index.html?project=p1');
+    await expect(page.locator('#drive-index-status')).toContainText('미구축');
+    await page.locator('#refresh-drive-index').click();
+    try {
+        await expect(page.locator('#drive-index-status')).toHaveText('갱신 중…');
+        await expect(page.locator('#refresh-drive-index')).toBeDisabled();
+    } finally { release(); }
+    await expect(page.locator('#drive-index-status')).toContainText('파일 19개');
+    await expect(page.locator('#drive-index-status')).toContainText('성공');
+    await expect(page.locator('#drive-index-status')).toContainText('실패');
+    await expect(page.locator('#refresh-drive-index')).toBeEnabled();
+});
 (async () => {
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const baseURL = 'http://127.0.0.1:' + server.address().port;
@@ -166,7 +254,8 @@ test('Candidate click remains connected after save replaces the card and after a
                 const body = req.postDataJSON();
                 fixture.requests.push({ url, method, body });
                 let result;
-                if (url === '/api/submission-common-documents') result = [];
+                if (url === '/api/drive-index' || url === '/api/drive-index/refresh') result = [];
+                else if (url === '/api/submission-common-documents') result = [];
                 else if (url === '/api/performance-projects') {
                     if (method === 'POST') Object.assign(fixture.project, body);
                     result = method === 'POST' ? fixture.project : [fixture.project];
@@ -177,8 +266,8 @@ test('Candidate click remains connected after save replaces the card and after a
                     if (fixture.failEntries) { await route.fulfill({ status: 503, json: { message: 'unavailable' } }); return; }
                     result = fixture.entries;
                 } else if (url === '/api/performance-projects/p1/import') {
-                    const saved = entries(1, 0); fixture.entries.push(...saved);
-                    result = { saved, errors: [] };
+                    const saved = fixture.imported || entries(1, 0); fixture.entries.push(...saved);
+                    result = { saved, errors: fixture.importErrors || [] };
                 } else if (url.startsWith('/api/performance-projects/p1/entries/') && method === 'PUT') {
                     if (fixture.failSave) { await route.fulfill({ status: 503, json: { message: '저장 실패' } }); return; }
                     const entry = fixture.entries.find(e => e.id === url.split('/').pop());

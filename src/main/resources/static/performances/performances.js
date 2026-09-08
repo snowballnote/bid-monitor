@@ -5,6 +5,8 @@ const statuses = { DRAFT: '작성중', COLLECTING: '수집중', READY: '선택 �
 let projectId = null;
 let clipboardHtml = '';
 const entriesById = new Map();
+const candidateSearches = new WeakMap();
+let candidateQueue = Promise.resolve();
 const initialParams = new URLSearchParams(location.search);
 const submissionCaseId = /^\d+$/.test(initialParams.get('caseId') || '') ? initialParams.get('caseId') : null;
 function projectUrl(id) {
@@ -177,28 +179,45 @@ function renderEntry(entry) {
     const save = el('button', '실적·파일·KITC 저장'); save.type = 'submit'; save.className = 'ui-button ui-button-primary';
     const search = el('button', '저장된 실적으로 후보 추천'); search.type = 'button';
     const clear = el('button', '파일 연결 해제'); clear.type = 'button';
-    const selected = el('p', '저장된 파일: ' + (entry.selectedFilename || '없음'));
+    const selected = el('p', '저장된 파일: ' + (entry.selectedFilename || '선택하지 않음'));
     const candidates = el('div'); candidates.className = 'candidates';
     clear.onclick = () => {
         driveFile.value = ''; evidenceType.value = ''; showType();
         $('#message').textContent = '연결 해제는 저장 버튼을 누르면 반영됩니다.';
     };
-    search.onclick = () => action(search, async () => {
-        const result = await api('/' + projectId + '/entries/' + entry.id + '/candidates');
-        renderEvidenceStatus(result.candidates);
-        candidates.replaceChildren(el('p', result.nextAction));
-        for (const candidate of result.candidates.filter(candidate => candidate.file.driveFileId)) {
-            const button = el('button', candidate.file.originalFilename + ' · ' + candidate.reason);
-            button.type = 'button';
-            button.onclick = () => {
-                driveFile.value = candidate.file.driveFileId || '';
+    const searchProjectId = entry.projectId || projectId;
+    async function searchCandidates() {
+        if (search.disabled) return;
+        search.disabled = true;
+        candidates.replaceChildren(el('p', '인덱스 후보 검색 중…'));
+        evidence.className = 'entry-evidence-status requirement-state';
+        evidence.textContent = '증빙 상태 · 검색 중';
+        try {
+            const result = await api('/' + encodeURIComponent(searchProjectId) + '/entries/' + encodeURIComponent(entry.id) + '/candidates');
+            if (!Array.isArray(result.candidates)) throw new Error('FMS 후보 응답 형식을 확인하세요.');
+            renderEvidenceStatus(result.candidates);
+            candidates.replaceChildren(el('p', result.nextAction));
+            for (const candidate of result.candidates.filter(candidate => candidate.file.driveFileId)) {
+                const button = el('button', candidate.file.originalFilename + ' · ' + candidate.reason);
+                button.type = 'button';
+                button.onclick = () => {
+                    driveFile.value = candidate.file.driveFileId || '';
 
-                evidenceType.value = candidate.evidenceType; showType();
-                $('#message').textContent = '후보를 지정했습니다. 저장 버튼을 눌러 최종 선택을 저장하세요.';
-            };
-            candidates.append(button);
-        }
-    });
+                    evidenceType.value = candidate.evidenceType; showType();
+                    $('#message').textContent = '후보를 지정했습니다. 저장 버튼을 눌러 최종 선택을 저장하세요.';
+                };
+                candidates.append(button);
+            }
+        } catch (error) {
+            evidence.className = 'entry-evidence-status requirement-state attention';
+            evidence.textContent = '증빙 상태 · 검색 오류';
+            evidence.title = error.message;
+            candidates.replaceChildren(el('p', error.message + ' · 후보 추천 버튼으로 재시도하세요.'));
+            $('#message').textContent = error.message;
+        } finally { search.disabled = false; }
+    }
+    search.onclick = searchCandidates;
+    candidateSearches.set(section, searchCandidates);
     form.onsubmit = event => {
         event.preventDefault();
         action(save, async () => {
@@ -220,6 +239,18 @@ function renderEntry(entry) {
     section.append(form, selected, candidates);
     return section;
 }
+function appendImportedEntries(entries) {
+    for (const entry of entries) {
+        entriesById.set(entry.id, entry);
+        const card = renderEntry(entry);
+        $('#entries').append(card);
+        // Serialize automatic searches so a large paste does not flood FMS.
+        candidateQueue = candidateQueue.then(() => {
+            if (card.isConnected) return candidateSearches.get(card)();
+        });
+    }
+    return candidateQueue;
+}
 function showErrors(errors) {
     $('#errors').replaceChildren();
     for (const error of errors) {
@@ -237,7 +268,7 @@ function showErrors(errors) {
                 table.append(row);
                 const result = await api('/' + projectId + '/import', { method: 'POST', body: JSON.stringify({ html: table.outerHTML }) });
                 if (result.errors.length) throw new Error(result.errors[0].message);
-                for (const entry of result.saved) { entriesById.set(entry.id, entry); $('#entries').append(renderEntry(entry)); }
+                appendImportedEntries(result.saved);
                 box.remove(); await loadProjects();
             });
         };
@@ -275,7 +306,7 @@ $('#import').onclick = () => action($('#import'), async () => {
     const result = await api('/' + projectId + '/import', {
         method: 'POST', body: JSON.stringify({ text: $('#paste-table').value, html: clipboardHtml })
     });
-    for (const entry of result.saved) { entriesById.set(entry.id, entry); $('#entries').append(renderEntry(entry)); }
+    appendImportedEntries(result.saved);
     $('#import-result').textContent = result.saved.length + '행 저장, ' + result.errors.length + '행 확인 필요';
     showErrors(result.errors); await loadProjects();
     $('#paste-table').value = ''; clipboardHtml = '';
@@ -302,3 +333,35 @@ updateReturnLink();
         if (id) await openProject(id);
     } catch (error) { $('#message').textContent = error.message; }
 })();
+async function loadDriveIndex(refresh = false) {
+    const output = $('#drive-index-status');
+    try {
+        const response = await fetch('/api/drive-index' + (refresh ? '/refresh' : ''),
+            { method: refresh ? 'POST' : 'GET' });
+        if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            throw new Error(body.message || '인덱스 상태를 확인할 수 없습니다.');
+        }
+        const roots = await response.json();
+        if (!Array.isArray(roots)) throw new Error('인덱스 상태 응답을 확인하세요.');
+        output.replaceChildren();
+        if (!roots.length) output.textContent = '검색 폴더 설정이 필요합니다.';
+        const labels = { NOT_BUILT: '미구축', REFRESHING: '갱신 중', SUCCESS: '성공', FAILED: '실패' };
+        for (const root of roots) {
+            const state = root.state;
+            output.append(el('p', root.label + ' · ' + (labels[state.status] || '확인 필요')
+                + ' · 마지막 성공: ' + (state.lastSuccessAt ? new Date(state.lastSuccessAt).toLocaleString() : '없음')
+                + ' · 파일 ' + state.fileCount + '개'
+                + (state.status === 'FAILED' ? ' · FMS 연결·설정·접근 권한·탐색 제한을 확인한 후 다시 갱신하세요.' : '')));
+        }
+    } catch (error) { output.textContent = '인덱스 오류: ' + error.message; }
+}
+$('#refresh-drive-index').onclick = async () => {
+    const button = $('#refresh-drive-index');
+    if (button.disabled) return;
+    button.disabled = true;
+    $('#drive-index-status').textContent = '갱신 중…';
+    try { await loadDriveIndex(true); }
+    finally { button.disabled = false; }
+};
+loadDriveIndex();
