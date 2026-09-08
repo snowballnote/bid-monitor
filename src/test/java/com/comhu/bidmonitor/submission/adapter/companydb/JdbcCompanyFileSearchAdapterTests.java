@@ -71,6 +71,19 @@ class JdbcCompanyFileSearchAdapterTests {
         assertThat(adapter.findActiveFileById(11L)).isEmpty();
     }
 
+    @Test
+    void performanceMatchingRequiresEveryBusinessTokenAndClientAndEscapesWildcards() {
+        insert(20L, "통합 시스템 발주처 계약서.pdf", 0, false, "2026-09-01T00:00:00Z");
+        insert(21L, "다른 시스템 발주처 계약서.pdf", 0, false, "2026-09-02T00:00:00Z");
+        insert(22L, "통합 시스템 다른기관 실적증명서.pdf", 0, false, "2026-09-03T00:00:00Z");
+        insert(23L, "통합 시스템 발주처 계약서 삭제.pdf", 1, false, "2026-09-04T00:00:00Z");
+        insert(24L, "통합 시스템 발주처 계약서 폴더", 0, true, "2026-09-05T00:00:00Z");
+        assertThat(adapter.searchPerformanceEvidence("통합 시스템", "발주처", 50))
+                .extracting(result -> result.fileId()).containsExactly(20L);
+        assertThat(adapter.searchPerformanceEvidence("%", "발주처", 50)).isEmpty();
+        assertThat(adapter.searchPerformanceEvidence("통합 시스템", "_", 50)).isEmpty();
+        assertThat(adapter.searchPerformanceEvidence("", "발주처", 50)).isEmpty();
+    }
     private void insert(Long id, String filename, int status, boolean directory, String modifiedAt) {
         Instant instant = Instant.parse(modifiedAt);
         jdbcTemplate.update(

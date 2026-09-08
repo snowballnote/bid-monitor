@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>실적증빙 관리 | Biz Assist</title>
+    <link rel="stylesheet" href="/common.css">
+    <link rel="stylesheet" href="/submissions/submissions.css">
+    <link rel="stylesheet" href="/performances/performances.css">
+</head>
+<body>
+<div class="app-shell">
+    <aside class="app-sidebar">
+        <a class="app-brand" href="/" aria-label="Biz Assist 홈">
+            <span class="app-brand-mark" aria-hidden="true">BA</span>
+            <span><strong>Biz Assist</strong><small>경영지원 업무지원</small></span>
+        </a>
+        <nav class="app-nav" aria-label="주요 메뉴">
+            <a class="app-nav-link" href="/">홈</a>
+            <a class="app-nav-link" href="/bids/">입찰공고</a>
+            <a class="app-nav-link" href="/notices/">외부 중요공지</a>
+            <a class="app-nav-link" href="/notifications/">알림 관리</a>
+            <a class="app-nav-link active" href="/submissions/" aria-current="page">서류 모으기</a>
+        </nav>
+        <p class="app-sidebar-description">경영지원에 필요한 정보를 한곳에서 확인하세요.</p>
+    </aside>
+    <main class="app-main">
+        <header class="submission-topbar" aria-label="현재 위치">
+            <span>Biz Assist</span><span aria-hidden="true">/</span><a href="/submissions/">서류 모으기</a>
+            <span aria-hidden="true">/</span><strong>실적증빙 관리</strong>
+        </header>
+        <div class="page-container submission-page performance-page">
+            <header class="page-header page-heading page-heading-actions">
+                <div><span class="page-eyebrow">PERFORMANCE</span><h1>실적증빙 관리</h1>
+                    <p>PPT 실적표를 붙여넣고 실적별 제출 증빙을 준비합니다.</p></div>
+                <a id="return-submissions" class="ui-button ui-button-secondary" href="/submissions/">서류 모으기로 돌아가기</a>
+            </header>
+            <p id="message" class="submission-message" role="status" aria-live="polite"></p>
+
+            <section id="project-list" class="surface-card" aria-labelledby="projects-title">
+                <header class="document-picker-heading">
+                    <div><span class="panel-kicker">PROJECT</span><h2 id="projects-title">프로젝트 목록</h2></div>
+                    <button id="new-project" class="ui-button ui-button-primary" type="button" aria-expanded="false" aria-controls="create-project-panel">새 프로젝트</button>
+                </header>
+                <div id="create-project-panel" class="project-form-panel" hidden>
+                    <h3>새 프로젝트 만들기</h3>
+                    <form id="create-project" class="fields">
+                        <label>프로젝트명<input name="name" maxlength="500" required></label>
+                        <label>마감일<input name="deadline" type="date" required></label>
+                        <button class="ui-button ui-button-primary" type="submit">만들고 실적표 붙여넣기</button>
+                        <button id="cancel-create-project" class="ui-button ui-button-secondary" type="button">취소</button>
+                    </form>
+                </div>
+                <div class="project-table-wrap">
+                    <table class="project-table"><thead><tr><th>프로젝트명</th><th>D-day</th><th>상태</th></tr></thead><tbody id="projects"></tbody></table>
+                    <p id="projects-empty" class="panel-state" hidden>프로젝트를 만든 뒤 PPT 실적표를 붙여넣으세요.</p>
+                </div>
+            </section>
+
+            <section id="workspace" aria-labelledby="project-title" hidden>
+                <div class="workspace-heading">
+                    <button id="back-projects" class="ui-button ui-button-secondary" type="button">← 프로젝트 목록</button>
+                    <p id="project-deadline" class="candidate-meta"></p>
+                </div>
+                <div class="project-overview surface-card">
+                    <div><span class="panel-kicker">선택한 프로젝트</span><h2 id="project-title"></h2></div>
+                    <p id="entry-summary" class="performance-summary" aria-live="polite"></p>
+                    <details id="project-settings">
+                        <summary>프로젝트 정보 수정</summary>
+                        <form id="edit-project" class="fields">
+                            <label>프로젝트명<input name="name" maxlength="500" required></label>
+                            <label>마감일<input name="deadline" type="date" required></label>
+                            <button class="ui-button ui-button-secondary" type="submit">프로젝트 저장</button>
+                        </form>
+                    </details>
+                </div>
+
+                <section class="paste-panel surface-card" aria-labelledby="paste-title">
+                    <header class="document-picker-heading">
+                        <div><span class="panel-kicker">STEP 1 · 실적 일괄 등록</span><h2 id="paste-title">PPT 실적표 붙여넣기</h2></div>
+                        <p>표 전체를 복사해 한 번에 등록하세요.</p>
+                    </header>
+                    <div class="paste-body">
+                        <p id="paste-help">번호 / 사업명 / 사업기간 / 계약금액 / 발주처 순서로 붙여넣으세요. 셀 내부 줄바꿈은 유지하고, 오류 행은 따로 수정할 수 있습니다.</p>
+                        <label for="paste-table">실적표</label>
+                        <textarea id="paste-table" rows="8" aria-describedby="paste-help" placeholder="PPT에서 실적표 전체 복사 → 여기에 붙여넣기"></textarea>
+                        <div class="paste-actions"><p class="candidate-meta">사업기간 예: 2024.01 ~ 2025.12 또는 2024.01 ~ 수행중</p>
+                            <button id="import" class="ui-button ui-button-primary" type="button">실적표 일괄 파싱·저장</button></div>
+                        <p id="import-result" role="status"></p>
+                        <div id="errors"></div>
+                    </div>
+                </section>
+
+                <div class="toolbar">
+                    <div><span class="panel-kicker">STEP 2 · 증빙 준비</span><h2>실적별 증빙</h2></div>
+                    <button id="download" class="ui-button ui-button-secondary" type="button">선택 파일 전체 ZIP 다운로드</button>
+                </div>
+                <p class="performance-guide">완료: 실적증명서 → 계약서 → KITC 요청 필요 · 수행중: 계약서 → KITC 요청 필요<br>
+                    후보를 확인한 뒤 직접 선택하고 저장하세요. KITC 요청·회신만으로는 증빙 준비가 완료되지 않습니다.</p>
+                <p id="entries-empty" class="panel-state surface-card" hidden>위에 PPT 실적표를 붙여넣으면 실적별 증빙을 준비할 수 있습니다.</p>
+                <div id="entries"></div>
+            </section>
+        </div>
+    </main>
+</div>
+<script src="/performances/performances.js"></script>
+</body>
+</html>

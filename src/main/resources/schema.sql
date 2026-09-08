@@ -225,3 +225,62 @@ INSERT INTO submission_common_document
     (document_type, display_name, refresh_policy, refresh_interval_months, active, created_at, updated_at)
 SELECT 'DIRECT_PRODUCTION_CERTIFICATE', '직접생산확인증명서', 'EXPIRATION_BASED', NULL, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 WHERE NOT EXISTS (SELECT 1 FROM submission_common_document WHERE document_type = 'DIRECT_PRODUCTION_CERTIFICATE');
+
+-- 실적 수집 작업만 primary H2에 저장한다. 회사 DB/NAS에는 쓰지 않는다.
+CREATE TABLE IF NOT EXISTS performance_project (
+    id VARCHAR(36) PRIMARY KEY,
+    name VARCHAR(500) NOT NULL,
+    deadline DATE NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS performance_entry (
+    id VARCHAR(36) PRIMARY KEY,
+    project_id VARCHAR(36) NOT NULL REFERENCES performance_project(id),
+    ppt_number VARCHAR(100) NOT NULL,
+    business_name VARCHAR(1000) NOT NULL,
+    business_period VARCHAR(500) NOT NULL,
+    contract_amount VARCHAR(200) NOT NULL,
+    client VARCHAR(500) NOT NULL,
+    business_status VARCHAR(30),
+    selected_file_id BIGINT,
+    selected_filename VARCHAR(2000),
+    selected_ext VARCHAR(100),
+    evidence_type VARCHAR(30),
+    kitc_status VARCHAR(30) NOT NULL,
+    requested_at DATE,
+    replied_at DATE,
+    CONSTRAINT uk_performance_ppt_number UNIQUE(project_id, ppt_number),
+    CONSTRAINT ck_performance_business_status CHECK(business_status IN ('COMPLETED', 'IN_PROGRESS')),
+    CONSTRAINT ck_performance_evidence_type CHECK(evidence_type IN ('CERTIFICATE', 'CONTRACT')),
+    CONSTRAINT ck_performance_kitc_status CHECK(kitc_status IN ('NEEDED', 'REQUESTED', 'RECEIVED')),
+    CONSTRAINT ck_performance_file CHECK(
+        (selected_file_id IS NULL AND selected_filename IS NULL AND selected_ext IS NULL AND evidence_type IS NULL)
+        OR (selected_file_id IS NOT NULL AND selected_filename IS NOT NULL AND evidence_type IS NOT NULL)),
+    CONSTRAINT ck_performance_kitc_dates CHECK(
+        (kitc_status = 'NEEDED' AND requested_at IS NULL AND replied_at IS NULL)
+        OR (kitc_status = 'REQUESTED' AND requested_at IS NOT NULL AND replied_at IS NULL)
+        OR (kitc_status = 'RECEIVED' AND requested_at IS NOT NULL AND replied_at >= requested_at AND replied_at IS NOT NULL))
+);
+
+-- Private Drive references stay in primary H2. Existing company file selections are preserved.
+CREATE TABLE IF NOT EXISTS performance_drive_file (
+    id VARCHAR(36) PRIMARY KEY,
+    origin VARCHAR(1000) NOT NULL,
+    company VARCHAR(100) NOT NULL,
+    drive_path VARCHAR(4000) NOT NULL,
+    filename VARCHAR(2000) NOT NULL,
+    file_ext VARCHAR(100),
+    file_size BIGINT NOT NULL,
+    modified_at TIMESTAMP,
+    CONSTRAINT uk_performance_drive_locator UNIQUE(origin, company, drive_path)
+);
+ALTER TABLE performance_entry ADD COLUMN IF NOT EXISTS selected_drive_file_id VARCHAR(36)
+    REFERENCES performance_drive_file(id);
+ALTER TABLE performance_entry DROP CONSTRAINT IF EXISTS ck_performance_file;
+ALTER TABLE performance_entry ADD CONSTRAINT ck_performance_file CHECK(
+    (selected_file_id IS NULL AND selected_drive_file_id IS NULL
+        AND selected_filename IS NULL AND selected_ext IS NULL AND evidence_type IS NULL)
+    OR (((selected_file_id IS NOT NULL AND selected_drive_file_id IS NULL)
+        OR (selected_file_id IS NULL AND selected_drive_file_id IS NOT NULL))
+        AND selected_filename IS NOT NULL AND evidence_type IS NOT NULL)
+);

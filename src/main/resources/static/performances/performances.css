@@ -1,0 +1,59 @@
+/* Page layout only; shell, cards, buttons and colors use the existing Biz Assist UI. */
+.performance-page [hidden] { display: none !important; }
+.performance-page a.ui-button { display: inline-flex; align-items: center; text-decoration: none; }
+.performance-page #message { margin: 0 0 var(--space-4); white-space: pre-wrap; }
+.performance-page #message:empty { display: none; }
+.performance-page .fields { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-3); }
+.performance-page label { display: grid; gap: var(--space-2); font-size: 12px; color: var(--text); }
+.performance-page input, .performance-page select, .performance-page textarea {
+    min-width: 0; max-width: 100%; padding: 9px 10px; border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font: inherit;
+}
+.performance-page input:focus, .performance-page select:focus, .performance-page textarea:focus {
+    outline: 3px solid var(--primary-soft); border-color: var(--primary);
+}
+.performance-page textarea { width: 100%; resize: vertical; margin: var(--space-2) 0; line-height: 1.65; }
+.performance-page .project-form-panel { padding: var(--space-5); border-bottom: 1px solid var(--border); background: var(--surface-subtle); }
+.performance-page .project-form-panel h3 { margin-top: 0; font-size: 14px; }
+.performance-page .project-table-wrap { overflow-x: auto; }
+.performance-page .project-table { width: 100%; border-collapse: collapse; }
+.performance-page .project-table th, .performance-page .project-table td { padding: 16px 20px; text-align: left; border-bottom: 1px solid var(--border); }
+.performance-page .project-table th { background: var(--surface-subtle); font-size: 12px; color: var(--muted); }
+.performance-page .project-table th:first-child { width: 65%; }
+.performance-page .project-table td:not(:first-child) { white-space: nowrap; }
+.performance-page .project-table a { color: var(--primary-hover); font-weight: 650; text-decoration: none; overflow-wrap: anywhere; }
+.performance-page .project-table a:hover { text-decoration: underline; }
+.performance-page .workspace-heading, .performance-page .toolbar, .performance-page .paste-actions {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
+}
+.performance-page .workspace-heading { margin-bottom: var(--space-4); }
+.performance-page .project-overview { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); padding: var(--space-5); margin-bottom: var(--space-5); }
+.performance-page .project-overview h2 { margin: 0; font-size: 18px; overflow-wrap: anywhere; }
+.performance-page .performance-summary { margin: 0 0 0 auto; color: var(--info-text); font-weight: 650; }
+.performance-page #project-settings { width: 100%; border-top: 1px solid var(--border); padding-top: var(--space-3); }
+.performance-page summary { color: var(--muted); cursor: pointer; font-size: 12px; }
+.performance-page #edit-project { margin-top: var(--space-4); }
+.performance-page .paste-panel { border-color: var(--primary); margin-bottom: var(--space-6); }
+.performance-page .paste-panel .document-picker-heading { background: var(--primary-soft); }
+.performance-page .paste-body { padding: var(--space-5); }
+.performance-page #paste-help, .performance-page .performance-guide { margin-top: 0; font-size: 12px; color: var(--muted); line-height: 1.7; }
+.performance-page .toolbar { margin: var(--space-5) 0 var(--space-3); }
+.performance-page .toolbar h2 { margin: 0; font-size: 17px; }
+.performance-page .performance-entry { margin-bottom: var(--space-4); padding: var(--space-5); }
+.performance-page .performance-entry h3 { margin: 0 0 var(--space-4); font-size: 15px; overflow-wrap: anywhere; }
+.performance-page .entry-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); }
+.performance-page .entry-form input { width: 100%; }
+.performance-page .entry-form .actions { grid-column: 1 / -1; display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.performance-page .candidates { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
+.performance-page .candidates button { text-align: left; overflow-wrap: anywhere; }
+.performance-page .error-row { border-left: 3px solid var(--danger); background: var(--danger-bg); padding: var(--space-3); margin-top: var(--space-3); }
+.performance-page .error-row p { overflow-wrap: anywhere; font-size: 12px; }
+@media (max-width: 800px) {
+    .performance-page .entry-form { grid-template-columns: 1fr; }
+    .performance-page .toolbar, .performance-page .paste-actions { align-items: stretch; flex-direction: column; }
+    .performance-page .performance-summary { margin-left: 0; }
+    .performance-page .project-table th, .performance-page .project-table td { padding: 12px; }
+}
+.performance-page .entry-statuses { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-4); }
+.performance-page .entry-business-status { padding: 3px 7px; border-radius: var(--radius-pill); background: var(--surface-subtle); color: var(--muted); font-size: 11px; }
+.performance-page .entry-evidence-status { align-self: center; font-size: 11px; }

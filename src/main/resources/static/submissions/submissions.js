@@ -58,6 +58,7 @@ const state = {
     candidateLoadingIds: new Set(),
     candidateErrors: new Map(),
     commonDocuments: new Map(),
+    performance: { projectId: "", projects: [], total: 0, processed: 0, loading: false, error: "", revision: 0 },
     commonDocumentEditor: null
 };
 
@@ -199,20 +200,124 @@ function addCustomDocument() {
     elements.customDocumentName.focus();
 }
 
+function performanceComplete() {
+    const progress = state.performance;
+    return !progress.loading && !progress.error && progress.total > 0 && progress.processed === progress.total;
+}
+
+function requirementComplete(requirement) {
+    return requirement.performanceSelectionRequired ? performanceComplete() : state.selections.has(requirement.id);
+}
+
+function performanceCaption() {
+    const progress = state.performance;
+    if (progress.loading) return "실적 진행상황 조회 중";
+    if (progress.error) return progress.error;
+    if (!progress.projectId) return "실적 프로젝트를 선택하세요.";
+    if (!progress.total) return "등록된 실적 없음 · 실적표를 붙여넣으세요.";
+    return `${progress.total}건 중 ${progress.processed}건 처리 / ${progress.total - progress.processed}건 미처리`;
+}
+
+function performanceManageUrl() {
+    const params = new URLSearchParams();
+    if (state.submissionCase) params.set("caseId", state.submissionCase.id);
+    if (state.performance.projectId) params.set("project", state.performance.projectId);
+    return "/performances/index.html" + (params.size ? "?" + params : "");
+}
+
+function renderPerformancePanel() {
+    const progress = state.performance;
+    const select = document.querySelector("#performance-project-select");
+    select.replaceChildren(new Option("프로젝트를 선택하세요", ""));
+    progress.projects.forEach(project => select.add(new Option(project.name, project.id)));
+    if (progress.projectId && !progress.projects.some(project => project.id === progress.projectId)) {
+        select.add(new Option("연결한 프로젝트 확인 필요", progress.projectId));
+    }
+    select.value = progress.projectId;
+    select.disabled = progress.loading;
+    document.querySelector("#performance-progress").textContent = performanceCaption();
+    document.querySelector("#performance-manage").href = performanceManageUrl();
+    document.querySelector("#performance-refresh").disabled = progress.loading;
+}
+
+function renderPerformanceProgress() {
+    renderPerformancePanel();
+    renderRequirements();
+    renderPackage();
+}
+
+function storedPerformanceProject() {
+    const fromUrl = new URLSearchParams(location.search).get("performanceProjectId");
+    if (fromUrl) return fromUrl;
+    try { return localStorage.getItem("biz-assist.performance-project." + state.submissionCase.id) || ""; }
+    catch { return ""; }
+}
+
+function rememberPerformanceProject(id) {
+    state.performance.projectId = id;
+    const params = new URLSearchParams(location.search);
+    if (id) params.set("performanceProjectId", id);
+    else params.delete("performanceProjectId");
+    window.history.replaceState({}, "", "/submissions/?" + params);
+    try {
+        const key = "biz-assist.performance-project." + state.submissionCase.id;
+        if (id) localStorage.setItem(key, id);
+        else localStorage.removeItem(key);
+    } catch { /* The URL still keeps this browser view's selected project. */ }
+}
+
+async function refreshPerformanceProgress() {
+    if (!state.submissionCase || !state.requirements.some(item => item.performanceSelectionRequired)) return;
+    const progress = state.performance;
+    const revision = ++progress.revision;
+    progress.loading = true;
+    progress.error = "";
+    progress.total = 0;
+    progress.processed = 0;
+    renderPerformanceProgress();
+    try {
+        const projects = await requestJson("/api/performance-projects");
+        if (state.performance !== progress || progress.revision !== revision) return;
+        progress.projects = Array.isArray(projects) ? projects : [];
+        if (progress.projectId) {
+            if (!progress.projects.some(project => project.id === progress.projectId)) {
+                throw new Error("연결한 실적 프로젝트를 찾을 수 없습니다.");
+            }
+            const entries = await requestJson("/api/performance-projects/" + encodeURIComponent(progress.projectId) + "/entries");
+            if (state.performance !== progress || progress.revision !== revision) return;
+            if (!Array.isArray(entries)) throw new Error("실적 진행상황을 확인할 수 없습니다.");
+            progress.total = entries.length;
+            progress.processed = entries.filter(entry => (entry.info?.selectedFileId != null || entry.info?.selectedDriveFileId != null)).length;
+        }
+    } catch {
+        if (state.performance !== progress || progress.revision !== revision) return;
+        progress.error = "실적 진행상황 확인 필요 · 프로젝트를 확인하거나 새로고침하세요.";
+    } finally {
+        if (state.performance === progress && progress.revision === revision) {
+            progress.loading = false;
+            renderPerformanceProgress();
+        }
+    }
+}
 function renderProgress() {
     const total = state.requirements.length;
-    const selected = state.requirements.filter((requirement) => state.selections.has(requirement.id)).length;
+    const selected = state.requirements.filter(requirementComplete).length;
     const percent = total ? Math.round((selected / total) * 100) : 0;
     elements.progressPercent.textContent = `${percent}%`;
     elements.progressBar.style.width = `${percent}%`;
     elements.progressTrack.setAttribute("aria-valuenow", String(percent));
-    elements.progressCaption.textContent = `${total}개 중 ${selected}개 선택`;
+    elements.progressCaption.textContent = `${total}개 중 ${selected}개 완료`;
     elements.packageSelectionCount.textContent = `${selected} / ${total}`;
 }
 
 function requirementState(requirement) {
+    if (requirement.performanceSelectionRequired) {
+        if (performanceComplete()) return ["완료", " complete"];
+        if (state.performance.loading) return ["확인 중", ""];
+        if (state.performance.error) return ["확인 필요", " attention"];
+        return ["진행중", " attention"];
+    }
     if (state.selections.has(requirement.id)) return ["선택 완료", " complete"];
-    if (requirement.performanceSelectionRequired) return ["실적 선택 필요", " attention"];
     if (state.candidateLoadingIds.has(requirement.id)) return ["검색 중", ""];
     if (state.candidateErrors.has(requirement.id)) return ["조회 실패", " attention"];
     if (state.candidates.has(requirement.id)) {
@@ -234,10 +339,11 @@ function renderRequirements() {
         const content = document.createElement("span");
         const title = document.createElement("span");
         title.className = "requirement-item-title";
-        title.textContent = requirement.documentName;
+        title.textContent = requirement.performanceSelectionRequired ? requirement.documentName + " · 실적증빙 관리" : requirement.documentName;
         const meta = document.createElement("span");
         meta.className = "requirement-item-meta";
-        meta.textContent = categoryLabel(requirement.category);
+        meta.textContent = requirement.performanceSelectionRequired ? performanceCaption() : categoryLabel(requirement.category);
+        meta.classList.toggle("performance-progress-meta", Boolean(requirement.performanceSelectionRequired));
         content.append(title, meta);
         const completion = document.createElement("span");
         const [label, className] = requirementState(requirement);
@@ -251,7 +357,7 @@ function renderRequirements() {
 
 function renderPackage() {
     elements.packageList.replaceChildren();
-    const selected = state.requirements.filter((requirement) => state.selections.has(requirement.id));
+    const selected = state.requirements.filter(requirement => requirement.performanceSelectionRequired || state.selections.has(requirement.id));
     setHidden(elements.packageEmpty, selected.length !== 0);
     setHidden(elements.packageList, selected.length === 0);
     selected.forEach((requirement) => {
@@ -259,8 +365,15 @@ function renderPackage() {
         const name = document.createElement("strong");
         name.textContent = requirement.documentName;
         const filename = document.createElement("span");
-        filename.textContent = state.selections.get(requirement.id).originalFilename;
+        filename.textContent = requirement.performanceSelectionRequired ? performanceCaption() : state.selections.get(requirement.id).originalFilename;
         item.append(name, filename);
+        if (requirement.performanceSelectionRequired) {
+            const manage = document.createElement("a");
+            manage.className = "ui-button ui-button-secondary";
+            manage.href = performanceManageUrl();
+            manage.textContent = "실적증빙 관리";
+            item.append(manage);
+        }
         elements.packageList.append(item);
     });
     renderProgress();
@@ -351,6 +464,7 @@ async function selectRequirement(requirement) {
     renderRequirements();
     elements.candidateTitle.textContent = requirement.documentName;
     if (requirement.performanceSelectionRequired) {
+        renderPerformancePanel();
         showCandidateState("performance");
         return;
     }
@@ -451,6 +565,7 @@ async function loadWorkspace(submissionCase) {
             requestJson(`${API_BASE}/${submissionCase.id}/requirements`), requestJson(`${API_BASE}/${submissionCase.id}/package`)
         ]);
         state.requirements = Array.isArray(requirements) ? requirements : [];
+        state.performance = { projectId: storedPerformanceProject(), projects: [], total: 0, processed: 0, loading: false, error: "", revision: 0 };
         state.selections = new Map((packageData.selections || []).map((item) => [item.requirementId, item]));
         elements.projectName.textContent = "선택한 제출서류";
         elements.projectMeta.textContent = `${state.requirements.length}개 서류의 회사 파일 후보를 확인합니다.`;
@@ -460,6 +575,7 @@ async function loadWorkspace(submissionCase) {
         setHidden(elements.documentPicker, true);
         setHidden(elements.workspace, false);
         preloadCandidates();
+        refreshPerformanceProgress();
     } catch (error) {
         elements.workspaceError.textContent = friendlyError(error, "workspace");
         setHidden(elements.workspaceError, false);
@@ -494,6 +610,7 @@ async function createManualCase(event) {
 
 function resetWorkspace() {
     state.submissionCase = null;
+    state.performance = { projectId: "", projects: [], total: 0, processed: 0, loading: false, error: "", revision: 0 };
     state.requirements = [];
     state.selections.clear();
     state.candidates.clear();
@@ -543,3 +660,18 @@ elements.commonDocumentClose.addEventListener("click", closeCommonDocumentEditor
 elements.commonDocumentCancel.addEventListener("click", closeCommonDocumentEditor);
 updateCheckedCount();
 loadCommonDocuments().finally(restoreCaseFromUrl);
+
+document.querySelector("#performance-project-select").addEventListener("change", (event) => {
+    if (!state.submissionCase) return;
+    rememberPerformanceProject(event.target.value);
+    refreshPerformanceProgress();
+});
+document.querySelector("#performance-refresh").addEventListener("click", refreshPerformanceProgress);
+window.addEventListener("focus", refreshPerformanceProgress);
+window.addEventListener("pageshow", (event) => { if (event.persisted) refreshPerformanceProgress(); });
+window.addEventListener("storage", (event) => {
+    if (state.submissionCase && event.key === "biz-assist.performance-project." + state.submissionCase.id) {
+        rememberPerformanceProject(event.newValue || "");
+        refreshPerformanceProgress();
+    }
+});

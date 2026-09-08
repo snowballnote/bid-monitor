@@ -143,3 +143,15 @@
     .panel-state { min-height: 150px; padding: 22px 16px; }
     .package-list { display: block; }
 }
+
+/* Performance remains one checklist item, with its own project progress and action. */
+.performance-picker-action { grid-column: 1 / -1; text-align: center; text-decoration: none; }
+#candidate-performance { align-items: stretch; text-align: left; gap: var(--space-3); }
+#candidate-performance p { margin: 0; font-size: 12px; line-height: 1.65; }
+#candidate-performance label { font-size: 12px; font-weight: 650; color: var(--text); }
+#performance-project-select { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font: inherit; }
+#performance-progress { color: var(--info-text); font-weight: 650; }
+.performance-panel-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.performance-panel-actions a, .package-list a.ui-button { display: inline-flex; align-items: center; text-decoration: none; }
+.requirement-item-meta.performance-progress-meta { display: block; line-height: 1.6; color: var(--info-text); }
+.package-list a.ui-button { margin-top: var(--space-2); font-size: 11px; }

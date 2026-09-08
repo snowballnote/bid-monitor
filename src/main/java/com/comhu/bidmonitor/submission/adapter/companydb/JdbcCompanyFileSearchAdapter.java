@@ -67,6 +67,27 @@ public class JdbcCompanyFileSearchAdapter implements CompanyFileSearchPort {
     }
 
     @Override
+    public List<CompanyFileMetadata> searchPerformanceEvidence(String businessName, String client, int limit) {
+        if (businessName == null || businessName.isBlank() || client == null || client.isBlank()) {
+            return List.of();
+        }
+        List<String> terms = new ArrayList<>(List.of(businessName.trim().split("\\s+")));
+        terms.addAll(List.of(client.trim().split("\\s+")));
+        terms = terms.stream().map(term -> term.toLowerCase(Locale.ROOT)).distinct().toList();
+        String conditions = String.join(" AND ", terms.stream()
+                .map(term -> "lower(coalesce(original_filename, '')) LIKE ? ESCAPE '\\'").toList());
+        List<Object> parameters = new ArrayList<>();
+        parameters.add(0);
+        parameters.add(false);
+        terms.forEach(term -> parameters.add("%" + escapeLike(term) + "%"));
+        parameters.add(Math.max(1, Math.min(100, limit)));
+        return companyJdbcTemplate().query("SELECT " + SAFE_COLUMNS + " FROM public.files "
+                + "WHERE file_status = ? AND is_dir = ? AND " + conditions
+                + " ORDER BY COALESCE(file_modified_at, updated_at) DESC NULLS LAST, file_id DESC LIMIT ?",
+                this::map, parameters.toArray());
+    }
+
+    @Override
     public Optional<CompanyFileMetadata> findActiveFileById(Long fileId) {
         return companyJdbcTemplate().query(
                 "SELECT " + SAFE_COLUMNS + " FROM public.files "
