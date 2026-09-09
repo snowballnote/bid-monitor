@@ -20,6 +20,7 @@ class FmsDriveHttpAdapterTests {
     private int status;
     private boolean permission;
     private String listBody;
+    private final List<String> upgradeHeaders = new ArrayList<>();
 
     @BeforeEach
     void setup() throws Exception {
@@ -30,6 +31,7 @@ class FmsDriveHttpAdapterTests {
                 """;
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/api/drive/", exchange -> {
+            upgradeHeaders.add(exchange.getRequestHeaders().getFirst("Upgrade"));
             queries.add(URLDecoder.decode(exchange.getRequestURI().getRawQuery(), StandardCharsets.UTF_8));
             cookies.add(exchange.getRequestHeaders().getFirst("Cookie"));
             String endpoint = exchange.getRequestURI().getPath();
@@ -63,8 +65,12 @@ class FmsDriveHttpAdapterTests {
 
     @Test
     void forbiddenUnauthorizedAndOtherErrorsNeverExposeRemoteBodies() {
-        for (int code : List.of(401, 403, 500, 302)) {
+        for (int code : List.of(401, 403, 404, 500, 302)) {
             status = code;
+            var failure = (FmsDriveException) catchThrowable(() -> adapter.list("/증빙"));
+            assertThat(failure.httpStatus()).isEqualTo(code);
+            assertThat(failure.stage()).isEqualTo(FmsDriveException.Stage.LIST);
+            assertThat(failure.kind()).isEqualTo(FmsDriveException.Kind.HTTP_ERROR);
             assertThatThrownBy(() -> adapter.list("/증빙")).isInstanceOf(FmsDriveException.class)
                     .hasMessageNotContaining("secret").hasMessageNotContaining("/private").hasNoCause();
         }
@@ -88,4 +94,47 @@ class FmsDriveHttpAdapterTests {
         assertThatThrownBy(() -> adapter.list("/증빙")).isInstanceOf(FmsDriveException.class).hasMessageNotContaining("secret");
         assertThatThrownBy(() -> FmsDriveHttpAdapter.normalizedPath("/증빙/../outside")).isInstanceOf(FmsDriveException.class);
     }
-}
+    @Test
+    void preservesSafeTransportDiagnosticsAndEndpointStage() throws Exception {
+        var client = org.mockito.Mockito.mock(java.net.http.HttpClient.class);
+        var errors = List.of(new java.net.ConnectException("SESSION=secret /private"),
+                new java.net.http.HttpTimeoutException("password=secret /private"));
+        for (var error : errors) {
+            org.mockito.Mockito.reset(client);
+            org.mockito.Mockito.when(client.send(org.mockito.ArgumentMatchers.any(java.net.http.HttpRequest.class),
+                    org.mockito.ArgumentMatchers.<java.net.http.HttpResponse.BodyHandler<java.io.InputStream>>any())).thenThrow(error);
+            var failing = new FmsDriveHttpAdapter(config, client);
+            var failure = (FmsDriveException) catchThrowable(() -> failing.canDownload("/private"));
+            assertThat(failure.stage()).isEqualTo(FmsDriveException.Stage.PERMISSION);
+            assertThat(failure.kind()).isEqualTo(error instanceof java.net.ConnectException
+                    ? FmsDriveException.Kind.CONNECTION_REFUSED : FmsDriveException.Kind.TIMEOUT);
+            assertThat(failure.diagnostic().getMessage()).isEqualTo(error.getClass().getName());
+            assertThat(failure.diagnostic().getStackTrace()).isEqualTo(error.getStackTrace());
+            assertThat(failure.getCause()).isNull();
+        }
+        var invalid = (FmsDriveException) catchThrowable(() -> adapter.list("/private/../secret"));
+        assertThat(invalid.kind()).isEqualTo(FmsDriveException.Kind.INVALID_ROOT);
+        status = 404;
+        var missing = (FmsDriveException) catchThrowable(() -> adapter.download("/private"));
+        assertThat(missing.httpStatus()).isEqualTo(404);
+        assertThat(missing.stage()).isEqualTo(FmsDriveException.Stage.DOWNLOAD);
+    }    @Test
+    void listDiagnosticsExposeOnlySafeDestinationAndRequestFlags() {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(FmsDriveHttpAdapter.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start(); logger.addAppender(appender);
+        try {
+            config.setBaseUrl(config.getBaseUrl() + "/");
+            config.setSessionToken("private-session-value");
+            adapter.list("/증빙");
+            String output = appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                    .collect(java.util.stream.Collectors.joining(System.lineSeparator()));
+            assertThat(output).contains("host=127.0.0.1", "port=" + server.getAddress().getPort(),
+                    "endpoint=/api/drive/list", "companyPresent=true", "sessionPresent=true",
+                    "redirect=NEVER", "preferredVersion=HTTP_1_1", "status=200", "elapsedMs=", "proxy=");
+            assertThat(output).doesNotContain("private-session-value", "/증빙", "%EC", "Cookie:", "SESSION=");
+            assertThat(cookies).containsOnly("SESSION=private-session-value");
+            assertThat(queries).containsExactly("path=/증빙&company=CNH");
+            assertThat(upgradeHeaders).containsOnlyNulls();
+        } finally { logger.detachAppender(appender); appender.stop(); }
+    }}

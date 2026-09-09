@@ -6,6 +6,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 public class DriveFileIndexRefreshService {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(DriveFileIndexRefreshService.class);
+    private void logFailure(RuntimeException failure, FmsDriveException.Stage fallback) {
+        var fms = failure instanceof FmsDriveException value ? value : null;
+        log.error("Drive index refresh failed: stage={} kind={} httpStatus={}",
+                fms == null || fms.stage() == FmsDriveException.Stage.REFRESH ? fallback : fms.stage(),
+                fms == null ? FmsDriveException.Kind.UNKNOWN : fms.kind(),
+                fms == null ? null : fms.httpStatus(),
+                fms == null ? FmsDriveException.sanitized(failure) : fms.diagnostic());
+    }
     public record RootStatus(String label, DriveFileIndexRepository.State state) { }
     private record Folder(String path, int depth) { }
     private final FmsDrivePort drive;
@@ -33,12 +42,19 @@ public class DriveFileIndexRefreshService {
     public List<RootStatus> refresh() {
         if (!running.compareAndSet(false, true)) throw new FmsDriveException("Drive 인덱스를 이미 갱신하고 있습니다.");
         try {
-            var roots = roots();
-            if (roots.isEmpty()) throw new FmsDriveException("Drive 검색 폴더를 설정하세요.");
+            List<String> roots;
+            try {
+                roots = roots();
+                if (roots.isEmpty()) throw new FmsDriveException("Drive 검색 폴더를 설정하세요.")
+                        .details(FmsDriveException.Stage.CONFIG, FmsDriveException.Kind.INVALID_CONFIG, null, null);
+            }
+            catch (RuntimeException failure) { logFailure(failure, FmsDriveException.Stage.CONFIG); throw failure; }
+
             String source = source();
             String company = properties.getCompany();
             for (String root : roots) {
                 index.started(source, company, root);
+                FmsDriveException.Stage phase = FmsDriveException.Stage.LIST;
                 try {
                     ArrayDeque<Folder> queue = new ArrayDeque<>();
                     queue.add(new Folder(root, 0));
@@ -61,8 +77,10 @@ public class DriveFileIndexRefreshService {
                             }
                         }
                     }
+                    phase = FmsDriveException.Stage.INDEX_WRITE;
                     index.replace(source, company, root, new ArrayList<>(files.values()), visited.size());
                 } catch (RuntimeException failure) {
+                    logFailure(failure, phase);
                     // Never store remote exception messages, paths or credentials in public status.
                     index.failed(source, company, root);
                 }
