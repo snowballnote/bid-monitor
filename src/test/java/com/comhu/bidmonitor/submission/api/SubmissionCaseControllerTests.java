@@ -199,4 +199,77 @@ class SubmissionCaseControllerTests {
                 .andExpect(jsonPath("$[0].sourceType").value("USER_SELECTED"))
                 .andExpect(jsonPath("$[1].performanceSelectionRequired").value(true));
     }
-}
+    @Autowired com.comhu.bidmonitor.submission.service.SubmissionCaseService localProjects;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate localJdbc;
+
+    @Test
+    void createsNamedEmptyProjectsAndListsThemWithoutPmsLookup() throws Exception {
+        mockMvc.perform(post("/api/submission-cases").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"projectName\":\"새 서류 프로젝트\"}"))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.projectName").value("새 서류 프로젝트"))
+                .andExpect(jsonPath("$.projectId").isEmpty());
+        var project = caseRepository.findAll().stream().filter(p -> p.getProjectName().equals("새 서류 프로젝트")).findFirst().orElseThrow();
+        mockMvc.perform(get("/api/submission-cases")).andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id == " + project.getId() + ")].total").value(org.hamcrest.Matchers.contains(0)));
+        mockMvc.perform(get("/api/submission-cases/{id}/requirements", project.getId()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$", hasSize(0)));
+        mockMvc.perform(put("/api/submission-cases/{id}", project.getId()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"projectName\":\"수정한 프로젝트\"}")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.projectName").value("수정한 프로젝트"));
+        mockMvc.perform(post("/api/submission-cases").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"projectName\":\" \"}")).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void requirementEditsKeepIdsAndSelectionsAndOnlyDeleteRemovedConnections() throws Exception {
+        var first = localProjects.createProject("첫 프로젝트", null, List.of(
+                new com.comhu.bidmonitor.submission.service.SubmissionCaseService.ManualRequirement(
+                        com.comhu.bidmonitor.submission.domain.RequirementCategory.OTHER, "유지 서류", "KEEP"),
+                new com.comhu.bidmonitor.submission.service.SubmissionCaseService.ManualRequirement(
+                        com.comhu.bidmonitor.submission.domain.RequirementCategory.OTHER, "제거 서류", "REMOVE")));
+        var second = localProjects.createProject("둘째 프로젝트", null, List.of(
+                new com.comhu.bidmonitor.submission.service.SubmissionCaseService.ManualRequirement(
+                        com.comhu.bidmonitor.submission.domain.RequirementCategory.OTHER, "유지 서류", "KEEP")));
+        var old = requirementRepository.findBySubmissionCaseId(first.getId());
+        when(fileSearchPort.findActiveFileById(101L)).thenReturn(Optional.of(
+                new CompanyFileSearchPort.CompanyFileMetadata(101L, UUID.randomUUID(), "파일.pdf", "pdf", Instant.now(), Instant.now())));
+        localProjects.replaceSelections(first.getId(), old.stream().map(r ->
+                new com.comhu.bidmonitor.submission.service.SubmissionCaseService.SelectionChoice(r.getId(),101L)).toList());
+        mockMvc.perform(put("/api/submission-cases/{id}/requirements",first.getId()).contentType(MediaType.APPLICATION_JSON)
+                .content("[{\"category\":\"OTHER\",\"documentName\":\"유지 서류\",\"sourceReference\":\"CHANGED\"},{\"category\":\"OTHER\",\"documentName\":\"새 서류\"}]"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$",hasSize(2)));
+        var updated = requirementRepository.findBySubmissionCaseId(first.getId());
+        org.assertj.core.api.Assertions.assertThat(updated.getFirst().getId()).isEqualTo(old.getFirst().getId());
+        org.assertj.core.api.Assertions.assertThat(updated.getLast().getId()).isNotEqualTo(old.getLast().getId());
+        org.assertj.core.api.Assertions.assertThat(localProjects.getPackage(first.getId()).getSelections()).hasSize(1);
+        org.assertj.core.api.Assertions.assertThat(localProjects.getPackage(first.getId()).getSelections().getFirst().getRequirementId()).isEqualTo(old.getFirst().getId());
+        org.assertj.core.api.Assertions.assertThat(requirementRepository.findBySubmissionCaseId(second.getId())).hasSize(1);
+        mockMvc.perform(put("/api/submission-cases/{id}/requirements",first.getId()).contentType(MediaType.APPLICATION_JSON).content("[]"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$",hasSize(0)));
+        org.assertj.core.api.Assertions.assertThat(localProjects.getPackage(first.getId()).getSelections()).isEmpty();
+    }
+
+    @Test
+    void performanceLinkIsPersistedValidatedAndLegacyInitializationNeverOverwritesServerChoice() throws Exception {
+        var project = localProjects.createProject("실적 연결", null, List.of(
+                new com.comhu.bidmonitor.submission.service.SubmissionCaseService.ManualRequirement(
+                        com.comhu.bidmonitor.submission.domain.RequirementCategory.PERFORMANCE,"실적증명서","PERFORMANCE")));
+        String p1 = UUID.randomUUID().toString(), p2 = UUID.randomUUID().toString();
+        for (String id : List.of(p1,p2)) localJdbc.update(
+                "INSERT INTO performance_project(id,name,deadline) VALUES(?,?,CURRENT_DATE)",id,"실적");
+        mockMvc.perform(put("/api/submission-cases/{id}",project.getId()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"performanceProjectId\":\"" + p1 + "\",\"initializePerformanceOnly\":true}")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.performanceProjectId").value(p1));
+        mockMvc.perform(put("/api/submission-cases/{id}",project.getId()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"performanceProjectId\":\"" + p2 + "\",\"initializePerformanceOnly\":true}")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.performanceProjectId").value(p1));
+        mockMvc.perform(put("/api/submission-cases/{id}",project.getId()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"performanceProjectId\":null}")).andExpect(status().isOk());
+        mockMvc.perform(put("/api/submission-cases/{id}",project.getId()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"performanceProjectId\":\"" + p2 + "\",\"initializePerformanceOnly\":true}")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.performanceProjectId").isEmpty());
+        mockMvc.perform(put("/api/submission-cases/{id}",project.getId()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"performanceProjectId\":\"missing\"}")).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/submission-cases/{id}",project.getId())).andExpect(status().isOk())
+                .andExpect(jsonPath("$.performanceLinkInitialized").value(true));
+    }}

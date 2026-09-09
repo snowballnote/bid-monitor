@@ -35,7 +35,29 @@
                 <p>필요한 서류를 고르고 회사 문서 후보에서 제출할 파일을 선택합니다.</p>
             </header>
 
-            <section id="document-picker" class="document-picker surface-card" aria-labelledby="document-picker-title">
+            <section id="submission-project-list" class="surface-card">
+                <header class="document-picker-heading">
+                    <h2>프로젝트 목록</h2>
+                    <div class="project-controls">
+                        <button id="new-submission-project" type="button" class="ui-button ui-button-primary">+ 새 프로젝트</button>
+                        <button id="view-card" type="button" class="ui-button ui-button-secondary">카드형</button>
+                        <button id="view-list" type="button" class="ui-button ui-button-secondary">리스트형</button>
+                    </div>
+                </header>
+                <form id="create-submission-project" class="project-name-form hidden">
+                    <label>프로젝트명 <input name="projectName" required maxlength="2000"></label>
+                    <button class="ui-button ui-button-primary" type="submit">프로젝트 생성</button>
+                </form>
+                <p id="submission-project-message" role="status"></p>
+                <div id="submission-project-items"></div>
+            </section>
+            <div id="submission-detail-toolbar" class="project-controls hidden">
+                <button id="back-submission-projects" class="ui-button ui-button-secondary" type="button">프로젝트 목록</button>
+                <form id="rename-submission-project" class="project-name-form">
+                    <label>프로젝트명 <input name="projectName" required maxlength="2000"></label>
+                    <button type="submit" class="ui-button ui-button-secondary">이름 저장</button>
+                </form>
+            </div>            <section id="document-picker" class="document-picker surface-card hidden" aria-labelledby="document-picker-title">
                 <header class="document-picker-heading">
                     <div><span class="panel-kicker">CHECKLIST</span><h2 id="document-picker-title">필요서류 선택</h2></div>
                     <p>필요한 서류를 체크하면 각 서류명으로 활성 회사 파일을 검색합니다.</p>

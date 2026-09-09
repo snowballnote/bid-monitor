@@ -33,6 +33,10 @@ public class JdbcSubmissionRequirementRepository implements SubmissionRequiremen
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    public void delete(Long caseId, Long requirementId) {
+        jdbcTemplate.update("DELETE FROM submission_document_requirement WHERE submission_case_id=? AND id=?", caseId, requirementId);
+    }
+
     @Override
     public List<SubmissionDocumentRequirement> saveAll(List<SubmissionDocumentRequirement> requirements) {
         List<SubmissionDocumentRequirement> saved = new ArrayList<>();

@@ -40,7 +40,11 @@ public class SubmissionCaseController {
         if (request == null) {
             throw new IllegalArgumentException("요청 본문이 필요합니다.");
         }
-        if (request.requirements() != null && !request.requirements().isEmpty()) {
+        if (request.projectName() != null) {
+            return SubmissionCaseResponse.from(service.createProject(request.projectName(), request.projectId(),
+                    request.requirements() == null ? null : request.requirements().stream()
+                            .map(item -> new ManualRequirement(parseCategory(item.category()), item.documentName(), item.sourceReference())).toList()));
+        }        if (request.requirements() != null && !request.requirements().isEmpty()) {
             List<ManualRequirement> requirements = request.requirements().stream()
                     .map(item -> new ManualRequirement(
                             parseCategory(item.category()), item.documentName(), item.sourceReference()
@@ -51,6 +55,26 @@ public class SubmissionCaseController {
         return SubmissionCaseResponse.from(service.create(request.projectId()));
     }
 
+    @GetMapping
+    public List<SubmissionCaseService.ProjectSummary> projects() { return service.projects(); }
+
+    @PutMapping("/{id}")
+    public SubmissionCaseResponse update(@PathVariable Long id, @RequestBody java.util.Map<String, Object> body) {
+        Object name = body.get("projectName");
+        Object performance = body.get("performanceProjectId");
+        if ((name != null && !(name instanceof String)) || (performance != null && !(performance instanceof String)))
+            throw new IllegalArgumentException("프로젝트 입력 형식을 확인하세요.");
+        return SubmissionCaseResponse.from(service.updateProject(id, (String) name, body.containsKey("performanceProjectId"),
+                (String) performance, Boolean.TRUE.equals(body.get("initializePerformanceOnly"))));
+    }
+
+    @PutMapping("/{id}/requirements")
+    public List<SubmissionRequirementResponse> updateRequirements(@PathVariable Long id,
+            @RequestBody List<com.comhu.bidmonitor.submission.api.dto.CreateSubmissionRequirementRequest> items) {
+        return service.replaceRequirements(id, items.stream().map(item -> new ManualRequirement(
+                parseCategory(item.category()), item.documentName(), item.sourceReference())).toList())
+                .stream().map(SubmissionRequirementResponse::from).toList();
+    }
     @GetMapping("/{id}")
     public SubmissionCaseResponse get(@PathVariable Long id) {
         return SubmissionCaseResponse.from(service.get(id));

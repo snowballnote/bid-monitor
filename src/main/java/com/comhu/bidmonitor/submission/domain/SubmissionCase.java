@@ -16,6 +16,9 @@ public class SubmissionCase {
     private final String projectCode;
     private final String internalBizNo;
     private final String projectName;
+    private final String organizationName;
+    private final String performanceProjectId;
+    private final boolean performanceLinkInitialized;
     private final String bidNoticeNo;
     private final SubmissionCaseStatus status;
     private final Instant createdAt;

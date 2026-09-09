@@ -309,3 +309,8 @@ CREATE TABLE IF NOT EXISTS drive_index_root_state (
     error_code VARCHAR(100),
     PRIMARY KEY(source, company, root)
 );
+-- Local submission projects reuse submission_case.id; project_id remains the PMS identifier.
+ALTER TABLE submission_case ADD COLUMN IF NOT EXISTS organization_name VARCHAR(2000);
+ALTER TABLE submission_case ADD COLUMN IF NOT EXISTS performance_project_id VARCHAR(36)
+    REFERENCES performance_project(id);
+ALTER TABLE submission_case ADD COLUMN IF NOT EXISTS performance_link_initialized BOOLEAN NOT NULL DEFAULT FALSE;

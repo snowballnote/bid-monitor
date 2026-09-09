@@ -25,9 +25,9 @@ public class JdbcSubmissionCaseRepository implements SubmissionCaseRepository {
 
     private static final String COLUMNS = """
             id, project_id, project_public_id, project_code, internal_biz_no,
-            project_name, bid_notice_no, status, created_at, updated_at
+            project_name, bid_notice_no, status, created_at, updated_at,
+            organization_name, performance_project_id, performance_link_initialized
             """;
-
     private final JdbcTemplate jdbcTemplate;
 
     public JdbcSubmissionCaseRepository(JdbcTemplate jdbcTemplate) {
@@ -91,6 +91,27 @@ public class JdbcSubmissionCaseRepository implements SubmissionCaseRepository {
         return find("SELECT " + COLUMNS + " FROM submission_case WHERE project_id = ?", projectId);
     }
 
+    public List<SubmissionCase> findAll() {
+        return jdbcTemplate.query("SELECT " + COLUMNS + " FROM submission_case ORDER BY updated_at DESC, id DESC", this::map);
+    }
+    public SubmissionCase lock(Long id) {
+        return find("SELECT " + COLUMNS + " FROM submission_case WHERE id=? FOR UPDATE", id)
+                .orElseThrow(() -> new com.comhu.bidmonitor.submission.service.SubmissionNotFoundException("프로젝트를 찾을 수 없습니다."));
+    }
+    public void update(SubmissionCase value) {
+        jdbcTemplate.update("UPDATE submission_case SET project_name=?,organization_name=?,performance_project_id=?,performance_link_initialized=?,updated_at=? WHERE id=?",
+                value.getProjectName(), value.getOrganizationName(), value.getPerformanceProjectId(), value.isPerformanceLinkInitialized(),
+                Timestamp.from(value.getUpdatedAt()), value.getId());
+    }
+    public boolean performanceProjectExists(String id) {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM performance_project WHERE id=?", Long.class, id) > 0;
+    }
+    public long performanceTotal(String id) {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM performance_entry WHERE project_id=?", Long.class, id);
+    }
+    public long performanceMissing(String id) {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM performance_entry WHERE project_id=? AND selected_file_id IS NULL AND selected_drive_file_id IS NULL", Long.class, id);
+    }
     private Optional<SubmissionCase> find(String sql, Object parameter) {
         List<SubmissionCase> rows = jdbcTemplate.query(sql, this::map, parameter);
         return rows.stream().findFirst();
@@ -104,6 +125,9 @@ public class JdbcSubmissionCaseRepository implements SubmissionCaseRepository {
                 .projectCode(resultSet.getString("project_code"))
                 .internalBizNo(resultSet.getString("internal_biz_no"))
                 .projectName(resultSet.getString("project_name"))
+                .organizationName(resultSet.getString("organization_name"))
+                .performanceProjectId(resultSet.getString("performance_project_id"))
+                .performanceLinkInitialized(resultSet.getBoolean("performance_link_initialized"))
                 .bidNoticeNo(resultSet.getString("bid_notice_no"))
                 .status(SubmissionCaseStatus.valueOf(resultSet.getString("status")))
                 .createdAt(resultSet.getTimestamp("created_at").toInstant())

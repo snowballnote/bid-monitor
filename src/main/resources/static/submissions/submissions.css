@@ -155,3 +155,14 @@
 .performance-panel-actions a, .package-list a.ui-button { display: inline-flex; align-items: center; text-decoration: none; }
 .requirement-item-meta.performance-progress-meta { display: block; line-height: 1.6; color: var(--info-text); }
 .package-list a.ui-button { margin-top: var(--space-2); font-size: 11px; }
+.project-controls, .project-name-form { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+.project-name-form { padding:16px; }
+.project-name-form input { max-width:100%; padding:8px; border:1px solid var(--border); border-radius:6px; }
+#submission-project-items { padding:16px; }
+#submission-project-items.project-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr)); gap:16px; }
+.submission-project-card { padding:20px; border:1px solid var(--border); border-radius:8px; overflow-wrap:anywhere; }
+.submission-project-table { width:100%; border-collapse:collapse; }
+.submission-project-table th, .submission-project-table td { padding:12px; text-align:left; border-bottom:1px solid var(--border); overflow-wrap:anywhere; }
+#submission-project-items:not(.project-cards) { overflow-x:auto; }
+#submission-project-message { padding:0 16px; }
+#submission-detail-toolbar { margin-bottom:16px; }

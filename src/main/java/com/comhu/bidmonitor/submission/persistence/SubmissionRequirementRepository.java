@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Optional;
 
 public interface SubmissionRequirementRepository {
+    void delete(Long caseId, Long requirementId);
     List<SubmissionDocumentRequirement> saveAll(List<SubmissionDocumentRequirement> requirements);
 
     Optional<SubmissionDocumentRequirement> findById(Long id);

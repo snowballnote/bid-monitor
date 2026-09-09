@@ -48,6 +48,7 @@ const elements = {
     commonDocumentCancel: document.querySelector("#common-document-cancel")
 };
 
+let workspaceRevision = 0;
 const state = {
     customDocuments: [],
     submissionCase: null,
@@ -112,7 +113,7 @@ function selectedRequirements() {
         category: option.dataset.category, documentName: option.value, sourceReference: option.dataset.reference
     }));
     const custom = state.customDocuments.map((documentName, index) => ({
-        category: "OTHER", documentName, sourceReference: `CUSTOM_${index + 1}`
+        category: state.requirements.find(r => normalizeName(r.documentName) === normalizeName(documentName))?.category || "OTHER", documentName, sourceReference: state.requirements.find(r => normalizeName(r.documentName) === normalizeName(documentName))?.sourceReference || `CUSTOM_${index + 1}`
     }));
     return [...checked, ...custom];
 }
@@ -246,27 +247,40 @@ function renderPerformanceProgress() {
     renderPackage();
 }
 
-function storedPerformanceProject() {
-    const fromUrl = new URLSearchParams(location.search).get("performanceProjectId");
-    if (fromUrl) return fromUrl;
-    try { return localStorage.getItem("biz-assist.performance-project." + state.submissionCase.id) || ""; }
-    catch { return ""; }
-}
+function storedPerformanceProject() { return state.submissionCase?.performanceProjectId || ""; }
 
-function rememberPerformanceProject(id) {
-    state.performance.projectId = id;
-    const params = new URLSearchParams(location.search);
-    if (id) params.set("performanceProjectId", id);
-    else params.delete("performanceProjectId");
-    window.history.replaceState({}, "", "/submissions/?" + params);
+async function rememberPerformanceProject(id, initializeOnly = false) {
+    const current = state.submissionCase;
+    const revision = workspaceRevision;
+    if (!current) return;
     try {
-        const key = "biz-assist.performance-project." + state.submissionCase.id;
-        if (id) localStorage.setItem(key, id);
-        else localStorage.removeItem(key);
-    } catch { /* The URL still keeps this browser view's selected project. */ }
+        const updated = await requestJson(API_BASE + "/" + current.id, {
+            method: "PUT", headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({performanceProjectId:id || null, initializePerformanceOnly:initializeOnly})
+        });
+        if (revision !== workspaceRevision) return;
+        state.submissionCase = updated;
+        state.performance.projectId = updated.performanceProjectId || "";
+        try { localStorage.removeItem("biz-assist.performance-project." + current.id); } catch {}
+        await refreshPerformanceProgress();
+    } catch (error) {
+        if (revision !== workspaceRevision) return;
+        state.performance.error = friendlyError(error, "selection");
+        renderPerformanceProgress();
+    }
 }
-
-async function refreshPerformanceProgress() {
+async function migratePerformanceLink() {
+    const current = state.submissionCase;
+    const revision = workspaceRevision;
+    if (!current || current.performanceProjectId || current.performanceLinkInitialized
+            || !state.requirements.some(r => r.performanceSelectionRequired)) return;
+    let legacy = "";
+    try { legacy = localStorage.getItem("biz-assist.performance-project." + current.id) || ""; } catch {}
+    if (!legacy) return;
+    const projects = await requestJson("/api/performance-projects");
+    if (revision !== workspaceRevision) return;
+    if (projects.some(p => p.id === legacy)) await rememberPerformanceProject(legacy, true);
+}async function refreshPerformanceProgress() {
     if (!state.submissionCase || !state.requirements.some(item => item.performanceSelectionRequired)) return;
     const progress = state.performance;
     const revision = ++progress.revision;
@@ -437,22 +451,28 @@ function renderCandidates(requirement, candidates) {
 }
 
 async function fetchCandidates(requirement) {
+    const revision = workspaceRevision, caseId = state.submissionCase.id;
     state.candidateLoadingIds.add(requirement.id);
     state.candidateErrors.delete(requirement.id);
     renderRequirements();
     try {
         const candidates = await requestJson(`${API_BASE}/${state.submissionCase.id}/requirements/${requirement.id}/candidates`);
+        if (revision !== workspaceRevision) return;
         state.candidates.set(requirement.id, Array.isArray(candidates) ? candidates : []);
     } catch (error) {
+        if (revision !== workspaceRevision) return;
         state.candidateErrors.set(requirement.id, friendlyError(error, "candidate"));
     } finally {
+        if (revision !== workspaceRevision) return;
         state.candidateLoadingIds.delete(requirement.id);
         renderRequirements();
     }
 }
 
 async function preloadCandidates() {
+    const revision = workspaceRevision;
     await Promise.all(state.requirements.filter((item) => !item.performanceSelectionRequired).map(fetchCandidates));
+    if (revision !== workspaceRevision) return;
     if (state.activeRequirementId) {
         const active = state.requirements.find((item) => item.id === state.activeRequirementId);
         if (active) selectRequirement(active);
@@ -460,6 +480,7 @@ async function preloadCandidates() {
 }
 
 async function selectRequirement(requirement) {
+    const revision = workspaceRevision;
     state.activeRequirementId = requirement.id;
     renderRequirements();
     elements.candidateTitle.textContent = requirement.documentName;
@@ -477,10 +498,12 @@ async function selectRequirement(requirement) {
         showCandidateState("loading");
         await fetchCandidates(requirement);
     }
+    if (revision !== workspaceRevision || state.activeRequirementId !== requirement.id) return;
     if (state.candidates.has(requirement.id)) renderCandidates(requirement, state.candidates.get(requirement.id));
 }
 
 async function saveSelection(requirement, candidate) {
+    const revision = workspaceRevision, caseId = state.submissionCase.id;
     const previous = new Map(state.selections);
     state.selections.set(requirement.id, candidate);
     renderRequirements();
@@ -488,15 +511,18 @@ async function saveSelection(requirement, candidate) {
     renderPackage();
     try {
         const selections = [...state.selections].map(([requirementId, file]) => ({ requirementId, fileId: file.fileId }));
-        await requestJson(`${API_BASE}/${state.submissionCase.id}/selections`, {
+        await requestJson(`${API_BASE}/${caseId}/selections`, {
             method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ selections })
         });
-        const packageData = await requestJson(`${API_BASE}/${state.submissionCase.id}/package`);
+        if (revision !== workspaceRevision) return;
+        const packageData = await requestJson(`${API_BASE}/${caseId}/package`);
+        if (revision !== workspaceRevision) return;
         state.selections = new Map((packageData.selections || []).map((item) => [item.requirementId, item]));
         renderRequirements();
         renderCandidates(requirement, state.candidates.get(requirement.id) || []);
         renderPackage();
     } catch (error) {
+        if (revision !== workspaceRevision) return;
         state.selections = previous;
         elements.candidateError.textContent = friendlyError(error, "selection");
         showCandidateState("error");
@@ -552,6 +578,9 @@ async function saveCommonDocumentManagement(event) {
 }
 
 async function loadWorkspace(submissionCase) {
+    const revision = ++workspaceRevision;
+    setHidden(document.querySelector("#submission-project-list"), true);
+    setHidden(document.querySelector("#submission-detail-toolbar"), false);
     state.submissionCase = submissionCase;
     state.activeRequirementId = null;
     state.candidates.clear();
@@ -564,10 +593,12 @@ async function loadWorkspace(submissionCase) {
         const [requirements, packageData] = await Promise.all([
             requestJson(`${API_BASE}/${submissionCase.id}/requirements`), requestJson(`${API_BASE}/${submissionCase.id}/package`)
         ]);
+        if (revision !== workspaceRevision) return;
         state.requirements = Array.isArray(requirements) ? requirements : [];
         state.performance = { projectId: storedPerformanceProject(), projects: [], total: 0, processed: 0, loading: false, error: "", revision: 0 };
         state.selections = new Map((packageData.selections || []).map((item) => [item.requirementId, item]));
-        elements.projectName.textContent = "선택한 제출서류";
+        elements.projectName.textContent = submissionCase.projectName;
+        document.querySelector("#rename-submission-project [name=projectName]").value = submissionCase.projectName;
         elements.projectMeta.textContent = `${state.requirements.length}개 서류의 회사 파일 후보를 확인합니다.`;
         renderRequirements();
         renderPackage();
@@ -576,75 +607,52 @@ async function loadWorkspace(submissionCase) {
         setHidden(elements.workspace, false);
         preloadCandidates();
         refreshPerformanceProgress();
+        migratePerformanceLink().catch(() => {});
     } catch (error) {
+        if (revision !== workspaceRevision) return;
         elements.workspaceError.textContent = friendlyError(error, "workspace");
         setHidden(elements.workspaceError, false);
     } finally {
-        setHidden(elements.workspaceLoading, true);
+        if (revision === workspaceRevision) setHidden(elements.workspaceLoading, true);
     }
 }
 
 async function createManualCase(event) {
     event.preventDefault();
-    const requirements = selectedRequirements();
-    setHidden(elements.documentMessage, true);
-    if (!requirements.length) {
-        elements.documentMessage.textContent = "필요한 제출서류를 하나 이상 선택해 주세요.";
-        setHidden(elements.documentMessage, false);
-        return;
-    }
+    const current = state.submissionCase, revision = workspaceRevision;
+    if (!current) return;
     elements.findDocumentsButton.disabled = true;
     try {
-        const submissionCase = await requestJson(API_BASE, {
-            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requirements })
+        await requestJson(API_BASE + "/" + current.id + "/requirements", {
+            method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(selectedRequirements())
         });
-        window.history.replaceState({}, "", `/submissions/?caseId=${encodeURIComponent(submissionCase.id)}`);
-        await loadWorkspace(submissionCase);
+        if (revision !== workspaceRevision) return;
+        const updated = await requestJson(API_BASE + "/" + current.id);
+        if (revision !== workspaceRevision) return;
+        await loadWorkspace(updated);
     } catch (error) {
+        if (revision !== workspaceRevision) return;
         elements.documentMessage.textContent = friendlyError(error, "create");
-        setHidden(elements.documentMessage, false);
-    } finally {
-        elements.findDocumentsButton.disabled = false;
-    }
+        setHidden(elements.documentMessage,false);
+    } finally { elements.findDocumentsButton.disabled = false; }
 }
-
 function resetWorkspace() {
-    state.submissionCase = null;
-    state.performance = { projectId: "", projects: [], total: 0, processed: 0, loading: false, error: "", revision: 0 };
-    state.requirements = [];
-    state.selections.clear();
-    state.candidates.clear();
-    state.candidateErrors.clear();
-    state.candidateLoadingIds.clear();
-    state.activeRequirementId = null;
-    elements.documentForm.reset();
-    state.customDocuments = [];
-    renderCustomDocuments();
-    updateCheckedCount();
+    if (!state.submissionCase) return;
+    elements.documentOptions.forEach(option => {
+        option.checked = state.requirements.some(r => r.category === option.dataset.category && normalizeName(r.documentName) === normalizeName(option.value));
+    });
+    state.customDocuments = state.requirements.filter(r => !elements.documentOptions.some(o => o.dataset.category === r.category && normalizeName(o.value) === normalizeName(r.documentName)))
+        .map(r => r.documentName);
+    renderCustomDocuments(); updateCheckedCount();
     setHidden(elements.workspace, true);
-    setHidden(elements.workspaceError, true);
-    setHidden(elements.documentMessage, true);
     setHidden(elements.documentPicker, false);
-    window.history.replaceState({}, "", "/submissions/");
-    elements.documentOptions[0]?.focus();
+    document.querySelector(".performance-picker-action").href = performanceManageUrl();
 }
-
 async function restoreCaseFromUrl() {
-    const caseId = new URLSearchParams(window.location.search).get("caseId");
-    if (!caseId || !/^\d+$/.test(caseId)) return;
-    setHidden(elements.documentPicker, true);
-    setHidden(elements.workspaceLoading, false);
-    try {
-        await loadWorkspace(await requestJson(`${API_BASE}/${caseId}`));
-    } catch (error) {
-        elements.workspaceError.textContent = friendlyError(error, "workspace");
-        setHidden(elements.workspaceError, false);
-        setHidden(elements.documentPicker, false);
-    } finally {
-        setHidden(elements.workspaceLoading, true);
-    }
+    const id = new URLSearchParams(location.search).get("caseId");
+    if (id && /^[0-9]+$/.test(id)) await openSubmissionProject(id);
+    else await showSubmissionProjects();
 }
-
 elements.documentOptions.forEach((option) => option.addEventListener("change", updateCheckedCount));
 elements.addCustomDocument.addEventListener("click", addCustomDocument);
 elements.customDocumentName.addEventListener("keydown", (event) => {
@@ -664,14 +672,126 @@ loadCommonDocuments().finally(restoreCaseFromUrl);
 document.querySelector("#performance-project-select").addEventListener("change", (event) => {
     if (!state.submissionCase) return;
     rememberPerformanceProject(event.target.value);
-    refreshPerformanceProgress();
 });
 document.querySelector("#performance-refresh").addEventListener("click", refreshPerformanceProgress);
 window.addEventListener("focus", refreshPerformanceProgress);
 window.addEventListener("pageshow", (event) => { if (event.persisted) refreshPerformanceProgress(); });
-window.addEventListener("storage", (event) => {
-    if (state.submissionCase && event.key === "biz-assist.performance-project." + state.submissionCase.id) {
-        rememberPerformanceProject(event.newValue || "");
-        refreshPerformanceProgress();
+
+let projectRows = [];
+let projectView = "card";
+try { if (localStorage.getItem("biz-assist.submissions.view") === "list") projectView = "list"; } catch {}
+function projectNode(tag, text, css) {
+    const node = document.createElement(tag);
+    if (text != null) node.textContent = text;
+    if (css) node.className = css;
+    return node;
+}
+function renderSubmissionProjects() {
+    const container = document.querySelector("#submission-project-items");
+    container.replaceChildren();
+    container.classList.toggle("project-cards", projectView === "card");
+    document.querySelector("#view-card").setAttribute("aria-pressed", String(projectView === "card"));
+    document.querySelector("#view-list").setAttribute("aria-pressed", String(projectView === "list"));
+    let body = container;
+    if (projectView === "list") {
+        const table = projectNode("table", null, "submission-project-table");
+        const head = projectNode("tr");
+        ["프로젝트명","발주기관","준비 현황","최근 수정일","열기"].forEach(text => head.append(projectNode("th",text)));
+        const thead = projectNode("thead"); thead.append(head); body = projectNode("tbody");
+        table.append(thead,body); container.append(table);
     }
-});
+    for (const project of projectRows) {
+        const link = projectNode("a", projectView === "card" ? "계속 준비하기" : "열기", "ui-button ui-button-secondary");
+        link.href = "/submissions/?caseId=" + encodeURIComponent(project.id);
+        link.onclick = event => { event.preventDefault(); openSubmissionProject(project.id); };
+        const count = project.prepared + " / " + project.total;
+        if (projectView === "card") {
+            const card = projectNode("article",null,"submission-project-card");
+            card.append(projectNode("h3",project.projectName));
+            if (project.projectId != null && project.organizationName) card.append(projectNode("p",project.organizationName));
+            card.append(projectNode("p","준비 현황 " + count),projectNode("p","최근 수정일 " + formatDate(project.updatedAt)),link);
+            body.append(card);
+        } else {
+            const row = projectNode("tr");
+            [project.projectName, project.projectId != null ? project.organizationName || "—" : "—",count,formatDate(project.updatedAt)]
+                .forEach(text => row.append(projectNode("td",text)));
+            const action = projectNode("td"); action.append(link); row.append(action); body.append(row);
+        }
+    }
+    document.querySelector("#submission-project-message").textContent = projectRows.length ? "" : "등록된 프로젝트가 없습니다.";
+}
+function changeProjectView(view) {
+    try { localStorage.setItem("biz-assist.submissions.view", view); projectView = view; }
+    catch { projectView = "card"; }
+    renderSubmissionProjects();
+}
+async function showSubmissionProjects() {
+    const revision = ++workspaceRevision;
+    state.submissionCase = null;
+    state.performance = {projectId:"",projects:[],total:0,processed:0,loading:false,error:"",revision:0};
+    setHidden(elements.workspace,true); setHidden(elements.documentPicker,true);
+    setHidden(elements.workspaceLoading,true); setHidden(elements.workspaceError,true);
+    setHidden(document.querySelector("#submission-detail-toolbar"),true);
+    setHidden(document.querySelector("#submission-project-list"),false);
+    history.replaceState({}, "", "/submissions/");
+    try {
+        const rows = await requestJson(API_BASE);
+        if (revision !== workspaceRevision) return;
+        projectRows = rows; renderSubmissionProjects();
+    } catch (error) {
+        if (revision === workspaceRevision) document.querySelector("#submission-project-message").textContent = friendlyError(error,"list");
+    }
+}
+async function openSubmissionProject(id) {
+    const revision = ++workspaceRevision;
+    state.submissionCase = null;
+    state.performance = {projectId:"",projects:[],total:0,processed:0,loading:false,error:"",revision:0};
+    setHidden(document.querySelector("#submission-project-list"),true);
+    setHidden(document.querySelector("#submission-detail-toolbar"),false);
+    setHidden(elements.workspace,true); setHidden(elements.documentPicker,true);
+    setHidden(elements.workspaceLoading,false);
+    history.replaceState({}, "", "/submissions/?caseId=" + encodeURIComponent(id));
+    try {
+        const project = await requestJson(API_BASE + "/" + encodeURIComponent(id));
+        if (revision !== workspaceRevision) return;
+        await loadWorkspace(project);
+    } catch (error) {
+        if (revision !== workspaceRevision) return;
+        elements.workspaceError.textContent = friendlyError(error,"workspace"); setHidden(elements.workspaceError,false);
+    } finally { if (revision === workspaceRevision) setHidden(elements.workspaceLoading,true); }
+}
+document.querySelector("#new-submission-project").onclick = () => {
+    const form = document.querySelector("#create-submission-project");
+    form.classList.toggle("hidden"); if (!form.classList.contains("hidden")) form.elements.projectName.focus();
+};
+document.querySelector("#view-card").onclick = () => changeProjectView("card");
+document.querySelector("#view-list").onclick = () => changeProjectView("list");
+document.querySelector("#back-submission-projects").onclick = showSubmissionProjects;
+document.querySelector("#create-submission-project").onsubmit = async event => {
+    event.preventDefault();
+    const form = event.currentTarget, button = form.querySelector("button"), revision = workspaceRevision;
+    button.disabled = true;
+    try {
+        const project = await requestJson(API_BASE,{method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({projectName:form.elements.projectName.value})});
+        if (revision !== workspaceRevision) return;
+        form.reset(); setHidden(form,true);
+        await openSubmissionProject(project.id);
+    } catch (error) {
+        if (revision === workspaceRevision) document.querySelector("#submission-project-message").textContent = friendlyError(error,"create");
+    } finally { button.disabled = false; }
+};
+document.querySelector("#rename-submission-project").onsubmit = async event => {
+    event.preventDefault();
+    const current = state.submissionCase, revision = workspaceRevision;
+    if (!current) return;
+    try {
+        const updated = await requestJson(API_BASE + "/" + current.id,{method:"PUT",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({projectName:event.currentTarget.elements.projectName.value})});
+        if (revision !== workspaceRevision) return;
+        state.submissionCase = updated; elements.projectName.textContent = updated.projectName;
+    } catch(error) {
+        if(revision === workspaceRevision){elements.workspaceError.textContent=friendlyError(error,"update");setHidden(elements.workspaceError,false);}
+    }
+};
+window.addEventListener("popstate", restoreCaseFromUrl);

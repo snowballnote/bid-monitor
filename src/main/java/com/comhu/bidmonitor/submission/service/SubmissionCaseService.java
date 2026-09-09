@@ -88,6 +88,11 @@ public class SubmissionCaseService {
                 .updatedAt(now)
                 .build());
 
+        String organization = projectQueryPort.searchProjects(project.noticeName(), 50).stream()
+                .filter(item -> projectId.equals(item.projectId())).map(PmsProjectQueryPort.PmsProjectSummary::organizationName)
+                .filter(java.util.Objects::nonNull).findFirst().orElse(null);
+        savedCase = savedCase.toBuilder().organizationName(organization).build();
+        caseRepository.update(savedCase);
         List<SubmissionDocumentRequirement> requirements = extractor.fromRfpItems(
                 savedCase.getId(),
                 projectQueryPort.findRfpItems(projectId),
@@ -135,6 +140,85 @@ public class SubmissionCaseService {
         return savedCase;
     }
 
+    public record ProjectSummary(Long id, Long projectId, String projectName, String organizationName,
+                                 long prepared, long total, Instant updatedAt) { }
+
+    @Transactional(readOnly = true)
+    public List<ProjectSummary> projects() {
+        return caseRepository.findAll().stream().map(value -> {
+            var requirements = requirementRepository.findBySubmissionCaseId(value.getId());
+            var selected = selectionRepository.findBySubmissionCaseId(value.getId()).stream()
+                    .map(SubmissionDocumentSelection::getRequirementId).collect(java.util.stream.Collectors.toSet());
+            String performance = value.getPerformanceProjectId();
+            boolean performanceReady = performance != null && caseRepository.performanceTotal(performance) > 0
+                    && caseRepository.performanceMissing(performance) == 0;
+            long ready = requirements.stream().filter(r -> requiresPerformanceSelection(r) ? performanceReady : selected.contains(r.getId())).count();
+            return new ProjectSummary(value.getId(), value.getProjectId(), value.getProjectName(),
+                    value.getProjectId() == null ? null : value.getOrganizationName(), ready, requirements.size(), value.getUpdatedAt());
+        }).toList();
+    }
+
+    @Transactional
+    public SubmissionCase createProject(String name, Long pmsId, List<ManualRequirement> requirements) {
+        name = projectName(name);
+        SubmissionCase value;
+        if (pmsId != null) {
+            value = create(pmsId);
+        } else {
+            Instant now = clock.instant();
+            value = caseRepository.save(SubmissionCase.builder().projectName(name).status(SubmissionCaseStatus.DRAFT)
+                    .createdAt(now).updatedAt(now).build());
+        }
+        value = value.toBuilder().projectName(name).updatedAt(clock.instant()).build();
+        caseRepository.update(value);
+        if (requirements != null) replaceRequirements(value.getId(), requirements);
+        return get(value.getId());
+    }
+
+    @Transactional
+    public SubmissionCase updateProject(Long id, String name, boolean changePerformance, String performanceId, boolean initializeOnly) {
+        SubmissionCase old = caseRepository.lock(id);
+        var builder = old.toBuilder().updatedAt(clock.instant());
+        if (name != null) builder.projectName(projectName(name));
+        if (changePerformance && (!initializeOnly || (!old.isPerformanceLinkInitialized() && old.getPerformanceProjectId() == null))) {
+            if (performanceId != null) {
+                if (!caseRepository.performanceProjectExists(performanceId)) throw new IllegalArgumentException("연결할 실적 프로젝트를 찾을 수 없습니다.");
+                if (requirementRepository.findBySubmissionCaseId(id).stream().noneMatch(this::requiresPerformanceSelection))
+                    throw new IllegalArgumentException("필요서류에 실적증명서를 먼저 선택하세요.");
+            }
+            builder.performanceProjectId(performanceId).performanceLinkInitialized(true);
+        }
+        caseRepository.update(builder.build());
+        return get(id);
+    }
+
+    @Transactional
+    public List<SubmissionDocumentRequirement> replaceRequirements(Long id, List<ManualRequirement> requested) {
+        var project = caseRepository.lock(id);
+        if (requested == null || requested.size() > 30) throw new IllegalArgumentException("필요서류는 30개 이하로 입력하세요.");
+        var names = new HashSet<String>();
+        Instant now = clock.instant();
+        var incoming = requested.stream().map(r -> toManualRequirement(id, r, names, now))
+                .filter(java.util.Objects::nonNull).toList();
+        var existing = requirementRepository.findBySubmissionCaseId(id);
+        var kept = new HashSet<Long>();
+        var additions = new ArrayList<SubmissionDocumentRequirement>();
+        for (var next : incoming) {
+            var match = existing.stream().filter(r -> r.getCategory() == next.getCategory()
+                    && normalizeManualName(r.getDocumentName()).equals(normalizeManualName(next.getDocumentName()))).findFirst();
+            if (match.isPresent()) kept.add(match.get().getId()); else additions.add(next);
+        }
+        for (var old : existing) if (!kept.contains(old.getId())) requirementRepository.delete(id, old.getId());
+        requirementRepository.saveAll(additions);
+        caseRepository.update(project.toBuilder().updatedAt(now).build());
+        return requirementRepository.findBySubmissionCaseId(id);
+    }
+
+    private String projectName(String name) {
+        if (name == null || name.isBlank() || name.strip().length() > 2000)
+            throw new IllegalArgumentException("프로젝트명은 1자 이상 2000자 이하로 입력하세요.");
+        return name.strip();
+    }
     public SubmissionCase get(Long caseId) {
         return caseRepository.findById(caseId)
                 .orElseThrow(() -> new SubmissionNotFoundException("제출서류 작업을 찾을 수 없습니다."));
@@ -161,7 +245,7 @@ public class SubmissionCaseService {
 
     @Transactional
     public List<SubmissionDocumentSelection> replaceSelections(Long caseId, List<SelectionChoice> choices) {
-        get(caseId);
+        var project = caseRepository.lock(caseId);
         List<SubmissionDocumentSelection> selections = new ArrayList<>();
         Set<String> dedup = new HashSet<>();
         Instant selectedAt = clock.instant();
@@ -190,6 +274,7 @@ public class SubmissionCaseService {
                     .selectedAt(selectedAt)
                     .build());
         }
+        caseRepository.update(project.toBuilder().updatedAt(selectedAt).build());
         return selectionRepository.replaceForCase(caseId, selections);
     }
 
