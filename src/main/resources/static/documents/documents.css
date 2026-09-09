@@ -1,10 +1,23 @@
-.document-create { padding:24px; margin-bottom:24px; }
-.document-create form,.document-actions { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-.documents-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); gap:20px; }
-.document-card { padding:24px; display:flex; flex-direction:column; gap:16px; }
-.document-card h2,.document-card p { margin:0; overflow-wrap:anywhere; }
-.document-card .document-actions { margin-top:auto; }
-.document-card form { display:flex; gap:8px; flex-wrap:wrap; }
-.document-card small { color:var(--muted); }
-
-.document-card [hidden] { display:none !important; }
+.documents-list { overflow-x: auto; }
+.documents-table { min-width: 780px; table-layout: fixed; }
+.documents-table thead th:nth-child(1) { width: 22%; }
+.documents-table thead th:nth-child(2) { width: 12%; }
+.documents-table thead th:nth-child(3) { width: 26%; }
+.documents-table thead th:nth-child(4) { width: 12%; }
+.documents-table thead th:nth-child(5) { width: 28%; }
+.documents-table thead { background: var(--surface-subtle); color: var(--muted); font-size: 12px; }
+.documents-table tbody tr:hover { cursor: default; }
+.documents-table tbody tr:last-child > * { border-bottom: 0; }
+.documents-table td, .documents-table tbody th { vertical-align: middle; font-size: 13px; }
+.document-name { font-weight: 600; }
+.document-file p { margin: 0; overflow-wrap: anywhere; }
+.document-file small { display: block; margin-top: 6px; color: var(--muted); }
+.document-actions, .document-name form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.document-actions .ui-button { min-height: 32px; padding: 6px 10px; font-size: 12px; }
+.document-name form { margin-top: 10px; }
+.document-name input { width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font: inherit; }
+.documents-table [hidden] { display: none !important; }
+.documents-table .documents-empty { padding: 32px; text-align: center; color: var(--muted); }
+#document-create-open { flex-shrink: 0; }
+#document-create-dialog select { width: 100%; height: 38px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; }
+#document-create-message:empty, #documents-message:empty { display: none; }

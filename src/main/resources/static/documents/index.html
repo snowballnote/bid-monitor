@@ -31,20 +31,37 @@
             <span>Biz Assist</span><span aria-hidden="true">/</span><strong>서류 관리</strong>
         </header>
         <div class="page-container submission-page">
-            <header class="page-header page-heading">
-                <span class="page-eyebrow">SUBMISSION</span>
-                <h1>서류 관리</h1>
-                <p>회사 공통서류의 현재 파일을 등록하고 교체합니다.</p>
+            <header class="page-header page-heading page-heading-actions">
+                <div>
+                    <span class="page-eyebrow">SUBMISSION</span>
+                    <h1>서류 관리</h1>
+                    <p>회사 공통서류의 현재 파일을 등록하고 교체합니다.</p>
+                </div>
+                <button id="document-create-open" class="ui-button ui-button-primary" type="button">+ 서류 추가</button>
             </header>
 
 
-            <section class="surface-card document-create"><h2>회사 공통서류 추가</h2>
-                <form id="document-create-form"><label>서류명 <input name="name" maxlength="200" required></label><span class="count-badge">회사 공통</span><button class="ui-button ui-button-primary" type="submit">서류 추가</button></form>
-            </section>
             <p id="documents-message" role="status"></p>
-            <section id="document-cards" class="documents-grid" aria-label="회사 공통서류"></section>
+            <section class="surface-card documents-list" aria-label="회사 공통서류" tabindex="0">
+                <table class="submission-project-table documents-table">
+                    <thead><tr><th scope="col">서류명</th><th scope="col">카테고리</th><th scope="col">현재 파일</th><th scope="col">상태</th><th scope="col">관리</th></tr></thead>
+                    <tbody id="document-rows"></tbody>
+                </table>
+            </section>
         </div>
     </main>
 </div>
+<dialog id="document-create-dialog" class="common-document-dialog" aria-labelledby="document-create-title">
+    <form id="document-create-form">
+        <header><h2 id="document-create-title">서류 추가</h2></header>
+        <label>서류명 <input name="name" maxlength="200" required autofocus></label>
+        <label>카테고리 <select name="category"><option value="COMPANY_COMMON">회사 공통</option></select></label>
+        <p id="document-create-message" class="submission-message" role="alert"></p>
+        <footer>
+            <button id="document-create-cancel" class="ui-button ui-button-secondary" type="button">취소</button>
+            <button class="ui-button ui-button-primary" type="submit">추가</button>
+        </footer>
+    </form>
+</dialog>
 <script src="/documents/documents.js"></script>
 </body></html>
