@@ -104,8 +104,10 @@ public class FmsDriveHttpAdapter implements FmsDrivePort {
             if (company) query += "&company=" + URLEncoder.encode(properties.getCompany(), StandardCharsets.UTF_8);
             var builder = HttpRequest.newBuilder(URI.create(base + endpoint + query))
                     .timeout(Duration.ofSeconds(20)).header("Cookie", "SESSION=" + session).GET();
-            // The deployed HTTP reverse proxy stalls on Java's cleartext HTTP/2 upgrade.
-            if (listRequest) builder.version(HttpClient.Version.HTTP_1_1);
+
+            // NAS 파일 목록을 조회하는 FMS Drive API는 Java HttpClient의 HTTP/2 협상 시 timeout이 발생하므로
+            // 호환성을 위해 HTTP/1.1을 사용한다.
+            builder.version(HttpClient.Version.HTTP_1_1);
             HttpRequest request = builder.build();
             if (listRequest) {
                 URI uri = request.uri();

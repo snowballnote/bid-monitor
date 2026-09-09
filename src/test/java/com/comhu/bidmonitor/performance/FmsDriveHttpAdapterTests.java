@@ -61,6 +61,7 @@ class FmsDriveHttpAdapterTests {
                 "path=/증빙/한국관광 실적증명원.pdf", "path=/증빙/한국관광 실적증명원.pdf");
         assertThat(cookies).containsOnly("SESSION=test-session");
         assertThat(downloads.get()).isEqualTo(1);
+        assertThat(upgradeHeaders).containsOnlyNulls();
     }
 
     @Test
@@ -137,4 +138,35 @@ class FmsDriveHttpAdapterTests {
             assertThat(queries).containsExactly("path=/증빙&company=CNH");
             assertThat(upgradeHeaders).containsOnlyNulls();
         } finally { logger.detachAppender(appender); appender.stop(); }
+    }    @Test
+    void selectingCandidateRelistsWithHttp11AndPersistsWithoutPermissionOrDownload() {
+        var ds = new org.springframework.jdbc.datasource.SingleConnectionDataSource(
+                "jdbc:h2:mem:" + java.util.UUID.randomUUID(), "sa", "", true);
+        try {
+            new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
+                    new org.springframework.core.io.ClassPathResource("schema.sql")).execute(ds);
+            var jdbc = new org.springframework.jdbc.core.JdbcTemplate(ds);
+            var repository = new PerformanceRepository(jdbc);
+            var references = new PerformanceDriveFileRepository(jdbc);
+            config.setCertificateFolders(List.of("/증빙"));
+            var drive = new DriveEvidenceService(adapter, config, references, new DriveFileIndexRepository(jdbc));
+            var company = org.mockito.Mockito.mock(com.comhu.bidmonitor.submission.port.CompanyFileSearchPort.class);
+            var service = new PerformanceService(repository, new PerformanceTableParser(), company, drive);
+            var project = service.create(new PerformanceModels.ProjectInput("선택 테스트", java.time.LocalDate.now()));
+            var entry = service.paste(project.id(), new PerformanceModels.PasteInput(
+                    "1	한국관광	2024.01 ~ 2025.12	100	발주처", null)).saved().getFirst();
+            var ref = references.register(config.getBaseUrl(), "CNH",
+                    new FmsDrivePort.Item("한국관광 실적증명원.pdf", "/증빙/한국관광 실적증명원.pdf", false, 3, null));
+            var info = entry.info();
+            var saved = service.update(project.id(), entry.id(), new PerformanceModels.EntryInput(
+                    info.pptNumber(), info.businessName(), info.businessPeriod(), info.contractAmount(), info.client(),
+                    info.businessStatus(), null, PerformanceModels.EvidenceType.CERTIFICATE,
+                    info.kitcStatus(), info.requestedAt(), info.repliedAt(), ref.id()));
+            assertThat(saved.info().selectedDriveFileId()).isEqualTo(ref.id());
+            assertThat(saved.selectedFilename()).isEqualTo("한국관광 실적증명원.pdf");
+            assertThat(queries).containsExactly("path=/증빙&company=CNH");
+            assertThat(upgradeHeaders).containsOnlyNulls();
+            assertThat(downloads.get()).isZero();
+            org.mockito.Mockito.verifyNoInteractions(company);
+        } finally { ds.destroy(); }
     }}
