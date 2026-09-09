@@ -15,13 +15,14 @@ public record SubmissionSelectionResponse(
         String fileExt,
         Instant fileModifiedAt,
         Instant updatedAt,
-        Instant selectedAt
+        Instant selectedAt,
+        String uploadedFileId
 ) {
     public static SubmissionSelectionResponse from(SubmissionDocumentSelection value) {
         return new SubmissionSelectionResponse(
                 value.getId(), value.getSubmissionCaseId(), value.getRequirementId(), value.getFileId(),
                 value.getFilePublicId(), value.getOriginalFilename(), value.getFileExt(), value.getFileModifiedAt(),
-                value.getFileUpdatedAt(), value.getSelectedAt()
+                value.getFileUpdatedAt(), value.getSelectedAt(), value.getUploadedFileId()
         );
     }
 }

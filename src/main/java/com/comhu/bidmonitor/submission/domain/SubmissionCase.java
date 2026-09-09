@@ -16,6 +16,7 @@ public class SubmissionCase {
     private final String projectCode;
     private final String internalBizNo;
     private final String projectName;
+    private final java.time.LocalDate deadline;
     private final String organizationName;
     private final String performanceProjectId;
     private final boolean performanceLinkInitialized;

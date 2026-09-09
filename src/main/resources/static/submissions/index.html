@@ -20,6 +20,7 @@
             <a class="app-nav-link" href="/notices/">외부 중요공지</a>
             <a class="app-nav-link" href="/notifications/">알림 관리</a>
             <a class="app-nav-link active" href="/submissions/" aria-current="page">서류 모으기</a>
+            <a class="app-nav-link" href="/documents/">서류 관리</a>
         </nav>
         <p class="app-sidebar-description">경영지원에 필요한 정보를 한곳에서 확인하세요.</p>
     </aside>
@@ -32,7 +33,7 @@
             <header class="page-header page-heading">
                 <span class="page-eyebrow">SUBMISSION</span>
                 <h1>서류 모으기</h1>
-                <p>필요한 서류를 고르고 회사 문서 후보에서 제출할 파일을 선택합니다.</p>
+                <p>필요한 회사 공통서류를 체크하고 저장된 현재 파일을 모읍니다.</p>
             </header>
 
             <section id="submission-project-list" class="surface-card">
@@ -46,6 +47,7 @@
                 </header>
                 <form id="create-submission-project" class="project-name-form hidden">
                     <label>프로젝트명 <input name="projectName" required maxlength="2000"></label>
+                    <label>마감일 <input name="deadline" type="date" required></label>
                     <button class="ui-button ui-button-primary" type="submit">프로젝트 생성</button>
                 </form>
                 <p id="submission-project-message" role="status"></p>
@@ -55,45 +57,31 @@
                 <button id="back-submission-projects" class="ui-button ui-button-secondary" type="button">프로젝트 목록</button>
                 <form id="rename-submission-project" class="project-name-form">
                     <label>프로젝트명 <input name="projectName" required maxlength="2000"></label>
-                    <button type="submit" class="ui-button ui-button-secondary">이름 저장</button>
+                    <label>마감일 <input name="deadline" type="date" required></label>
+                    <button type="submit" class="ui-button ui-button-secondary">프로젝트 저장</button>
                 </form>
-            </div>            <section id="document-picker" class="document-picker surface-card hidden" aria-labelledby="document-picker-title">
+                <button id="delete-submission-project" class="ui-button ui-button-secondary" type="button">프로젝트 삭제</button>
+            </div>
+            <section id="document-picker" class="document-picker surface-card hidden" aria-labelledby="document-picker-title">
                 <header class="document-picker-heading">
                     <div><span class="panel-kicker">CHECKLIST</span><h2 id="document-picker-title">필요서류 선택</h2></div>
-                    <p>필요한 서류를 체크하면 각 서류명으로 활성 회사 파일을 검색합니다.</p>
+                    <p>회사 공통서류는 필요한 항목을 체크하고 모으기를 실행하면 등록된 현재 파일이 연결됩니다.</p>
                 </header>
                 <form id="document-form">
                     <div class="checklist-groups">
                         <fieldset class="checklist-group">
-                            <legend>회사 공통</legend>
-                            <label><input class="document-option" type="checkbox" data-category="COMPANY_GENERAL" data-reference="BUSINESS_REGISTRATION" value="사업자등록증"><span>사업자등록증</span></label>
-                            <label><input class="document-option" type="checkbox" data-category="COMPANY_GENERAL" data-reference="BID_PARTICIPATION_REGISTRATION" value="경쟁입찰참가자격등록증"><span>경쟁입찰참가자격등록증</span></label>
-                            <label><input class="document-option" type="checkbox" data-category="COMPANY_GENERAL" data-reference="CORPORATE_REGISTRY" value="법인등기사항전부증명서"><span>법인등기사항전부증명서</span></label>
-                            <label><input class="document-option" type="checkbox" data-category="COMPANY_GENERAL" data-reference="CORPORATE_SEAL_CERTIFICATE" value="법인인감증명서"><span>법인인감증명서</span></label>
-                            <label><input class="document-option" type="checkbox" data-category="CERTIFICATION_LICENSE" data-reference="PIA_INSTITUTION_CERTIFICATE" value="개인정보 영향평가 기관 인증서"><span>개인정보 영향평가 기관 인증서</span></label>
-                            <label><input class="document-option" type="checkbox" data-category="CERTIFICATION_LICENSE" data-reference="AUDIT_CORPORATION_REGISTRATION" value="감리법인등록증"><span>감리법인등록증</span></label>
-                            <label><input class="document-option" type="checkbox" data-category="CERTIFICATION_LICENSE" data-reference="SMALL_BUSINESS_CERTIFICATE" value="중소기업확인서"><span>중소기업확인서</span></label>
-                            <label><input class="document-option" type="checkbox" data-category="CERTIFICATION_LICENSE" data-reference="WOMEN_OWNED_BUSINESS_CERTIFICATE" value="여성기업확인서"><span>여성기업확인서</span></label>
-                            <label><input class="document-option" type="checkbox" data-category="CERTIFICATION_LICENSE" data-reference="STARTUP_BUSINESS_CERTIFICATE" value="창업기업확인서"><span>창업기업확인서</span></label>
-                            <label><input class="document-option" type="checkbox" data-category="FINANCIAL" data-reference="CREDIT_RATING_CERTIFICATE" value="신용평가등급확인서"><span>신용평가등급확인서</span></label>
-                            <label><input class="document-option" type="checkbox" data-category="CERTIFICATION_LICENSE" data-reference="SOFTWARE_BUSINESS_STATUS_CERTIFICATE" value="소프트웨어사업자 일반현황 관리확인서"><span>소프트웨어사업자 일반현황 관리확인서</span></label>
-                            <label><input class="document-option" type="checkbox" data-category="CERTIFICATION_LICENSE" data-reference="DIRECT_PRODUCTION_CERTIFICATE" value="직접생산확인증명서"><span>직접생산확인증명서</span></label>
+                            <legend>회사 공통</legend><div class="master-options" data-master-category="COMPANY_COMMON"></div>
                         </fieldset>
                         <fieldset class="checklist-group">
-                            <legend>인력 / 자격</legend>
-                            <label><input class="document-option" type="checkbox" data-category="PERSONNEL" data-reference="EMPLOYMENT" value="재직증명서"><span>재직증명서</span></label>
-                            <label><input class="document-option" type="checkbox" data-category="CERTIFICATION_LICENSE" data-reference="QUALIFICATION" value="자격증"><span>자격증</span></label>
-                            <label><input class="document-option" type="checkbox" data-category="PERSONNEL" data-reference="KOSA_CAREER" value="KOSA 경력증명서"><span>KOSA 경력증명서</span></label>
-                            <label><input class="document-option" type="checkbox" data-category="PERSONNEL" data-reference="GRADUATION" value="졸업증명서"><span>졸업증명서</span></label>
+                            <legend>인력 / 자격</legend><div class="master-options" data-master-category="PERSONNEL"></div>
                         </fieldset>
                         <fieldset class="checklist-group compact">
-                            <legend>실적</legend>
-                            <label><input class="document-option" type="checkbox" data-category="PERFORMANCE" data-reference="PERFORMANCE" value="실적증명서"><span>실적증명서</span></label>
+                            <legend>실적</legend><div class="master-options" data-master-category="PERFORMANCE"></div>
                             <small>실적증명서는 내부 실적을 모두 준비하면 서류 1건으로 완료됩니다.</small>
                             <a class="ui-button ui-button-secondary performance-picker-action" href="/performances/index.html" target="_blank" rel="noopener">실적증빙 관리</a>
                         </fieldset>
                         <fieldset class="checklist-group custom-group">
-                            <legend>기타</legend>
+                            <legend>기타</legend><div class="master-options" data-master-category="OTHER"></div>
                             <div class="custom-document-input">
                                 <input id="custom-document-name" type="text" maxlength="200" placeholder="직접 입력할 서류명">
                                 <button id="add-custom-document" class="ui-button ui-button-secondary" type="button">추가</button>
@@ -104,7 +92,7 @@
                     <div class="checklist-actions">
                         <p id="document-message" class="submission-message hidden" role="alert"></p>
                         <span><strong id="checked-document-count">0</strong>개 선택</span>
-                        <button id="find-documents-button" class="ui-button ui-button-primary" type="submit">선택한 서류 찾기</button>
+                        <button id="find-documents-button" class="ui-button ui-button-primary" type="submit">선택한 서류 모으기</button>
                     </div>
                 </form>
             </section>
@@ -117,6 +105,7 @@
                     <div class="case-identity">
                         <span class="case-label">제출 준비 목록</span>
                         <h2 id="case-project-name">선택한 제출서류</h2>
+                        <p id="case-project-deadline"></p>
                         <p id="case-project-meta">필요서류별 회사 파일 후보를 확인하세요.</p>
                     </div>
                     <div class="case-progress" aria-label="제출서류 준비 진행률">
@@ -126,7 +115,7 @@
                         </div>
                         <p id="progress-caption">0개 중 0개 선택</p>
                     </div>
-                    <button id="change-documents-button" class="ui-button ui-button-secondary" type="button">서류 다시 선택</button>
+                    <button id="change-documents-button" class="ui-button ui-button-secondary" type="button">체크리스트로 이동</button>
                 </section>
 
                 <div class="submission-columns">
@@ -158,8 +147,6 @@
                         <div id="candidate-performance" class="panel-state performance hidden">
                             <strong>실적증빙 관리</strong>
                             <p>이 제출서류에 사용할 실적 프로젝트를 선택하세요.</p>
-                            <label for="performance-project-select">실적 프로젝트</label>
-                            <select id="performance-project-select"><option value="">프로젝트를 선택하세요</option></select>
                             <p id="performance-progress" aria-live="polite">실적 프로젝트를 선택하세요.</p>
                             <p id="performance-progress-help">증빙파일이 연결된 실적을 처리 완료로 계산합니다.</p>
                             <div class="performance-panel-actions">
@@ -179,6 +166,7 @@
                             <span>선택 완료</span><strong id="package-selection-count">0 / 0</strong>
                         </div>
                         <div id="package-empty" class="package-empty">선택한 파일이 아직 없습니다.</div>
+                        <a id="download-submission-files" class="ui-button ui-button-secondary" href="#">모은 파일 ZIP 다운로드</a>
                         <ul id="package-list" class="package-list hidden"></ul>
                         <p class="package-note">파일은 자동으로 선택되지 않습니다. 각 요구서류의 후보를 직접 확인해 주세요.</p>
                     </aside>
@@ -187,22 +175,6 @@
         </div>
     </main>
 </div>
-<dialog id="common-document-dialog" class="common-document-dialog">
-    <form id="common-document-form" method="dialog">
-        <header>
-            <div><span class="panel-kicker">CURRENT DOCUMENT</span><h2 id="common-document-title">공통서류 관리정보</h2></div>
-            <button id="common-document-close" class="dialog-close" type="button" aria-label="닫기">×</button>
-        </header>
-        <p id="common-document-help" class="common-document-help"></p>
-        <label id="issued-at-field">발급일<input id="common-document-issued-at" type="date"></label>
-        <label id="expires-at-field">만료일<input id="common-document-expires-at" type="date"></label>
-        <p id="common-document-message" class="submission-message hidden" role="alert"></p>
-        <footer>
-            <button id="common-document-cancel" class="ui-button ui-button-secondary" type="button">취소</button>
-            <button class="ui-button ui-button-primary" type="submit">관리정보 저장</button>
-        </footer>
-    </form>
-</dialog>
 <script src="/submissions/submissions.js"></script>
 </body>
 </html>

@@ -75,7 +75,7 @@ public class CommonSubmissionDocumentService {
     }
 
     CommonDocumentStatus determineStatus(CommonSubmissionDocument document, LocalDate today) {
-        if (document.getFileId() == null) {
+        if (document.getFileId() == null && document.getUploadedFileId() == null) {
             return CommonDocumentStatus.UNREGISTERED;
         }
         if (document.getRefreshPolicy() == DocumentRefreshPolicy.NONE) {

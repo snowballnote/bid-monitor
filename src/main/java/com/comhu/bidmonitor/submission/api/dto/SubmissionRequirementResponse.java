@@ -11,14 +11,16 @@ public record SubmissionRequirementResponse(
         String evidenceText,
         String sourceType,
         String sourceReference,
-        boolean performanceSelectionRequired
+        boolean performanceSelectionRequired,
+        boolean companyCommon
 ) {
-    public static SubmissionRequirementResponse from(SubmissionDocumentRequirement value) {
+    public static SubmissionRequirementResponse from(SubmissionDocumentRequirement value) { return from(value,false); }
+    public static SubmissionRequirementResponse from(SubmissionDocumentRequirement value, boolean companyCommon) {
         return new SubmissionRequirementResponse(
                 value.getId(), value.getSubmissionCaseId(), value.getCategory().name(), value.getDocumentName(),
                 value.isRequired(), value.getEvidenceText(), value.getSourceType().name(), value.getSourceReference(),
                 value.getCategory() == com.comhu.bidmonitor.submission.domain.RequirementCategory.PERFORMANCE
-                        && "실적증명서".equals(value.getDocumentName().trim())
+                        && ("실적증명서".equals(value.getDocumentName().trim()) || "PERFORMANCE".equals(value.getSourceReference())), companyCommon
         );
     }
 }

@@ -17,6 +17,9 @@ public class AppPageController {
         return "forward:/notifications/index.html";
     }
 
+    @GetMapping({"/documents", "/documents/"})
+    public String documentPage() { return "forward:/documents/index.html"; }
+
     @GetMapping({"/submissions", "/submissions/"})
     public String submissionPage() {
         return "forward:/submissions/index.html";

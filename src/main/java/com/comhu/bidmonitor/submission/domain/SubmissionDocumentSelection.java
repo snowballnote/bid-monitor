@@ -14,6 +14,7 @@ public class SubmissionDocumentSelection {
     private final Long submissionCaseId;
     private final Long requirementId;
     private final Long fileId;
+    private final String uploadedFileId;
     private final UUID filePublicId;
     private final String originalFilename;
     private final String fileExt;

@@ -1,0 +1,10 @@
+.document-create { padding:24px; margin-bottom:24px; }
+.document-create form,.document-actions { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+.documents-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); gap:20px; }
+.document-card { padding:24px; display:flex; flex-direction:column; gap:16px; }
+.document-card h2,.document-card p { margin:0; overflow-wrap:anywhere; }
+.document-card .document-actions { margin-top:auto; }
+.document-card form { display:flex; gap:8px; flex-wrap:wrap; }
+.document-card small { color:var(--muted); }
+
+.document-card [hidden] { display:none !important; }

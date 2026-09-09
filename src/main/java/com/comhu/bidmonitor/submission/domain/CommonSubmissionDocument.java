@@ -14,6 +14,7 @@ public class CommonSubmissionDocument {
     private final CommonDocumentType documentType;
     private final String displayName;
     private final Long fileId;
+    private final String uploadedFileId;
     private final UUID filePublicId;
     private final String originalFilename;
     private final String fileExt;

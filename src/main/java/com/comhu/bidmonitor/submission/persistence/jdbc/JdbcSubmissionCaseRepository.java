@@ -26,7 +26,7 @@ public class JdbcSubmissionCaseRepository implements SubmissionCaseRepository {
     private static final String COLUMNS = """
             id, project_id, project_public_id, project_code, internal_biz_no,
             project_name, bid_notice_no, status, created_at, updated_at,
-            organization_name, performance_project_id, performance_link_initialized
+            organization_name, performance_project_id, performance_link_initialized, deadline
             """;
     private final JdbcTemplate jdbcTemplate;
 
@@ -98,10 +98,14 @@ public class JdbcSubmissionCaseRepository implements SubmissionCaseRepository {
         return find("SELECT " + COLUMNS + " FROM submission_case WHERE id=? FOR UPDATE", id)
                 .orElseThrow(() -> new com.comhu.bidmonitor.submission.service.SubmissionNotFoundException("프로젝트를 찾을 수 없습니다."));
     }
+    public void delete(Long id) {
+        // Existing ON DELETE CASCADE FKs remove only this case's requirements and selections.
+        jdbcTemplate.update("DELETE FROM submission_case WHERE id=?", id);
+    }
     public void update(SubmissionCase value) {
-        jdbcTemplate.update("UPDATE submission_case SET project_name=?,organization_name=?,performance_project_id=?,performance_link_initialized=?,updated_at=? WHERE id=?",
+        jdbcTemplate.update("UPDATE submission_case SET project_name=?,organization_name=?,performance_project_id=?,performance_link_initialized=?,updated_at=?,deadline=? WHERE id=?",
                 value.getProjectName(), value.getOrganizationName(), value.getPerformanceProjectId(), value.isPerformanceLinkInitialized(),
-                Timestamp.from(value.getUpdatedAt()), value.getId());
+                Timestamp.from(value.getUpdatedAt()), value.getDeadline(), value.getId());
     }
     public boolean performanceProjectExists(String id) {
         return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM performance_project WHERE id=?", Long.class, id) > 0;
@@ -125,6 +129,7 @@ public class JdbcSubmissionCaseRepository implements SubmissionCaseRepository {
                 .projectCode(resultSet.getString("project_code"))
                 .internalBizNo(resultSet.getString("internal_biz_no"))
                 .projectName(resultSet.getString("project_name"))
+                .deadline(resultSet.getObject("deadline", java.time.LocalDate.class))
                 .organizationName(resultSet.getString("organization_name"))
                 .performanceProjectId(resultSet.getString("performance_project_id"))
                 .performanceLinkInitialized(resultSet.getBoolean("performance_link_initialized"))

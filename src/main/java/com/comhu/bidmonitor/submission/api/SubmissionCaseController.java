@@ -29,10 +29,24 @@ import java.util.List;
 public class SubmissionCaseController {
 
     private final SubmissionCaseService service;
+    private final com.comhu.bidmonitor.submission.service.SubmissionUploadService uploads;
+    private final com.comhu.bidmonitor.submission.service.SubmissionCommonFileService commonFiles;
+    private final com.comhu.bidmonitor.submission.service.SubmissionPerformanceLinkService performanceLinks;
 
-    public SubmissionCaseController(SubmissionCaseService service) {
+    public SubmissionCaseController(SubmissionCaseService service, com.comhu.bidmonitor.submission.service.SubmissionPerformanceLinkService performanceLinks, com.comhu.bidmonitor.submission.service.SubmissionCommonFileService commonFiles, com.comhu.bidmonitor.submission.service.SubmissionUploadService uploads) {
+        this.uploads=uploads;
+        this.commonFiles=commonFiles;
+        this.performanceLinks=performanceLinks;
         this.service = service;
     }
+
+    @PostMapping("/{id}/collect")
+    public com.comhu.bidmonitor.submission.service.SubmissionCommonFileService.CollectionResult collect(@PathVariable Long id,
+            @RequestBody List<com.comhu.bidmonitor.submission.api.dto.CreateSubmissionRequirementRequest> items) {
+        return commonFiles.collect(id,items.stream().map(item->new ManualRequirement(parseCategory(item.category()),item.documentName(),item.sourceReference())).toList());
+    }
+    @PostMapping("/{id}/performance-project")
+    public SubmissionCaseResponse ensurePerformance(@PathVariable Long id) { return SubmissionCaseResponse.from(performanceLinks.ensure(id)); }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -40,21 +54,15 @@ public class SubmissionCaseController {
         if (request == null) {
             throw new IllegalArgumentException("요청 본문이 필요합니다.");
         }
-        if (request.projectName() != null) {
-            return SubmissionCaseResponse.from(service.createProject(request.projectName(), request.projectId(),
-                    request.requirements() == null ? null : request.requirements().stream()
-                            .map(item -> new ManualRequirement(parseCategory(item.category()), item.documentName(), item.sourceReference())).toList()));
-        }        if (request.requirements() != null && !request.requirements().isEmpty()) {
-            List<ManualRequirement> requirements = request.requirements().stream()
-                    .map(item -> new ManualRequirement(
-                            parseCategory(item.category()), item.documentName(), item.sourceReference()
-                    ))
-                    .toList();
-            return SubmissionCaseResponse.from(service.createManual(requirements));
-        }
-        return SubmissionCaseResponse.from(service.create(request.projectId()));
+        return SubmissionCaseResponse.from(service.createProject(request.projectName(), request.projectId(),
+                request.requirements() == null ? null : request.requirements().stream()
+                        .map(item -> new ManualRequirement(parseCategory(item.category()), item.documentName(), item.sourceReference())).toList(),
+                request.deadline()));
     }
 
+    @org.springframework.web.bind.annotation.DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable Long id) { service.deleteProject(id); }
     @GetMapping
     public List<SubmissionCaseService.ProjectSummary> projects() { return service.projects(); }
 
@@ -64,8 +72,13 @@ public class SubmissionCaseController {
         Object performance = body.get("performanceProjectId");
         if ((name != null && !(name instanceof String)) || (performance != null && !(performance instanceof String)))
             throw new IllegalArgumentException("프로젝트 입력 형식을 확인하세요.");
+        java.time.LocalDate deadline = null;
+        if (body.containsKey("deadline")) {
+            try { deadline = java.time.LocalDate.parse((String) body.get("deadline")); }
+            catch (RuntimeException invalid) { throw new IllegalArgumentException("마감일은 YYYY-MM-DD 형식으로 입력하세요."); }
+        }
         return SubmissionCaseResponse.from(service.updateProject(id, (String) name, body.containsKey("performanceProjectId"),
-                (String) performance, Boolean.TRUE.equals(body.get("initializePerformanceOnly"))));
+                (String) performance, Boolean.TRUE.equals(body.get("initializePerformanceOnly")), body.containsKey("deadline"), deadline));
     }
 
     @PutMapping("/{id}/requirements")
@@ -73,7 +86,7 @@ public class SubmissionCaseController {
             @RequestBody List<com.comhu.bidmonitor.submission.api.dto.CreateSubmissionRequirementRequest> items) {
         return service.replaceRequirements(id, items.stream().map(item -> new ManualRequirement(
                 parseCategory(item.category()), item.documentName(), item.sourceReference())).toList())
-                .stream().map(SubmissionRequirementResponse::from).toList();
+                .stream().map(r->SubmissionRequirementResponse.from(r,commonFiles.isCommon(r))).toList();
     }
     @GetMapping("/{id}")
     public SubmissionCaseResponse get(@PathVariable Long id) {
@@ -82,7 +95,7 @@ public class SubmissionCaseController {
 
     @GetMapping("/{id}/requirements")
     public List<SubmissionRequirementResponse> requirements(@PathVariable Long id) {
-        return service.getRequirements(id).stream().map(SubmissionRequirementResponse::from).toList();
+        return service.getRequirements(id).stream().map(r->SubmissionRequirementResponse.from(r,commonFiles.isCommon(r))).toList();
     }
 
     @GetMapping("/{id}/requirements/{requirementId}/candidates")
@@ -106,9 +119,18 @@ public class SubmissionCaseController {
         return service.replaceSelections(id, choices).stream().map(SubmissionSelectionResponse::from).toList();
     }
 
+    @GetMapping("/{id}/download")
+    public org.springframework.http.ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> download(@PathVariable Long id) {
+        var body=uploads.zip(id);
+        return org.springframework.http.ResponseEntity.ok().header("Content-Disposition","attachment; filename=submission-files.zip")
+                .contentType(org.springframework.http.MediaType.parseMediaType("application/zip")).body(body);
+    }
     @GetMapping("/{id}/package")
     public SubmissionPackageResponse getPackage(@PathVariable Long id) {
-        return SubmissionPackageResponse.from(service.getPackage(id));
+        var value=service.getPackage(id);
+        return new SubmissionPackageResponse(SubmissionCaseResponse.from(value.getSubmissionCase()),
+                value.getRequirements().stream().map(r->SubmissionRequirementResponse.from(r,commonFiles.isCommon(r))).toList(),
+                value.getSelections().stream().map(SubmissionSelectionResponse::from).toList());
     }
 
     private RequirementCategory parseCategory(String value) {

@@ -16,13 +16,13 @@ public record SubmissionCaseResponse(
         String status,
         Instant createdAt,
         Instant updatedAt,
-        String organizationName, String performanceProjectId, boolean performanceLinkInitialized
+        String organizationName, String performanceProjectId, boolean performanceLinkInitialized, java.time.LocalDate deadline
 ) {
     public static SubmissionCaseResponse from(SubmissionCase value) {
         return new SubmissionCaseResponse(
                 value.getId(), value.getProjectId(), value.getProjectPublicId(), value.getProjectCode(),
                 value.getInternalBizNo(), value.getProjectName(), value.getBidNoticeNo(),
-                value.getStatus().name(), value.getCreatedAt(), value.getUpdatedAt(), value.getOrganizationName(), value.getPerformanceProjectId(), value.isPerformanceLinkInitialized()
+                value.getStatus().name(), value.getCreatedAt(), value.getUpdatedAt(), value.getOrganizationName(), value.getPerformanceProjectId(), value.isPerformanceLinkInitialized(), value.getDeadline()
         );
     }
 }

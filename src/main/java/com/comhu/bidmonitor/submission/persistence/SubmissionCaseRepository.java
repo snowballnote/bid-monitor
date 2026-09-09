@@ -7,6 +7,7 @@ import java.util.Optional;
 public interface SubmissionCaseRepository {
     java.util.List<SubmissionCase> findAll();
     SubmissionCase lock(Long id);
+    void delete(Long id);
     void update(SubmissionCase value);
     boolean performanceProjectExists(String id);
     long performanceMissing(String id);

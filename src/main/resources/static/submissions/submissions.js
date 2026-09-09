@@ -35,17 +35,6 @@ const elements = {
     packageSelectionCount: document.querySelector("#package-selection-count"),
     packageEmpty: document.querySelector("#package-empty"),
     packageList: document.querySelector("#package-list"),
-    commonDocumentDialog: document.querySelector("#common-document-dialog"),
-    commonDocumentForm: document.querySelector("#common-document-form"),
-    commonDocumentTitle: document.querySelector("#common-document-title"),
-    commonDocumentHelp: document.querySelector("#common-document-help"),
-    commonDocumentIssuedAt: document.querySelector("#common-document-issued-at"),
-    commonDocumentExpiresAt: document.querySelector("#common-document-expires-at"),
-    issuedAtField: document.querySelector("#issued-at-field"),
-    expiresAtField: document.querySelector("#expires-at-field"),
-    commonDocumentMessage: document.querySelector("#common-document-message"),
-    commonDocumentClose: document.querySelector("#common-document-close"),
-    commonDocumentCancel: document.querySelector("#common-document-cancel")
 };
 
 let workspaceRevision = 0;
@@ -59,8 +48,8 @@ const state = {
     candidateLoadingIds: new Set(),
     candidateErrors: new Map(),
     commonDocuments: new Map(),
+    commonMissing: new Set(),
     performance: { projectId: "", projects: [], total: 0, processed: 0, loading: false, error: "", revision: 0 },
-    commonDocumentEditor: null
 };
 
 class ApiError extends Error {
@@ -133,6 +122,14 @@ function renderCommonDocumentStatuses() {
         const managed = state.commonDocuments.get(option.dataset.reference);
         const label = option.closest("label");
         let badge = label.querySelector(".document-admin-status");
+        const currentMaster=commonMaster({sourceReference:option.dataset.reference,documentName:option.value,category:option.dataset.category});
+        if(currentMaster){
+            if(!badge){badge=document.createElement("small");label.append(badge);}
+            badge.className="document-admin-status "+((currentMaster.uploadedFileId || currentMaster.currentFileId)?"available":"unregistered");
+            badge.textContent=(currentMaster.uploadedFileId || currentMaster.currentFileId)?"현재 파일 등록됨":"파일 미등록";
+            badge.title=currentMaster.currentFilename||"서류 관리에서 현재 파일을 등록하세요.";
+            return;
+        }
         if (!managed) {
             badge?.remove();
             return;
@@ -207,6 +204,7 @@ function performanceComplete() {
 }
 
 function requirementComplete(requirement) {
+    if (state.commonMissing.has(requirement.id)) return false;
     return requirement.performanceSelectionRequired ? performanceComplete() : state.selections.has(requirement.id);
 }
 
@@ -214,7 +212,7 @@ function performanceCaption() {
     const progress = state.performance;
     if (progress.loading) return "실적 진행상황 조회 중";
     if (progress.error) return progress.error;
-    if (!progress.projectId) return "실적 프로젝트를 선택하세요.";
+    if (!progress.projectId) return "실적증빙 관리를 열면 프로젝트가 자동 연결됩니다.";
     if (!progress.total) return "등록된 실적 없음 · 실적표를 붙여넣으세요.";
     return `${progress.total}건 중 ${progress.processed}건 처리 / ${progress.total - progress.processed}건 미처리`;
 }
@@ -228,14 +226,6 @@ function performanceManageUrl() {
 
 function renderPerformancePanel() {
     const progress = state.performance;
-    const select = document.querySelector("#performance-project-select");
-    select.replaceChildren(new Option("프로젝트를 선택하세요", ""));
-    progress.projects.forEach(project => select.add(new Option(project.name, project.id)));
-    if (progress.projectId && !progress.projects.some(project => project.id === progress.projectId)) {
-        select.add(new Option("연결한 프로젝트 확인 필요", progress.projectId));
-    }
-    select.value = progress.projectId;
-    select.disabled = progress.loading;
     document.querySelector("#performance-progress").textContent = performanceCaption();
     document.querySelector("#performance-manage").href = performanceManageUrl();
     document.querySelector("#performance-refresh").disabled = progress.loading;
@@ -325,6 +315,8 @@ function renderProgress() {
 }
 
 function requirementState(requirement) {
+    if (state.commonMissing.has(requirement.id)) return ["파일 미등록", " attention"];
+    if (isCompanyCommon(requirement) && !state.selections.has(requirement.id)) return [(commonMaster(requirement)?.uploadedFileId || commonMaster(requirement)?.currentFileId) ? "모으기 필요" : "파일 미등록", " attention"];
     if (requirement.performanceSelectionRequired) {
         if (performanceComplete()) return ["완료", " complete"];
         if (state.performance.loading) return ["확인 중", ""];
@@ -356,7 +348,7 @@ function renderRequirements() {
         title.textContent = requirement.performanceSelectionRequired ? requirement.documentName + " · 실적증빙 관리" : requirement.documentName;
         const meta = document.createElement("span");
         meta.className = "requirement-item-meta";
-        meta.textContent = requirement.performanceSelectionRequired ? performanceCaption() : categoryLabel(requirement.category);
+        meta.textContent = requirement.performanceSelectionRequired ? performanceCaption() : isCompanyCommon(requirement) ? (state.selections.get(requirement.id)?.originalFilename || "회사 공통 · " + ((commonMaster(requirement)?.uploadedFileId || commonMaster(requirement)?.currentFileId) ? "현재 파일 등록됨" : "파일 미등록")) : categoryLabel(requirement.category);
         meta.classList.toggle("performance-progress-meta", Boolean(requirement.performanceSelectionRequired));
         content.append(title, meta);
         const completion = document.createElement("span");
@@ -364,12 +356,14 @@ function renderRequirements() {
         completion.className = `requirement-state${className}`;
         completion.textContent = label;
         button.append(content, completion);
-        button.addEventListener("click", () => selectRequirement(requirement));
+        button.addEventListener("click", () => requirement.performanceSelectionRequired ? openPerformanceProject() : selectRequirement(requirement, true));
         elements.requirementList.append(button);
     });
 }
 
 function renderPackage() {
+    const download=document.querySelector("#download-submission-files");
+    if(download){download.href=state.submissionCase?API_BASE+"/"+state.submissionCase.id+"/download":"#";setHidden(download,![...state.selections.values()].some(file=>file.uploadedFileId));}
     elements.packageList.replaceChildren();
     const selected = state.requirements.filter(requirement => requirement.performanceSelectionRequired || state.selections.has(requirement.id));
     setHidden(elements.packageEmpty, selected.length !== 0);
@@ -436,14 +430,7 @@ function renderCandidates(requirement, candidates) {
         select.disabled = selected;
         select.addEventListener("click", () => saveSelection(requirement, candidate));
         actions.append(select);
-        if (selected && state.commonDocuments.has(requirement.sourceReference)) {
-            const manage = document.createElement("button");
-            manage.type = "button";
-            manage.className = "ui-button ui-button-ghost candidate-manage";
-            manage.textContent = "갱신정보 관리";
-            manage.addEventListener("click", () => openCommonDocumentEditor(requirement, candidate));
-            actions.append(manage);
-        }
+
         card.append(head, meta, reason, actions);
         elements.candidateList.append(card);
     });
@@ -471,7 +458,7 @@ async function fetchCandidates(requirement) {
 
 async function preloadCandidates() {
     const revision = workspaceRevision;
-    await Promise.all(state.requirements.filter((item) => !item.performanceSelectionRequired).map(fetchCandidates));
+    await Promise.all(state.requirements.filter((item) => !item.performanceSelectionRequired && !isCompanyCommon(item)).map(fetchCandidates));
     if (revision !== workspaceRevision) return;
     if (state.activeRequirementId) {
         const active = state.requirements.find((item) => item.id === state.activeRequirementId);
@@ -479,7 +466,7 @@ async function preloadCandidates() {
     }
 }
 
-async function selectRequirement(requirement) {
+async function selectRequirement(requirement, retry = false) {
     const revision = workspaceRevision;
     state.activeRequirementId = requirement.id;
     renderRequirements();
@@ -489,6 +476,13 @@ async function selectRequirement(requirement) {
         showCandidateState("performance");
         return;
     }
+    if (isCompanyCommon(requirement)) {
+        elements.candidateList.replaceChildren();
+        const message=document.createElement("p"), selected=state.selections.get(requirement.id);
+        message.textContent=selected ? "연결된 파일: "+selected.originalFilename : (commonMaster(requirement)?.uploadedFileId || commonMaster(requirement)?.currentFileId) ? "선택한 서류 모으기를 실행하면 저장된 현재 파일이 연결됩니다." : "파일 미등록 · 서류 관리에서 현재 파일을 등록하세요.";
+        elements.candidateList.append(message); showCandidateState("list"); setHidden(elements.candidateCount,true); return;
+    }
+    if (retry) state.candidateErrors.delete(requirement.id);
     if (state.candidateErrors.has(requirement.id)) {
         elements.candidateError.textContent = state.candidateErrors.get(requirement.id);
         showCandidateState("error");
@@ -499,7 +493,10 @@ async function selectRequirement(requirement) {
         await fetchCandidates(requirement);
     }
     if (revision !== workspaceRevision || state.activeRequirementId !== requirement.id) return;
-    if (state.candidates.has(requirement.id)) renderCandidates(requirement, state.candidates.get(requirement.id));
+    if (state.candidateErrors.has(requirement.id)) {
+        elements.candidateError.textContent = state.candidateErrors.get(requirement.id);
+        showCandidateState("error");
+    } else if (state.candidates.has(requirement.id)) renderCandidates(requirement, state.candidates.get(requirement.id));
 }
 
 async function saveSelection(requirement, candidate) {
@@ -531,58 +528,13 @@ async function saveSelection(requirement, candidate) {
     }
 }
 
-function openCommonDocumentEditor(requirement, candidate) {
-    const managed = state.commonDocuments.get(requirement.sourceReference);
-    if (!managed) return;
-    state.commonDocumentEditor = { requirement, candidate };
-    elements.commonDocumentTitle.textContent = managed.displayName;
-    elements.commonDocumentIssuedAt.value = managed.fileId === candidate.fileId && managed.issuedAt ? managed.issuedAt : "";
-    elements.commonDocumentExpiresAt.value = managed.fileId === candidate.fileId && managed.expiresAt ? managed.expiresAt : "";
-    setHidden(elements.issuedAtField, managed.refreshPolicy === "NONE");
-    setHidden(elements.expiresAtField, managed.refreshPolicy !== "EXPIRATION_BASED");
-    elements.commonDocumentHelp.textContent = managed.refreshPolicy === "PERIODIC"
-        ? `발급일로부터 ${managed.refreshIntervalMonths}개월이 지나면 갱신을 권고합니다.`
-        : managed.refreshPolicy === "EXPIRATION_BASED"
-            ? "만료일 30일 전부터 만료 임박 상태로 표시합니다."
-            : "이 서류는 별도 유효기간을 관리하지 않습니다.";
-    setHidden(elements.commonDocumentMessage, true);
-    elements.commonDocumentDialog.showModal();
-}
-
-function closeCommonDocumentEditor() {
-    state.commonDocumentEditor = null;
-    elements.commonDocumentDialog.close();
-}
-
-async function saveCommonDocumentManagement(event) {
-    event.preventDefault();
-    if (!state.commonDocumentEditor) return;
-    const { requirement, candidate } = state.commonDocumentEditor;
-    try {
-        const updated = await requestJson(`${COMMON_DOCUMENT_API}/${encodeURIComponent(requirement.sourceReference)}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                fileId: candidate.fileId,
-                issuedAt: elements.commonDocumentIssuedAt.value || null,
-                expiresAt: elements.commonDocumentExpiresAt.value || null
-            })
-        });
-        state.commonDocuments.set(updated.documentType, updated);
-        renderCommonDocumentStatuses();
-        closeCommonDocumentEditor();
-    } catch (error) {
-        elements.commonDocumentMessage.textContent = friendlyError(error, "selection");
-        setHidden(elements.commonDocumentMessage, false);
-    }
-}
-
-async function loadWorkspace(submissionCase) {
+async function loadWorkspace(submissionCase, openCandidates = false) {
     const revision = ++workspaceRevision;
     setHidden(document.querySelector("#submission-project-list"), true);
     setHidden(document.querySelector("#submission-detail-toolbar"), false);
     state.submissionCase = submissionCase;
     state.activeRequirementId = null;
+    state.commonMissing.clear();
     state.candidates.clear();
     state.candidateErrors.clear();
     state.candidateLoadingIds.clear();
@@ -599,12 +551,22 @@ async function loadWorkspace(submissionCase) {
         state.selections = new Map((packageData.selections || []).map((item) => [item.requirementId, item]));
         elements.projectName.textContent = submissionCase.projectName;
         document.querySelector("#rename-submission-project [name=projectName]").value = submissionCase.projectName;
+        document.querySelector("#rename-submission-project [name=deadline]").value = submissionCase.deadline || "";
+        document.querySelector("#case-project-deadline").textContent = "마감일 " + (submissionCase.deadline || "미설정");
         elements.projectMeta.textContent = `${state.requirements.length}개 서류의 회사 파일 후보를 확인합니다.`;
         renderRequirements();
         renderPackage();
         showCandidateState("guide");
-        setHidden(elements.documentPicker, true);
         setHidden(elements.workspace, false);
+        resetWorkspace();
+        if (openCandidates) {
+            state.activeRequirementId = state.requirements.find(item => !item.performanceSelectionRequired)?.id || null;
+            if (state.activeRequirementId) {
+                renderRequirements();
+                showCandidateState("loading");
+                elements.candidateTitle.closest(".candidate-panel").scrollIntoView({behavior:"smooth", block:"start"});
+            }
+        }
         preloadCandidates();
         refreshPerformanceProgress();
         migratePerformanceLink().catch(() => {});
@@ -623,13 +585,17 @@ async function createManualCase(event) {
     if (!current) return;
     elements.findDocumentsButton.disabled = true;
     try {
-        await requestJson(API_BASE + "/" + current.id + "/requirements", {
-            method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(selectedRequirements())
+        const collection = await requestJson(API_BASE + "/" + current.id + "/collect", {
+            method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(selectedRequirements())
         });
         if (revision !== workspaceRevision) return;
         const updated = await requestJson(API_BASE + "/" + current.id);
         if (revision !== workspaceRevision) return;
-        await loadWorkspace(updated);
+        const expectedRevision=workspaceRevision+1;
+        await loadWorkspace(updated, true);
+        if (workspaceRevision!==expectedRevision || state.submissionCase?.id !== current.id) return;
+        state.commonMissing = new Set(collection.missingRequirementIds || []);
+        renderRequirements(); renderPackage();
     } catch (error) {
         if (revision !== workspaceRevision) return;
         elements.documentMessage.textContent = friendlyError(error, "create");
@@ -638,13 +604,9 @@ async function createManualCase(event) {
 }
 function resetWorkspace() {
     if (!state.submissionCase) return;
-    elements.documentOptions.forEach(option => {
-        option.checked = state.requirements.some(r => r.category === option.dataset.category && normalizeName(r.documentName) === normalizeName(option.value));
-    });
-    state.customDocuments = state.requirements.filter(r => !elements.documentOptions.some(o => o.dataset.category === r.category && normalizeName(o.value) === normalizeName(r.documentName)))
-        .map(r => r.documentName);
+    renderMasterOptions(state.requirements);
+    state.customDocuments = [];
     renderCustomDocuments(); updateCheckedCount();
-    setHidden(elements.workspace, true);
     setHidden(elements.documentPicker, false);
     document.querySelector(".performance-picker-action").href = performanceManageUrl();
 }
@@ -662,17 +624,14 @@ elements.customDocumentName.addEventListener("keydown", (event) => {
     }
 });
 elements.documentForm.addEventListener("submit", createManualCase);
-elements.changeDocumentsButton.addEventListener("click", resetWorkspace);
-elements.commonDocumentForm.addEventListener("submit", saveCommonDocumentManagement);
-elements.commonDocumentClose.addEventListener("click", closeCommonDocumentEditor);
-elements.commonDocumentCancel.addEventListener("click", closeCommonDocumentEditor);
+elements.changeDocumentsButton.addEventListener("click", () => elements.documentPicker.scrollIntoView({behavior:"smooth"}));
 updateCheckedCount();
-loadCommonDocuments().finally(restoreCaseFromUrl);
+document.querySelector(".case-overview").after(elements.documentPicker);
 
-document.querySelector("#performance-project-select").addEventListener("change", (event) => {
-    if (!state.submissionCase) return;
-    rememberPerformanceProject(event.target.value);
-});
+initializeSubmissionHistory();
+Promise.all([loadCommonDocuments(), loadDocumentMasters()]).finally(restoreCaseFromUrl);
+
+
 document.querySelector("#performance-refresh").addEventListener("click", refreshPerformanceProgress);
 window.addEventListener("focus", refreshPerformanceProgress);
 window.addEventListener("pageshow", (event) => { if (event.persisted) refreshPerformanceProgress(); });
@@ -696,26 +655,33 @@ function renderSubmissionProjects() {
     if (projectView === "list") {
         const table = projectNode("table", null, "submission-project-table");
         const head = projectNode("tr");
-        ["프로젝트명","발주기관","준비 현황","최근 수정일","열기"].forEach(text => head.append(projectNode("th",text)));
+        ["프로젝트명","마감일","준비 현황","진행률","최근 수정일"].forEach(text => head.append(projectNode("th",text)));
         const thead = projectNode("thead"); thead.append(head); body = projectNode("tbody");
         table.append(thead,body); container.append(table);
     }
     for (const project of projectRows) {
-        const link = projectNode("a", projectView === "card" ? "계속 준비하기" : "열기", "ui-button ui-button-secondary");
-        link.href = "/submissions/?caseId=" + encodeURIComponent(project.id);
-        link.onclick = event => { event.preventDefault(); openSubmissionProject(project.id); };
         const count = project.prepared + " / " + project.total;
+        const percent = project.total ? Math.round(project.prepared / project.total * 100) : 0;
+        const deadline = project.deadline || "미설정";
+        const open = event => { event.preventDefault(); openSubmissionProject(project.id); };
         if (projectView === "card") {
-            const card = projectNode("article",null,"submission-project-card");
-            card.append(projectNode("h3",project.projectName));
-            if (project.projectId != null && project.organizationName) card.append(projectNode("p",project.organizationName));
-            card.append(projectNode("p","준비 현황 " + count),projectNode("p","최근 수정일 " + formatDate(project.updatedAt)),link);
+            const card = projectNode("a",null,"submission-project-card");
+            card.href = "/submissions/?caseId=" + encodeURIComponent(project.id);
+            card.onclick = event => {
+                if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+                open(event);
+            };
+            card.append(projectNode("h3",project.projectName),projectNode("p","마감일 " + deadline),
+                projectNode("p","준비 " + count),projectNode("p","진행률 " + percent + "%"),
+                projectNode("p","최근 수정일 " + formatDate(project.updatedAt)));
             body.append(card);
         } else {
-            const row = projectNode("tr");
-            [project.projectName, project.projectId != null ? project.organizationName || "—" : "—",count,formatDate(project.updatedAt)]
-                .forEach(text => row.append(projectNode("td",text)));
-            const action = projectNode("td"); action.append(link); row.append(action); body.append(row);
+            const row = projectNode("tr"); row.tabIndex = 0; row.setAttribute("role","link");
+            row.setAttribute("aria-label",project.projectName + " 상세");
+            row.onclick = open;
+            row.onkeydown = event => { if (event.key === "Enter" || event.key === " ") open(event); };
+            [project.projectName,deadline,count,percent+"%",formatDate(project.updatedAt)].forEach(text => row.append(projectNode("td",text)));
+            body.append(row);
         }
     }
     document.querySelector("#submission-project-message").textContent = projectRows.length ? "" : "등록된 프로젝트가 없습니다.";
@@ -733,7 +699,7 @@ async function showSubmissionProjects() {
     setHidden(elements.workspaceLoading,true); setHidden(elements.workspaceError,true);
     setHidden(document.querySelector("#submission-detail-toolbar"),true);
     setHidden(document.querySelector("#submission-project-list"),false);
-    history.replaceState({}, "", "/submissions/");
+
     try {
         const rows = await requestJson(API_BASE);
         if (revision !== workspaceRevision) return;
@@ -750,7 +716,7 @@ async function openSubmissionProject(id) {
     setHidden(document.querySelector("#submission-detail-toolbar"),false);
     setHidden(elements.workspace,true); setHidden(elements.documentPicker,true);
     setHidden(elements.workspaceLoading,false);
-    history.replaceState({}, "", "/submissions/?caseId=" + encodeURIComponent(id));
+    navigateSubmissionDetail(id);
     try {
         const project = await requestJson(API_BASE + "/" + encodeURIComponent(id));
         if (revision !== workspaceRevision) return;
@@ -766,14 +732,14 @@ document.querySelector("#new-submission-project").onclick = () => {
 };
 document.querySelector("#view-card").onclick = () => changeProjectView("card");
 document.querySelector("#view-list").onclick = () => changeProjectView("list");
-document.querySelector("#back-submission-projects").onclick = showSubmissionProjects;
+document.querySelector("#back-submission-projects").onclick = goToSubmissionList;
 document.querySelector("#create-submission-project").onsubmit = async event => {
     event.preventDefault();
     const form = event.currentTarget, button = form.querySelector("button"), revision = workspaceRevision;
     button.disabled = true;
     try {
         const project = await requestJson(API_BASE,{method:"POST",headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({projectName:form.elements.projectName.value})});
+            body:JSON.stringify({projectName:form.elements.projectName.value,deadline:form.elements.deadline.value})});
         if (revision !== workspaceRevision) return;
         form.reset(); setHidden(form,true);
         await openSubmissionProject(project.id);
@@ -787,11 +753,107 @@ document.querySelector("#rename-submission-project").onsubmit = async event => {
     if (!current) return;
     try {
         const updated = await requestJson(API_BASE + "/" + current.id,{method:"PUT",headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({projectName:event.currentTarget.elements.projectName.value})});
+            body:JSON.stringify({projectName:event.currentTarget.elements.projectName.value,deadline:event.currentTarget.elements.deadline.value})});
         if (revision !== workspaceRevision) return;
         state.submissionCase = updated; elements.projectName.textContent = updated.projectName;
+        document.querySelector("#case-project-deadline").textContent = "마감일 " + (updated.deadline || "미설정");
     } catch(error) {
         if(revision === workspaceRevision){elements.workspaceError.textContent=friendlyError(error,"update");setHidden(elements.workspaceError,false);}
     }
 };
 window.addEventListener("popstate", restoreCaseFromUrl);
+function initializeSubmissionHistory() {
+    const id = new URLSearchParams(location.search).get("caseId");
+    if (id && /^[0-9]+$/.test(id)) {
+        if (!history.state?.submissionDetail) {
+            const detailUrl = location.pathname + location.search;
+            history.replaceState({submissionList:true}, "", "/submissions/");
+            history.pushState({submissionDetail:true}, "", detailUrl);
+        }
+    } else history.replaceState({submissionList:true}, "", "/submissions/");
+}
+function navigateSubmissionDetail(id) {
+    const url = "/submissions/?caseId=" + encodeURIComponent(id);
+    if (location.pathname + location.search === url && history.state?.submissionDetail) return;
+    if (history.state?.submissionDetail) history.replaceState({submissionDetail:true}, "", url);
+    else history.pushState({submissionDetail:true}, "", url);
+}
+function goToSubmissionList() {
+    if (history.state?.submissionDetail) history.back();
+    else {
+        history.replaceState({submissionList:true}, "", "/submissions/");
+        showSubmissionProjects();
+    }
+}
+document.querySelector("#delete-submission-project").onclick = async () => {
+    const current = state.submissionCase, revision = workspaceRevision;
+    if (!current || !confirm('이 프로젝트와 선택한 제출서류 연결을 삭제할까요? 원본 파일은 삭제되지 않습니다.')) return;
+    const button = document.querySelector("#delete-submission-project");
+    button.disabled = true;
+    try {
+        await requestJson(API_BASE + "/" + current.id, {method:"DELETE"});
+        if (revision === workspaceRevision) goToSubmissionList();
+    } catch (error) {
+        if (revision === workspaceRevision) {
+            elements.workspaceError.textContent = friendlyError(error,"delete");
+            setHidden(elements.workspaceError,false);
+        }
+    } finally { button.disabled = false; }
+};
+const MASTER_API = "/api/submission-document-masters";
+let documentMasters = [], performanceOpening = false;
+function commonMaster(requirement) {
+    return documentMasters.find(item => item.category === "COMPANY_COMMON" && (item.sourceReference === requirement.sourceReference || (item.name === requirement.documentName && item.requirementCategory === requirement.category)));
+}
+function isCompanyCommon(requirement) { return Boolean(requirement.companyCommon || commonMaster(requirement)); }
+function masterCategory(category) {
+    return category === "PERFORMANCE" ? "PERFORMANCE" : category === "PERSONNEL" ? "PERSONNEL" : category === "OTHER" ? "OTHER" : "COMPANY_COMMON";
+}
+function renderMasterOptions(selected = []) {
+    document.querySelectorAll(".master-options").forEach(group => group.replaceChildren());
+    const options = documentMasters.map(item => ({...item, documentName:item.name, category:item.requirementCategory, group:item.category}));
+    // Renamed/deleted master entries never remove the project's saved snapshots.
+    for (const item of selected) {
+        if (!options.some(o => o.category === item.category && normalizeName(o.documentName) === normalizeName(item.documentName)))
+            options.push({...item, group:masterCategory(item.category)});
+    }
+    for (const item of options) {
+        const label = document.createElement("label"), input = document.createElement("input"), text = document.createElement("span");
+        input.type="checkbox"; input.className="document-option"; input.value=item.documentName;
+        input.dataset.category=item.category; input.dataset.reference=item.sourceReference || "";
+        input.checked=selected.some(r => r.category===item.category && normalizeName(r.documentName)===normalizeName(item.documentName));
+        input.addEventListener("change",updateCheckedCount); text.textContent=item.documentName;
+        label.append(input,text); document.querySelector('[data-master-category="'+item.group+'"]').append(label);
+    }
+    elements.documentOptions=[...document.querySelectorAll(".document-option")];
+    renderCommonDocumentStatuses(); updateCheckedCount();
+}
+async function loadDocumentMasters() {
+    try {
+        const rows=await requestJson("/api/submission-document-masters");
+        documentMasters=rows;
+        const selected=state.submissionCase ? selectedRequirements() : [];
+        state.customDocuments=[]; renderCustomDocuments();
+        renderMasterOptions(selected);
+
+    } catch { elements.documentMessage.textContent="서류 목록을 불러오지 못했습니다.";setHidden(elements.documentMessage,false); }
+}
+async function openPerformanceProject(event) {
+    event?.preventDefault();
+    const current=state.submissionCase, revision=workspaceRevision;
+    if (!current || performanceOpening) return;
+    performanceOpening=true;
+    try {
+        await migratePerformanceLink();
+        if (revision!==workspaceRevision) return;
+        const linked=state.submissionCase.performanceProjectId ? state.submissionCase :
+            await requestJson(API_BASE+"/"+current.id+"/performance-project",{method:"POST"});
+        if (revision!==workspaceRevision) return;
+        state.submissionCase=linked; state.performance.projectId=linked.performanceProjectId;
+        location.assign(performanceManageUrl());
+    } catch(error) {
+        if(revision===workspaceRevision){elements.workspaceError.textContent=friendlyError(error,"performance");setHidden(elements.workspaceError,false);}
+    } finally { performanceOpening=false; }
+}
+document.querySelector("#performance-manage").onclick=openPerformanceProject;
+document.querySelector(".performance-picker-action").onclick=openPerformanceProject;

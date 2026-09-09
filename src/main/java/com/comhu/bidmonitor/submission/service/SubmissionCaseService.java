@@ -141,7 +141,7 @@ public class SubmissionCaseService {
     }
 
     public record ProjectSummary(Long id, Long projectId, String projectName, String organizationName,
-                                 long prepared, long total, Instant updatedAt) { }
+                                 long prepared, long total, Instant updatedAt, java.time.LocalDate deadline) { }
 
     @Transactional(readOnly = true)
     public List<ProjectSummary> projects() {
@@ -154,10 +154,32 @@ public class SubmissionCaseService {
                     && caseRepository.performanceMissing(performance) == 0;
             long ready = requirements.stream().filter(r -> requiresPerformanceSelection(r) ? performanceReady : selected.contains(r.getId())).count();
             return new ProjectSummary(value.getId(), value.getProjectId(), value.getProjectName(),
-                    value.getProjectId() == null ? null : value.getOrganizationName(), ready, requirements.size(), value.getUpdatedAt());
+                    value.getProjectId() == null ? null : value.getOrganizationName(), ready, requirements.size(), value.getUpdatedAt(), value.getDeadline());
         }).toList();
     }
 
+    @Transactional
+    public SubmissionCase createProject(String name, Long pmsId, List<ManualRequirement> requirements, java.time.LocalDate deadline) {
+        if (deadline == null) throw new IllegalArgumentException("마감일을 입력하세요.");
+        var created = createProject(name, pmsId, requirements).toBuilder().deadline(deadline).build();
+        caseRepository.update(created);
+        return get(created.getId());
+    }
+
+    @Transactional
+    public SubmissionCase updateProject(Long id, String name, boolean changePerformance, String performanceId,
+                                        boolean initializeOnly, boolean changeDeadline, java.time.LocalDate deadline) {
+        if (changeDeadline && deadline == null) throw new IllegalArgumentException("마감일을 입력하세요.");
+        var updated = updateProject(id, name, changePerformance, performanceId, initializeOnly);
+        if (changeDeadline) caseRepository.update(updated.toBuilder().deadline(deadline).build());
+        return get(id);
+    }
+
+    @Transactional
+    public void deleteProject(Long id) {
+        caseRepository.lock(id);
+        caseRepository.delete(id);
+    }
     @Transactional
     public SubmissionCase createProject(String name, Long pmsId, List<ManualRequirement> requirements) {
         name = projectName(name);
@@ -248,9 +270,14 @@ public class SubmissionCaseService {
         var project = caseRepository.lock(caseId);
         List<SubmissionDocumentSelection> selections = new ArrayList<>();
         Set<String> dedup = new HashSet<>();
+        var saved=selectionRepository.findBySubmissionCaseId(caseId);
         Instant selectedAt = clock.instant();
 
         for (SelectionChoice choice : choices == null ? List.<SelectionChoice>of() : choices) {
+            if(choice!=null && choice.requirementId()!=null && choice.fileId()==null) {
+                var local=saved.stream().filter(item->choice.requirementId().equals(item.getRequirementId()) && item.getUploadedFileId()!=null).findFirst();
+                if(local.isPresent()){if(dedup.add(choice.requirementId()+":local"))selections.add(local.get());continue;}
+            }
             if (choice == null || choice.requirementId() == null || choice.fileId() == null
                     || choice.requirementId() <= 0 || choice.fileId() <= 0) {
                 throw new InvalidSubmissionSelectionException("요구서류 ID와 파일 ID는 양수여야 합니다.");
@@ -360,7 +387,7 @@ public class SubmissionCaseService {
 
     private boolean requiresPerformanceSelection(SubmissionDocumentRequirement requirement) {
         return requirement.getCategory() == RequirementCategory.PERFORMANCE
-                && "실적증명서".equals(requirement.getDocumentName().trim());
+                && ("실적증명서".equals(requirement.getDocumentName().trim()) || "PERFORMANCE".equals(requirement.getSourceReference()));
     }
 
     public record SelectionChoice(Long requirementId, Long fileId) {

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>서류 관리 | Biz Assist</title>
+    <link rel="stylesheet" href="/common.css">
+    <link rel="stylesheet" href="/submissions/submissions.css">
+    <link rel="stylesheet" href="/documents/documents.css">
+</head>
+<body>
+<div class="app-shell">
+    <aside class="app-sidebar">
+        <a class="app-brand" href="/" aria-label="Biz Assist 홈">
+            <span class="app-brand-mark" aria-hidden="true">BA</span>
+            <span><strong>Biz Assist</strong><small>경영지원 업무지원</small></span>
+        </a>
+        <nav class="app-nav" aria-label="주요 메뉴">
+            <a class="app-nav-link" href="/">홈</a>
+            <a class="app-nav-link" href="/bids/">입찰공고</a>
+            <a class="app-nav-link" href="/notices/">외부 중요공지</a>
+            <a class="app-nav-link" href="/notifications/">알림 관리</a>
+            <a class="app-nav-link" href="/submissions/">서류 모으기</a>
+            <a class="app-nav-link active" href="/documents/" aria-current="page">서류 관리</a>
+        </nav>
+        <p class="app-sidebar-description">경영지원에 필요한 정보를 한곳에서 확인하세요.</p>
+    </aside>
+
+    <main class="app-main">
+        <header class="submission-topbar" aria-label="현재 위치">
+            <span>Biz Assist</span><span aria-hidden="true">/</span><strong>서류 관리</strong>
+        </header>
+        <div class="page-container submission-page">
+            <header class="page-header page-heading">
+                <span class="page-eyebrow">SUBMISSION</span>
+                <h1>서류 관리</h1>
+                <p>회사 공통서류의 현재 파일을 등록하고 교체합니다.</p>
+            </header>
+
+
+            <section class="surface-card document-create"><h2>회사 공통서류 추가</h2>
+                <form id="document-create-form"><label>서류명 <input name="name" maxlength="200" required></label><span class="count-badge">회사 공통</span><button class="ui-button ui-button-primary" type="submit">서류 추가</button></form>
+            </section>
+            <p id="documents-message" role="status"></p>
+            <section id="document-cards" class="documents-grid" aria-label="회사 공통서류"></section>
+        </div>
+    </main>
+</div>
+<script src="/documents/documents.js"></script>
+</body></html>

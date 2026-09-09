@@ -314,3 +314,55 @@ ALTER TABLE submission_case ADD COLUMN IF NOT EXISTS organization_name VARCHAR(2
 ALTER TABLE submission_case ADD COLUMN IF NOT EXISTS performance_project_id VARCHAR(36)
     REFERENCES performance_project(id);
 ALTER TABLE submission_case ADD COLUMN IF NOT EXISTS performance_link_initialized BOOLEAN NOT NULL DEFAULT FALSE;
+-- Existing projects retain an unset deadline until edited; new project API requires it.
+ALTER TABLE submission_case ADD COLUMN IF NOT EXISTS deadline DATE;
+-- Independent catalog; no FK from project requirements or selections.
+CREATE TABLE IF NOT EXISTS submission_document_master (
+    id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    category VARCHAR(32) NOT NULL CHECK (category IN ('COMPANY_COMMON','PERSONNEL','PERFORMANCE','OTHER')),
+    requirement_category VARCHAR(32) NOT NULL,
+    source_reference VARCHAR(100) NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 1000,
+    active BOOLEAN NOT NULL DEFAULT TRUE
+);
+INSERT INTO submission_document_master(id,name,category,requirement_category,source_reference,sort_order) SELECT 'BUSINESS_REGISTRATION','사업자등록증','COMPANY_COMMON','COMPANY_GENERAL','BUSINESS_REGISTRATION',0 WHERE NOT EXISTS (SELECT 1 FROM submission_document_master WHERE id='BUSINESS_REGISTRATION');
+INSERT INTO submission_document_master(id,name,category,requirement_category,source_reference,sort_order) SELECT 'BID_PARTICIPATION_REGISTRATION','경쟁입찰참가자격등록증','COMPANY_COMMON','COMPANY_GENERAL','BID_PARTICIPATION_REGISTRATION',1 WHERE NOT EXISTS (SELECT 1 FROM submission_document_master WHERE id='BID_PARTICIPATION_REGISTRATION');
+INSERT INTO submission_document_master(id,name,category,requirement_category,source_reference,sort_order) SELECT 'CORPORATE_REGISTRY','법인등기사항전부증명서','COMPANY_COMMON','COMPANY_GENERAL','CORPORATE_REGISTRY',2 WHERE NOT EXISTS (SELECT 1 FROM submission_document_master WHERE id='CORPORATE_REGISTRY');
+INSERT INTO submission_document_master(id,name,category,requirement_category,source_reference,sort_order) SELECT 'CORPORATE_SEAL_CERTIFICATE','법인인감증명서','COMPANY_COMMON','COMPANY_GENERAL','CORPORATE_SEAL_CERTIFICATE',3 WHERE NOT EXISTS (SELECT 1 FROM submission_document_master WHERE id='CORPORATE_SEAL_CERTIFICATE');
+INSERT INTO submission_document_master(id,name,category,requirement_category,source_reference,sort_order) SELECT 'PIA_INSTITUTION_CERTIFICATE','개인정보 영향평가 기관 인증서','COMPANY_COMMON','CERTIFICATION_LICENSE','PIA_INSTITUTION_CERTIFICATE',4 WHERE NOT EXISTS (SELECT 1 FROM submission_document_master WHERE id='PIA_INSTITUTION_CERTIFICATE');
+INSERT INTO submission_document_master(id,name,category,requirement_category,source_reference,sort_order) SELECT 'AUDIT_CORPORATION_REGISTRATION','감리법인등록증','COMPANY_COMMON','CERTIFICATION_LICENSE','AUDIT_CORPORATION_REGISTRATION',5 WHERE NOT EXISTS (SELECT 1 FROM submission_document_master WHERE id='AUDIT_CORPORATION_REGISTRATION');
+INSERT INTO submission_document_master(id,name,category,requirement_category,source_reference,sort_order) SELECT 'SMALL_BUSINESS_CERTIFICATE','중소기업확인서','COMPANY_COMMON','CERTIFICATION_LICENSE','SMALL_BUSINESS_CERTIFICATE',6 WHERE NOT EXISTS (SELECT 1 FROM submission_document_master WHERE id='SMALL_BUSINESS_CERTIFICATE');
+INSERT INTO submission_document_master(id,name,category,requirement_category,source_reference,sort_order) SELECT 'WOMEN_OWNED_BUSINESS_CERTIFICATE','여성기업확인서','COMPANY_COMMON','CERTIFICATION_LICENSE','WOMEN_OWNED_BUSINESS_CERTIFICATE',7 WHERE NOT EXISTS (SELECT 1 FROM submission_document_master WHERE id='WOMEN_OWNED_BUSINESS_CERTIFICATE');
+INSERT INTO submission_document_master(id,name,category,requirement_category,source_reference,sort_order) SELECT 'STARTUP_BUSINESS_CERTIFICATE','창업기업확인서','COMPANY_COMMON','CERTIFICATION_LICENSE','STARTUP_BUSINESS_CERTIFICATE',8 WHERE NOT EXISTS (SELECT 1 FROM submission_document_master WHERE id='STARTUP_BUSINESS_CERTIFICATE');
+INSERT INTO submission_document_master(id,name,category,requirement_category,source_reference,sort_order) SELECT 'CREDIT_RATING_CERTIFICATE','신용평가등급확인서','COMPANY_COMMON','FINANCIAL','CREDIT_RATING_CERTIFICATE',9 WHERE NOT EXISTS (SELECT 1 FROM submission_document_master WHERE id='CREDIT_RATING_CERTIFICATE');
+INSERT INTO submission_document_master(id,name,category,requirement_category,source_reference,sort_order) SELECT 'SOFTWARE_BUSINESS_STATUS_CERTIFICATE','소프트웨어사업자 일반현황 관리확인서','COMPANY_COMMON','CERTIFICATION_LICENSE','SOFTWARE_BUSINESS_STATUS_CERTIFICATE',10 WHERE NOT EXISTS (SELECT 1 FROM submission_document_master WHERE id='SOFTWARE_BUSINESS_STATUS_CERTIFICATE');
+INSERT INTO submission_document_master(id,name,category,requirement_category,source_reference,sort_order) SELECT 'DIRECT_PRODUCTION_CERTIFICATE','직접생산확인증명서','COMPANY_COMMON','CERTIFICATION_LICENSE','DIRECT_PRODUCTION_CERTIFICATE',11 WHERE NOT EXISTS (SELECT 1 FROM submission_document_master WHERE id='DIRECT_PRODUCTION_CERTIFICATE');
+INSERT INTO submission_document_master(id,name,category,requirement_category,source_reference,sort_order) SELECT 'EMPLOYMENT','재직증명서','PERSONNEL','PERSONNEL','EMPLOYMENT',12 WHERE NOT EXISTS (SELECT 1 FROM submission_document_master WHERE id='EMPLOYMENT');
+INSERT INTO submission_document_master(id,name,category,requirement_category,source_reference,sort_order) SELECT 'QUALIFICATION','자격증','PERSONNEL','CERTIFICATION_LICENSE','QUALIFICATION',13 WHERE NOT EXISTS (SELECT 1 FROM submission_document_master WHERE id='QUALIFICATION');
+INSERT INTO submission_document_master(id,name,category,requirement_category,source_reference,sort_order) SELECT 'KOSA_CAREER','KOSA 경력증명서','PERSONNEL','PERSONNEL','KOSA_CAREER',14 WHERE NOT EXISTS (SELECT 1 FROM submission_document_master WHERE id='KOSA_CAREER');
+INSERT INTO submission_document_master(id,name,category,requirement_category,source_reference,sort_order) SELECT 'GRADUATION','졸업증명서','PERSONNEL','PERSONNEL','GRADUATION',15 WHERE NOT EXISTS (SELECT 1 FROM submission_document_master WHERE id='GRADUATION');
+INSERT INTO submission_document_master(id,name,category,requirement_category,source_reference,sort_order) SELECT 'PERFORMANCE','실적증명서','PERFORMANCE','PERFORMANCE','PERFORMANCE',16 WHERE NOT EXISTS (SELECT 1 FROM submission_document_master WHERE id='PERFORMANCE');
+
+-- Biz Assist-owned uploads: UUID references are independent of company file IDs.
+CREATE TABLE IF NOT EXISTS submission_uploaded_file (
+    id VARCHAR(36) PRIMARY KEY,
+    original_filename VARCHAR(2000) NOT NULL,
+    size_bytes BIGINT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+ALTER TABLE submission_common_document ADD COLUMN IF NOT EXISTS uploaded_file_id VARCHAR(36) REFERENCES submission_uploaded_file(id);
+ALTER TABLE submission_document_selection ALTER COLUMN file_id DROP NOT NULL;
+ALTER TABLE submission_document_selection ALTER COLUMN file_public_id DROP NOT NULL;
+ALTER TABLE submission_document_selection ADD COLUMN IF NOT EXISTS uploaded_file_id VARCHAR(36) REFERENCES submission_uploaded_file(id);
+
+ALTER TABLE submission_common_document DROP CONSTRAINT IF EXISTS ck_common_document_file_reference;
+ALTER TABLE submission_common_document ADD CONSTRAINT IF NOT EXISTS ck_common_document_current_reference CHECK (
+    (uploaded_file_id IS NOT NULL AND file_id IS NULL AND file_public_id IS NULL AND original_filename IS NOT NULL)
+    OR (uploaded_file_id IS NULL AND ((file_id IS NULL AND file_public_id IS NULL AND original_filename IS NULL)
+        OR (file_id IS NOT NULL AND file_public_id IS NOT NULL AND original_filename IS NOT NULL)))
+);
+ALTER TABLE submission_document_selection ADD CONSTRAINT IF NOT EXISTS ck_submission_selection_source CHECK (
+    (uploaded_file_id IS NOT NULL AND file_id IS NULL AND file_public_id IS NULL)
+    OR (uploaded_file_id IS NULL AND file_id IS NOT NULL AND file_public_id IS NOT NULL)
+);

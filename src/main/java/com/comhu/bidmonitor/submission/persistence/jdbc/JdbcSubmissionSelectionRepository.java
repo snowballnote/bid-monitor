@@ -19,7 +19,7 @@ public class JdbcSubmissionSelectionRepository implements SubmissionSelectionRep
 
     private static final String COLUMNS = """
             id, submission_case_id, requirement_id, file_id, file_public_id,
-            original_filename, file_ext, file_modified_at, file_updated_at, selected_at
+            original_filename, file_ext, file_modified_at, file_updated_at, selected_at, uploaded_file_id
             """;
 
     private final JdbcTemplate jdbcTemplate;
@@ -43,12 +43,12 @@ public class JdbcSubmissionSelectionRepository implements SubmissionSelectionRep
                 var statement = connection.prepareStatement("""
                         INSERT INTO submission_document_selection (
                             submission_case_id, requirement_id, file_id, file_public_id,
-                            original_filename, file_ext, file_modified_at, file_updated_at, selected_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            original_filename, file_ext, file_modified_at, file_updated_at, selected_at, uploaded_file_id
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """);
                 statement.setLong(1, submissionCaseId);
                 statement.setLong(2, selection.getRequirementId());
-                statement.setLong(3, selection.getFileId());
+                statement.setObject(3, selection.getFileId(), java.sql.Types.BIGINT);
                 statement.setString(4, selection.getFilePublicId() == null
                         ? null : selection.getFilePublicId().toString());
                 statement.setString(5, selection.getOriginalFilename());
@@ -56,6 +56,7 @@ public class JdbcSubmissionSelectionRepository implements SubmissionSelectionRep
                 setTimestamp(statement, 7, selection.getFileModifiedAt());
                 setTimestamp(statement, 8, selection.getFileUpdatedAt());
                 statement.setTimestamp(9, Timestamp.from(selection.getSelectedAt()));
+                statement.setString(10,selection.getUploadedFileId());
                 return statement;
             });
         }
@@ -79,7 +80,8 @@ public class JdbcSubmissionSelectionRepository implements SubmissionSelectionRep
                 .id(resultSet.getLong("id"))
                 .submissionCaseId(resultSet.getLong("submission_case_id"))
                 .requirementId(resultSet.getLong("requirement_id"))
-                .fileId(resultSet.getLong("file_id"))
+                .fileId(resultSet.getObject("file_id",Long.class))
+                .uploadedFileId(resultSet.getString("uploaded_file_id"))
                 .filePublicId(toUuid(resultSet.getString("file_public_id")))
                 .originalFilename(resultSet.getString("original_filename"))
                 .fileExt(resultSet.getString("file_ext"))

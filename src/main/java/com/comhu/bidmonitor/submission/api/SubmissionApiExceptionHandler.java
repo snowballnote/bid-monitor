@@ -12,7 +12,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice(assignableTypes = {
         SubmissionCaseController.class,
         SubmissionProjectController.class,
-        CommonSubmissionDocumentController.class
+        CommonSubmissionDocumentController.class,
+        SubmissionDocumentMasterController.class
 })
 public class SubmissionApiExceptionHandler {
 

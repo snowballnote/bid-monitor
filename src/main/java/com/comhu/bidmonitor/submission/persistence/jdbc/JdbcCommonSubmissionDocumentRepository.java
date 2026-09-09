@@ -22,7 +22,7 @@ public class JdbcCommonSubmissionDocumentRepository implements CommonSubmissionD
     private static final String COLUMNS = """
             document_type, display_name, file_id, file_public_id, original_filename, file_ext,
             issued_at, expires_at, refresh_policy, refresh_interval_months, active,
-            created_at, updated_at
+            created_at, updated_at, uploaded_file_id
             """;
 
     private final JdbcTemplate jdbcTemplate;
@@ -34,7 +34,7 @@ public class JdbcCommonSubmissionDocumentRepository implements CommonSubmissionD
     @Override
     public List<CommonSubmissionDocument> findAllActive() {
         return jdbcTemplate.query(
-                "SELECT " + COLUMNS + " FROM submission_common_document WHERE active = TRUE ORDER BY document_type",
+                "SELECT " + COLUMNS + " FROM submission_common_document WHERE active = TRUE AND document_type NOT LIKE 'MASTER_%' ORDER BY document_type",
                 this::map
         );
     }
@@ -53,7 +53,7 @@ public class JdbcCommonSubmissionDocumentRepository implements CommonSubmissionD
         int updated = jdbcTemplate.update(
                 """
                         UPDATE submission_common_document
-                        SET file_id = ?, file_public_id = ?, original_filename = ?, file_ext = ?,
+                        SET uploaded_file_id = NULL, file_id = ?, file_public_id = ?, original_filename = ?, file_ext = ?,
                             issued_at = ?, expires_at = ?, updated_at = ?
                         WHERE document_type = ? AND active = TRUE
                         """,
@@ -80,6 +80,7 @@ public class JdbcCommonSubmissionDocumentRepository implements CommonSubmissionD
                 .documentType(CommonDocumentType.valueOf(resultSet.getString("document_type")))
                 .displayName(resultSet.getString("display_name"))
                 .fileId(resultSet.getObject("file_id", Long.class))
+                .uploadedFileId(resultSet.getString("uploaded_file_id"))
                 .filePublicId(publicId == null ? null : UUID.fromString(publicId))
                 .originalFilename(resultSet.getString("original_filename"))
                 .fileExt(resultSet.getString("file_ext"))
