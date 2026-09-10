@@ -9,7 +9,7 @@ public final class PerformanceModels {
 
     public enum BusinessStatus { COMPLETED, IN_PROGRESS }
     public enum EvidenceType {
-        CERTIFICATE("실적증명서"), CONTRACT("계약서");
+        CERTIFICATE("실적증명서"), CONTRACT("계약서"), TAX_INVOICE("세금계산서");
         public final String label;
         EvidenceType(String label) { this.label = label; }
     }
@@ -33,8 +33,21 @@ public final class PerformanceModels {
                     selectedFileId, evidenceType, kitcStatus, requestedAt, repliedAt, null);
         }
     }
+    public record EvidenceSelection(int slot, Long selectedFileId, String selectedDriveFileId,
+                                    String selectedUploadedFileId, EvidenceType evidenceType,
+                                    String filename, String ext) { }
+    public record EvidenceInput(Long selectedFileId, String selectedDriveFileId,
+                                String selectedUploadedFileId, EvidenceType evidenceType) { }
     public record Entry(String id, String projectId, EntryInput info, String selectedFilename,
-                        String selectedExt, BusinessStatus resolvedStatus) { }
+                        String selectedExt, BusinessStatus resolvedStatus, List<EvidenceSelection> evidenceFiles) {
+        public Entry(String id, String projectId, EntryInput info, String selectedFilename,
+                     String selectedExt, BusinessStatus resolvedStatus) {
+            this(id, projectId, info, selectedFilename, selectedExt, resolvedStatus,
+                    info.evidenceType() == null ? List.of() : List.of(new EvidenceSelection(1,
+                            info.selectedFileId(), info.selectedDriveFileId(), info.selectedUploadedFileId(),
+                            info.evidenceType(), selectedFilename, selectedExt)));
+        }
+    }
     public record PasteInput(String text, String html) { }
     public record RowError(int row, List<String> cells, String message) { }
     public record ParsedRow(int row, List<String> cells, String error) { }
