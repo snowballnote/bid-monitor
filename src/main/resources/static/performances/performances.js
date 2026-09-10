@@ -25,11 +25,12 @@ function updateReturnLink() {
 }
 function updateEntrySummary() {
     const entries = [...entriesById.values()];
-    const processed = entries.filter(entry => entry.info.selectedDriveFileId != null).length;
+    const processed = entries.filter(entry => (entry.info.selectedDriveFileId != null || entry.info.selectedFileId != null)).length;
     $('#entry-summary').textContent = entries.length
         ? entries.length + '건 중 ' + processed + '건 처리 / ' + (entries.length - processed) + '건 미처리'
         : '등록된 실적 없음';
     $('#entries-empty').hidden = entries.length !== 0;
+    $('#entries-table-wrap').hidden = entries.length === 0;
     $('#download').disabled = processed === 0;
 }
 function showCreateProject(visible) {
@@ -113,10 +114,11 @@ async function openProject(id) {
     $('#project-title').textContent = project.name;
     $('#edit-project').elements.name.value = project.name;
     $('#edit-project').elements.deadline.value = project.deadline;
-    $('#entries').replaceChildren(...entries.map(renderEntry));
+    $('#entries').querySelectorAll('tbody').forEach(body => body.remove());
+    $('#entries').append(...entries.map(entry => renderEntry(entry)));
 }
 function evidencePresentation(entry, recommendedFiles = null) {
-    if (entry.info.selectedDriveFileId != null) {
+    if ((entry.info.selectedDriveFileId != null || entry.info.selectedFileId != null)) {
         return { label: '선택 완료', tone: 'complete', detail: '저장된 FMS 증빙파일이 연결되어 있습니다.' };
     }
     if (recommendedFiles === null) {
@@ -127,117 +129,104 @@ function evidencePresentation(entry, recommendedFiles = null) {
     }
     return { label: 'KITC 요청 필요', tone: 'attention', detail: 'FMS 검색 결과 연결할 증빙 후보가 없습니다.' };
 }
-function renderEntry(entry) {
-    const section = el('section'); section.className = 'performance-entry surface-card';
-    const heading = el('h3', entry.info.pptNumber + '. ' + entry.info.businessName);
-    const statusLine = el('div'); statusLine.className = 'entry-statuses';
-    const business = el('span', '사업 상태 · ' + (entry.resolvedStatus === 'COMPLETED' ? '수행완료' : '수행중'));
-    business.className = 'entry-business-status';
-    const evidence = el('span');
-    evidence.setAttribute('role', 'status');
-    evidence.setAttribute('aria-live', 'polite');
-    function renderEvidenceStatus(recommendedFiles = null) {
+function renderEntry(entry, expanded = false) {
+    const info = entry.info;
+    const body = el('tbody');body.className = 'performance-entry';body.dataset.entryId = entry.id;
+    const row = el('tr');row.className = 'entry-summary-row';
+    row.append(el('td', info.pptNumber), el('td', info.businessName), el('td', info.businessPeriod), el('td', info.client), el('td', info.contractAmount));
+    const evidence = el('span');evidence.setAttribute('role', 'status');
+    const statusCell = el('td');statusCell.append(evidence);
+    const fileCell = el('td');fileCell.append(el('small', entry.selectedFilename || '—'));
+    const toggle = el('button', '파일 관리');toggle.type = 'button';toggle.classList.add('entry-toggle');
+    toggle.setAttribute('aria-label', info.pptNumber + '. ' + info.businessName + ' 파일 관리');
+    const detail = el('tr');detail.className = 'entry-detail-row';detail.hidden = !expanded;detail.id = 'entry-detail-' + entry.id;
+    toggle.setAttribute('aria-controls', detail.id);toggle.setAttribute('aria-expanded', String(expanded));
+    const detailCell = el('td');detailCell.colSpan = 7;
+    const panel = el('section');panel.className = 'entry-detail';panel.setAttribute('aria-label', '증빙 파일 관리');
+    panel.append(el('h3', '증빙 파일 관리'));
+    const current = el('p', '현재 지정 파일: ' + (entry.selectedFilename || '없음'));current.className = 'current-evidence-file';panel.append(current);
+    const columns = el('div');columns.className = 'file-management-columns';
+    const fms = el('section');fms.append(el('h4', 'FMS 후보 파일'));
+    const candidates = el('div');candidates.className = 'candidates';fms.append(candidates);
+    const upload = el('section');upload.className = 'local-file-unavailable';
+    upload.append(el('h4', 'KITC 파일 등록'), el('p', '현재 PC 파일 등록은 지원되지 않습니다.'));
+    upload.hidden = true;
+    columns.append(fms, upload);panel.append(columns);
+    const message = el('p');message.className = 'file-management-message';message.setAttribute('role', 'status');panel.append(message);
+    const actions = el('div');actions.className = 'actions';
+    const save = el('button', '지정 파일 저장');save.type = 'button';save.className = 'ui-button ui-button-primary';
+    const search = el('button', '후보 추천');search.type = 'button';
+    const clear = el('button', '연결 해제');clear.type = 'button';
+    let driveFileId = info.selectedDriveFileId || null, fileId = info.selectedFileId || null, evidenceType = info.evidenceType || null;
+    let recommendedFiles = null;
+    function renderStatus() {
         const status = evidencePresentation(entry, recommendedFiles);
         evidence.className = 'entry-evidence-status requirement-state ' + status.tone;
-        evidence.textContent = '증빙 상태 · ' + status.label;
+        evidence.textContent = (info.selectedDriveFileId || info.selectedFileId) ? '준비 완료' : status.label;
         evidence.title = status.detail;
     }
-    renderEvidenceStatus();
-    statusLine.append(business, evidence);
-    section.append(heading, statusLine);
-    const form = el('form'); form.className = 'entry-form';
-    const info = entry.info;
-    field(form, 'pptNumber', 'PPT 번호', info.pptNumber, 'text', null, true, 100);
-    field(form, 'businessName', '사업명', info.businessName, 'text', null, true, 1000);
-    field(form, 'businessPeriod', '사업기간', info.businessPeriod, 'text', null, true, 500);
-    field(form, 'contractAmount', '계약금액 (원문 유지)', info.contractAmount, 'text', null, true, 200);
-    field(form, 'client', '발주처', info.client, 'text', null, true, 500);
-    field(form, 'businessStatus', '사업 상태', info.businessStatus, 'text',
-        [['', '기간으로 자동 판정'], ['COMPLETED', '수행완료'], ['IN_PROGRESS', '수행중']]);
-    const driveFile = el('input'); driveFile.type = 'hidden'; driveFile.name = 'selectedDriveFileId';
-    driveFile.value = info.selectedDriveFileId || ''; form.append(driveFile);
-    const evidenceType = el('input'); evidenceType.type = 'hidden'; evidenceType.name = 'evidenceType';
-    evidenceType.value = info.selectedDriveFileId ? info.evidenceType : ''; form.append(evidenceType);
-    const typeLabel = el('p');
-    function showType() {
-        typeLabel.textContent = '증빙유형: ' + ({ CERTIFICATE: '실적증명서', CONTRACT: '계약서' }[evidenceType.value] || '미선택');
+    renderStatus();
+    function renderChoices() {
+        candidates.replaceChildren();
+        for (const candidate of (recommendedFiles || []).filter(candidate => candidate.file.driveFileId)) {
+            const label = el('label');label.className = 'file-candidate-option';
+            const radio = el('input');radio.type = 'radio';radio.name = 'evidence-' + entry.id;
+            radio.checked = driveFileId === candidate.file.driveFileId;
+            radio.onchange = () => {
+                driveFileId = candidate.file.driveFileId;fileId = null;evidenceType = candidate.evidenceType;
+                message.textContent = '후보를 선택했습니다. 저장하면 지정 파일이 변경됩니다.';
+            };
+            label.append(radio, el('span', candidate.file.originalFilename + ' · ' + candidate.reason));candidates.append(label);
+        }
+        if (!candidates.children.length) candidates.append(el('p', '연결할 FMS 후보 파일이 없습니다.'));
+        upload.hidden = Boolean(candidates.querySelector('input'));
     }
-    showType(); form.append(typeLabel);
-    const kitc = field(form, 'kitcStatus', 'KITC 상태', info.kitcStatus, 'text',
-        [['NEEDED', '요청 필요'], ['REQUESTED', '요청함'], ['RECEIVED', '회신받음']]);
-    const requestedAt = field(form, 'requestedAt', '요청일 (직접 입력)', info.requestedAt, 'date');
-    const repliedAt = field(form, 'repliedAt', '회신일 (직접 입력)', info.repliedAt, 'date');
-    function showKitcDates() {
-        requestedAt.parentElement.hidden = kitc.value === 'NEEDED';
-        repliedAt.parentElement.hidden = kitc.value !== 'RECEIVED';
-        requestedAt.required = kitc.value !== 'NEEDED';
-        repliedAt.required = kitc.value === 'RECEIVED';
-    }
-    kitc.addEventListener('change', showKitcDates);
-    showKitcDates();
-    const actions = el('div'); actions.className = 'actions';
-    const save = el('button', '실적·파일·KITC 저장'); save.type = 'submit'; save.className = 'ui-button ui-button-primary';
-    const search = el('button', '저장된 실적으로 후보 추천'); search.type = 'button';
-    const clear = el('button', '파일 연결 해제'); clear.type = 'button';
-    const selected = el('p', '저장된 파일: ' + (entry.selectedFilename || '선택하지 않음'));
-    const candidates = el('div'); candidates.className = 'candidates';
-    clear.onclick = () => {
-        driveFile.value = ''; evidenceType.value = ''; showType();
-        $('#message').textContent = '연결 해제는 저장 버튼을 누르면 반영됩니다.';
-    };
     const searchProjectId = entry.projectId || projectId;
     async function searchCandidates() {
         if (search.disabled) return;
         search.disabled = true;
-        candidates.replaceChildren(el('p', '인덱스 후보 검색 중…'));
-        evidence.className = 'entry-evidence-status requirement-state';
-        evidence.textContent = '증빙 상태 · 검색 중';
+        candidates.replaceChildren(el('p', 'FMS 후보 검색 중…'));
+        evidence.textContent = (info.selectedDriveFileId || info.selectedFileId) ? '준비 완료' : '검색 중';
         try {
             const result = await api('/' + encodeURIComponent(searchProjectId) + '/entries/' + encodeURIComponent(entry.id) + '/candidates');
             if (!Array.isArray(result.candidates)) throw new Error('FMS 후보 응답 형식을 확인하세요.');
-            renderEvidenceStatus(result.candidates);
-            candidates.replaceChildren(el('p', result.nextAction));
-            for (const candidate of result.candidates.filter(candidate => candidate.file.driveFileId)) {
-                const button = el('button', candidate.file.originalFilename + ' · ' + candidate.reason);
-                button.type = 'button';
-                button.onclick = () => {
-                    driveFile.value = candidate.file.driveFileId || '';
-
-                    evidenceType.value = candidate.evidenceType; showType();
-                    $('#message').textContent = '후보를 지정했습니다. 저장 버튼을 눌러 최종 선택을 저장하세요.';
-                };
-                candidates.append(button);
-            }
+            recommendedFiles = result.candidates;renderChoices();renderStatus();
         } catch (error) {
-            evidence.className = 'entry-evidence-status requirement-state attention';
-            evidence.textContent = '증빙 상태 · 검색 오류';
-            evidence.title = error.message;
             candidates.replaceChildren(el('p', error.message + ' · 후보 추천 버튼으로 재시도하세요.'));
-            $('#message').textContent = error.message;
+            evidence.textContent = (info.selectedDriveFileId || info.selectedFileId) ? '준비 완료' : '검색 오류';
+            message.textContent = error.message;
         } finally { search.disabled = false; }
     }
     search.onclick = searchCandidates;
-    candidateSearches.set(section, searchCandidates);
-    form.onsubmit = event => {
-        event.preventDefault();
-        action(save, async () => {
-            const data = Object.fromEntries(new FormData(form));
-            for (const key of ['businessStatus', 'selectedDriveFileId', 'evidenceType', 'requestedAt', 'repliedAt']) {
-                data[key] = data[key] || null;
-            }
-            if (kitc.value === 'NEEDED') data.requestedAt = null;
-            if (kitc.value !== 'RECEIVED') data.repliedAt = null;
-            const updated = await api('/' + projectId + '/entries/' + entry.id,
-                { method: 'PUT', body: JSON.stringify(data) });
-            entriesById.set(updated.id, updated);
-            section.replaceWith(renderEntry(updated));
-            await loadProjects();
-            $('#message').textContent = '저장했습니다.';
-        });
+    clear.onclick = () => {
+        driveFileId = null;fileId = null;evidenceType = null;
+        candidates.querySelectorAll('input').forEach(input => input.checked = false);
+        message.textContent = '연결 해제는 지정 파일 저장을 누르면 반영됩니다.';
     };
-    actions.append(save, search, clear); form.append(actions);
-    section.append(form, selected, candidates);
-    return section;
+    save.onclick = () => action(save, async () => {
+        search.disabled = true;clear.disabled = true;candidates.querySelectorAll('input').forEach(input => input.disabled = true);
+        message.textContent = '';
+        try {
+            const data = {...info, selectedDriveFileId:driveFileId, selectedFileId:fileId, evidenceType};
+            const updated = await api('/' + encodeURIComponent(searchProjectId) + '/entries/' + encodeURIComponent(entry.id), {method:'PUT', body:JSON.stringify(data)});
+            if (!body.isConnected || projectId !== searchProjectId) return;
+            entriesById.set(updated.id, updated);
+            const replacement = renderEntry(updated, !detail.hidden);body.replaceWith(replacement);
+            updateEntrySummary();await loadProjects();
+            $('#message').textContent = '지정 파일을 저장했습니다.';
+        } catch (error) {message.textContent = error.message;}
+        finally {search.disabled = false;clear.disabled = false;candidates.querySelectorAll('input').forEach(input => input.disabled = false);}
+    });
+    actions.append(save, search, clear);panel.append(actions);detailCell.append(panel);detail.append(detailCell);
+    const toggleDetail = () => {
+        detail.hidden = !detail.hidden;toggle.setAttribute('aria-expanded', String(!detail.hidden));
+        if (!detail.hidden && recommendedFiles === null) searchCandidates();
+    };
+    toggle.onclick = event => {event.stopPropagation();toggleDetail();};row.onclick = toggleDetail;
+    fileCell.append(toggle);row.append(statusCell, fileCell);body.append(row, detail);
+    candidateSearches.set(body, searchCandidates);
+    if (expanded) queueMicrotask(() => {if (body.isConnected) searchCandidates();});
+    return body;
 }
 function appendImportedEntries(entries) {
     for (const entry of entries) {
@@ -294,14 +283,76 @@ $('#edit-project').onsubmit = event => {
         $('#message').textContent = '프로젝트를 저장했습니다.';
     });
 };
+function clipboardTableRows(html) {
+    const template = document.createElement('template');template.innerHTML = html;
+    const table = template.content.querySelector('table');
+    if (!table) return [];
+    return [...table.rows].map(row => ({
+        cells: [...row.cells].map(cell => {
+            const content = cell.cloneNode(true);
+            content.querySelectorAll('script, style').forEach(node => node.remove());
+            content.querySelectorAll('br').forEach(node => node.replaceWith('\n'));
+            content.querySelectorAll('p, div').forEach(node => node.append('\n'));
+            return content.textContent.replace(/\u00a0/g, ' ').trim();
+        }),
+        merged: [...row.cells].some(cell => cell.colSpan > 1 || cell.rowSpan > 1)
+    }));
+}
+function textTableRows(text) {
+    const rows = [];let cells = [], value = '', quoted = false;
+    const input = text.replace(/\r\n?/g, '\n');
+    for (let i = 0; i < input.length; i++) {
+        const char = input[i];
+        if (char === '"' && (quoted || !value)) {
+            if (quoted && input[i + 1] === '"') {value += '"';i++;}
+            else quoted = !quoted;
+        } else if (!quoted && (char === '\t' || char === '\n')) {
+            cells.push(value);value = '';
+            if (char === '\n') {rows.push({cells});cells = [];}
+        } else value += char;
+    }
+    cells.push(value);rows.push({cells, malformed:quoted});
+    return rows;
+}
+function tableText(rows) {
+    return rows.map(row => row.cells.map(value => /[\t\n"]/.test(value) ? '"' + value.replaceAll('"', '""') + '"' : value).join('\t')).join('\n');
+}
+function renderPastePreview() {
+    const rows = clipboardHtml ? clipboardTableRows(clipboardHtml) : textTableRows($('#paste-table').value);
+    const body = $('#paste-preview-rows');body.replaceChildren();
+    let count = 0, errors = 0;
+    for (const row of rows) {
+        const cells = row.cells.map(value => value.trim());
+        if (cells.every(value => !value)) continue;
+        const compact = cells.map(value => value.replace(/\s/g, ''));
+        if (['번호', '순번', 'No', 'No.'].includes(compact[0]) && compact[1] === '사업명') continue;
+        const invalid = cells.length !== 5 || cells.some(value => !value) || row.merged || row.malformed;
+        count++;if (invalid) errors++;
+        const item = el('tr');item.classList.toggle('paste-preview-error', Boolean(invalid));
+        for (let i = 0; i < 5; i++) {
+            const cell = el('td', (i === 4 ? cells.slice(i).join(' / ') : cells[i]) || '—');
+            if (i === 0 && invalid) {const badge = el('span', '확인 필요');badge.className = 'count-badge';cell.append(badge);}
+            item.append(cell);
+        }
+        body.append(item);
+    }
+    $('#paste-preview').hidden = count === 0;
+    $('#paste-preview-summary').textContent = count + '행 · 확인 필요 ' + errors + '행';
+}
 $('#paste-table').addEventListener('paste', event => {
     const html = event.clipboardData.getData('text/html');
+    const text = event.clipboardData.getData('text/plain');
     if (html && /<table[\s>]/i.test(html)) {
-        event.preventDefault();
-        clipboardHtml = html; event.currentTarget.value = event.clipboardData.getData('text/plain');
+        event.preventDefault();clipboardHtml = html;
+        event.currentTarget.value = text.trim() ? text : tableText(clipboardTableRows(html));
+        renderPastePreview();
+    } else if (text) {
+        event.preventDefault();clipboardHtml = '';
+        event.currentTarget.setRangeText(text, event.currentTarget.selectionStart, event.currentTarget.selectionEnd, 'end');
+        renderPastePreview();
     }
 });
-$('#paste-table').addEventListener('input', () => { clipboardHtml = ''; });
+$('#paste-table').addEventListener('input', () => { clipboardHtml = '';renderPastePreview(); });
 $('#import').onclick = () => action($('#import'), async () => {
     const result = await api('/' + projectId + '/import', {
         method: 'POST', body: JSON.stringify({ text: $('#paste-table').value, html: clipboardHtml })
@@ -309,7 +360,7 @@ $('#import').onclick = () => action($('#import'), async () => {
     appendImportedEntries(result.saved);
     $('#import-result').textContent = result.saved.length + '행 저장, ' + result.errors.length + '행 확인 필요';
     showErrors(result.errors); await loadProjects();
-    $('#paste-table').value = ''; clipboardHtml = '';
+    $('#paste-table').value = ''; clipboardHtml = '';renderPastePreview();
 });
 $('#download').onclick = () => action($('#download'), async () => {
     const response = await fetch(apiBase + '/' + projectId + '/download');

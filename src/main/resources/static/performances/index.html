@@ -89,7 +89,14 @@
                     <div class="paste-body">
                         <p id="paste-help">번호 / 사업명 / 사업기간 / 계약금액 / 발주처 순서로 붙여넣으세요. 셀 내부 줄바꿈은 유지하고, 오류 행은 따로 수정할 수 있습니다.</p>
                         <label for="paste-table">실적표</label>
-                        <textarea id="paste-table" rows="8" aria-describedby="paste-help" placeholder="PPT에서 실적표 전체 복사 → 여기에 붙여넣기"></textarea>
+                        <textarea id="paste-table" rows="3" aria-describedby="paste-help" placeholder="PPT에서 실적표 전체 복사 → 여기에 붙여넣기"></textarea>
+                        <section id="paste-preview" class="paste-preview" aria-labelledby="paste-preview-title" hidden>
+                            <h3 id="paste-preview-title">붙여넣기 미리보기</h3>
+                            <p id="paste-preview-summary" role="status" aria-live="polite"></p>
+                            <div class="paste-preview-scroll" tabindex="0" aria-label="붙여넣은 실적표 미리보기">
+                                <table><thead><tr><th scope="col">번호</th><th scope="col">사업명</th><th scope="col">사업기간</th><th scope="col">계약금액</th><th scope="col">발주처</th></tr></thead><tbody id="paste-preview-rows"></tbody></table>
+                            </div>
+                        </section>
                         <div class="paste-actions"><p class="candidate-meta">사업기간 예: 2024.01 ~ 2025.12 또는 2024.01 ~ 수행중</p>
                             <button id="import" class="ui-button ui-button-primary" type="button">실적표 일괄 파싱·저장</button></div>
                         <p id="import-result" role="status"></p>
@@ -99,12 +106,15 @@
 
                 <div class="toolbar">
                     <div><span class="panel-kicker">STEP 2 · 증빙 준비</span><h2>실적별 증빙</h2></div>
-                    <button id="download" class="ui-button ui-button-secondary" type="button">선택 파일 전체 ZIP 다운로드</button>
+                    <button id="download" class="ui-button ui-button-secondary" type="button">준비된 지정 파일 ZIP 다운로드</button>
                 </div>
-                <p class="performance-guide">완료: 실적증명서 → 계약서 → KITC 요청 필요 · 수행중: 계약서 → KITC 요청 필요<br>
-                    후보를 확인한 뒤 직접 선택하고 저장하세요. KITC 요청·회신만으로는 증빙 준비가 완료되지 않습니다.</p>
+                <p class="performance-guide">실적 행의 파일 관리에서 증빙을 지정하고, 준비된 파일을 ZIP으로 내려받으세요.</p>
                 <p id="entries-empty" class="panel-state surface-card" hidden>위에 PPT 실적표를 붙여넣으면 실적별 증빙을 준비할 수 있습니다.</p>
-                <div id="entries"></div>
+                <div id="entries-table-wrap" class="entries-table-wrap surface-card" hidden>
+                    <table id="entries" class="entries-table">
+                        <thead><tr><th scope="col">번호</th><th scope="col">사업명</th><th scope="col">사업기간</th><th scope="col">발주처</th><th scope="col">계약금액</th><th scope="col">상태</th><th scope="col">지정 파일</th></tr></thead>
+                    </table>
+                </div>
             </section>
         </div>
     </main>
