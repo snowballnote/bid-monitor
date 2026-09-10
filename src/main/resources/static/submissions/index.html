@@ -55,85 +55,85 @@
             </section>
             <div id="submission-detail-toolbar" class="project-controls hidden">
                 <button id="back-submission-projects" class="ui-button ui-button-secondary" type="button">프로젝트 목록</button>
-                <form id="rename-submission-project" class="project-name-form">
-                    <label>프로젝트명 <input name="projectName" required maxlength="2000"></label>
-                    <label>마감일 <input name="deadline" type="date" required></label>
-                    <button type="submit" class="ui-button ui-button-secondary">프로젝트 저장</button>
-                </form>
-                <button id="delete-submission-project" class="ui-button ui-button-secondary" type="button">프로젝트 삭제</button>
             </div>
-            <section id="document-picker" class="document-picker surface-card hidden" aria-labelledby="document-picker-title">
-                <header class="document-picker-heading">
-                    <div><span class="panel-kicker">CHECKLIST</span><h2 id="document-picker-title">필요서류 선택</h2></div>
-                    <p>회사 공통서류는 필요한 항목을 체크하고 모으기를 실행하면 등록된 현재 파일이 연결됩니다.</p>
-                </header>
-                <form id="document-form">
-                    <div class="checklist-groups">
-                        <fieldset class="checklist-group">
-                            <legend>회사 공통</legend><div class="master-options" data-master-category="COMPANY_COMMON"></div>
-                        </fieldset>
-                        <fieldset class="checklist-group">
-                            <legend>인력 / 자격</legend><div class="master-options" data-master-category="PERSONNEL"></div>
-                        </fieldset>
-                        <fieldset class="checklist-group compact">
-                            <legend>실적</legend><div class="master-options" data-master-category="PERFORMANCE"></div>
-                            <small>실적증명서는 내부 실적을 모두 준비하면 서류 1건으로 완료됩니다.</small>
-                            <a class="ui-button ui-button-secondary performance-picker-action" href="/performances/index.html" target="_blank" rel="noopener">실적증빙 관리</a>
-                        </fieldset>
-                        <fieldset class="checklist-group custom-group">
-                            <legend>기타</legend><div class="master-options" data-master-category="OTHER"></div>
-                            <div class="custom-document-input">
-                                <input id="custom-document-name" type="text" maxlength="200" placeholder="직접 입력할 서류명">
-                                <button id="add-custom-document" class="ui-button ui-button-secondary" type="button">추가</button>
-                            </div>
-                            <ul id="custom-document-list" class="custom-document-list"></ul>
-                        </fieldset>
-                    </div>
-                    <div class="checklist-actions">
-                        <p id="document-message" class="submission-message hidden" role="alert"></p>
-                        <span><strong id="checked-document-count">0</strong>개 선택</span>
-                        <button id="find-documents-button" class="ui-button ui-button-primary" type="submit">선택한 서류 모으기</button>
-                    </div>
-                </form>
-            </section>
-
             <div id="workspace-loading" class="workspace-state hidden" role="status">제출서류 작업을 불러오는 중입니다.</div>
             <div id="workspace-error" class="workspace-state error hidden" role="alert"></div>
-
             <div id="submission-workspace" class="submission-workspace hidden">
                 <section class="case-overview surface-card" aria-labelledby="case-project-name">
                     <div class="case-identity">
-                        <span class="case-label">제출 준비 목록</span>
-                        <h2 id="case-project-name">선택한 제출서류</h2>
-                        <p id="case-project-deadline"></p>
-                        <p id="case-project-meta">필요서류별 회사 파일 후보를 확인하세요.</p>
+                        <h2 id="case-project-name">프로젝트</h2>
+                        <p id="case-project-meta">발주기관 미등록</p>
+                        <p><span id="case-project-deadline"></span> <span id="case-project-dday" class="count-badge"></span></p>
                     </div>
-                    <div class="case-progress" aria-label="제출서류 준비 진행률">
-                        <div><span>준비 진행률</span><strong id="progress-percent">0%</strong></div>
-                        <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-                            <span id="progress-bar"></span>
-                        </div>
-                        <p id="progress-caption">0개 중 0개 선택</p>
+                    <div class="case-progress" aria-label="전체 준비율">
+                        <div><span>전체 준비율</span><strong id="progress-caption">0 / 0</strong></div>
+                        <div class="progress-track" role="progressbar" aria-label="전체 준비율" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="progress-bar"></span></div>
                     </div>
-                    <button id="change-documents-button" class="ui-button ui-button-secondary" type="button">체크리스트로 이동</button>
                 </section>
-
+                <div id="category-progress" class="category-progress" aria-label="카테고리별 준비율"></div>
                 <div class="submission-columns">
+                    <section id="document-picker" class="document-picker surface-card hidden" aria-labelledby="document-picker-title">
+                        <header class="document-picker-heading">
+                            <div><span class="panel-kicker">CHECKLIST</span><h2 id="document-picker-title">필요 서류 선택</h2></div>
+                        </header>
+                        <form id="document-form">
+                            <div class="checklist-groups">
+                                <details class="checklist-group" open><summary>회사 공통</summary><div class="checklist-options"><div class="master-options" data-master-category="COMPANY_COMMON"></div>
+                                </div></details>
+                                <details class="checklist-group" open><summary>인력·자격</summary><div class="checklist-options"><div class="master-options" data-master-category="PERSONNEL"></div>
+                                </div></details>
+                                <details class="checklist-group compact" open><summary>실적</summary><div class="checklist-options"><div class="master-options" data-master-category="PERFORMANCE"></div>
+                                </div></details>
+                                <details class="checklist-group custom-group" open><summary>기타</summary><div class="checklist-options"><div class="master-options" data-master-category="OTHER"></div>
+                                    <div class="custom-document-input">
+                                        <input id="custom-document-name" type="text" maxlength="200" placeholder="직접 입력할 서류명">
+                                        <button id="add-custom-document" class="ui-button ui-button-secondary" type="button">추가</button>
+                                    </div>
+                                    <ul id="custom-document-list" class="custom-document-list"></ul>
+                                </div></details>
+                            </div>
+                            <div class="checklist-actions">
+                                <p id="document-message" class="submission-message hidden" role="status" aria-live="polite"></p>
+                                <span><strong id="checked-document-count">0</strong>개 선택</span>
+                                <span class="checklist-save-hint">체크하면 자동 저장</span>
+                            </div>
+                        </form>
+                    </section>
                     <section class="requirement-panel surface-card" aria-labelledby="requirement-title">
                         <header class="panel-header">
-                            <div><h2 id="requirement-title">필요 제출서류</h2><p id="requirement-count">0건</p></div>
+                            <h2 id="requirement-title">선택 서류 준비 현황</h2>
+                            <a id="download-submission-files" class="ui-button ui-button-secondary hidden" href="#">ZIP 다운로드</a>
                         </header>
-                        <div id="requirement-empty" class="panel-state hidden">
-                            <strong>선택된 제출서류가 없습니다.</strong>
-                            <span>필요서류 체크리스트에서 서류를 선택해 주세요.</span>
+                        <div id="requirement-empty" class="panel-state hidden"><strong>선택된 제출서류가 없습니다.</strong><span>왼쪽에서 필요한 서류를 선택하세요.</span></div>
+                        <div class="requirement-table-scroll" tabindex="0" aria-label="선택 서류 준비 현황 표">
+                            <table class="submission-project-table requirement-table">
+                                <thead><tr><th scope="col">서류명</th><th scope="col">구분</th><th scope="col">상태</th><th scope="col">연결 파일</th><th scope="col">작업</th></tr></thead>
+                                <tbody id="requirement-list" aria-live="polite"></tbody>
+                            </table>
                         </div>
-                        <div id="requirement-list" class="requirement-list" aria-live="polite"></div>
                     </section>
-
-                    <section class="candidate-panel surface-card" aria-labelledby="candidate-title">
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+<dialog id="project-edit-dialog" class="common-document-dialog" aria-labelledby="project-edit-title">
+    <form id="rename-submission-project">
+        <header><h2 id="project-edit-title">프로젝트 수정</h2></header>
+        <label>프로젝트명 <input name="projectName" required maxlength="2000"></label>
+        <label>마감일 <input name="deadline" type="date" required></label>
+        <p id="project-edit-message" class="submission-message" role="alert"></p>
+        <footer>
+            <button id="project-edit-cancel" class="ui-button ui-button-secondary" type="button">취소</button>
+            <button type="submit" class="ui-button ui-button-primary">프로젝트 저장</button>
+        </footer>
+    </form>
+</dialog>
+<dialog id="candidate-dialog" class="common-document-dialog" aria-labelledby="candidate-title">
+<section class="candidate-panel surface-card" aria-labelledby="candidate-title">
                         <header class="panel-header">
                             <div><span class="panel-kicker">파일 후보</span><h2 id="candidate-title">요구서류를 선택하세요</h2></div>
-                            <span id="candidate-count" class="count-badge hidden">0건</span>
+                            <div class="project-controls"><span id="candidate-count" class="count-badge hidden">0건</span><button id="candidate-close" class="dialog-close" type="button" aria-label="파일 후보 닫기">×</button></div>
                         </header>
                         <div id="candidate-guide" class="panel-state">
                             <strong>확인할 요구서류를 선택하세요.</strong>
@@ -144,37 +144,10 @@
                             <strong>후보 없음</strong>
                             <span>현재 요구서류명과 일치하는 활성 파일을 찾지 못했습니다.</span>
                         </div>
-                        <div id="candidate-performance" class="panel-state performance hidden">
-                            <strong>실적증빙 관리</strong>
-                            <p>이 제출서류에 사용할 실적 프로젝트를 선택하세요.</p>
-                            <p id="performance-progress" aria-live="polite">실적 프로젝트를 선택하세요.</p>
-                            <p id="performance-progress-help">증빙파일이 연결된 실적을 처리 완료로 계산합니다.</p>
-                            <div class="performance-panel-actions">
-                                <a id="performance-manage" class="ui-button ui-button-primary" href="/performances/index.html">실적증빙 관리 열기</a>
-                                <button id="performance-refresh" class="ui-button ui-button-secondary" type="button">진행상황 새로고침</button>
-                            </div>
-                        </div>
                         <div id="candidate-error" class="panel-state error hidden" role="alert"></div>
                         <div id="candidate-list" class="candidate-list hidden" aria-live="polite"></div>
                     </section>
-
-                    <aside class="package-panel surface-card" aria-labelledby="package-title">
-                        <header class="panel-header">
-                            <div><span class="panel-kicker">PACKAGE</span><h2 id="package-title">제출 패키지</h2></div>
-                        </header>
-                        <div class="package-metric">
-                            <span>선택 완료</span><strong id="package-selection-count">0 / 0</strong>
-                        </div>
-                        <div id="package-empty" class="package-empty">선택한 파일이 아직 없습니다.</div>
-                        <a id="download-submission-files" class="ui-button ui-button-secondary" href="#">모은 파일 ZIP 다운로드</a>
-                        <ul id="package-list" class="package-list hidden"></ul>
-                        <p class="package-note">파일은 자동으로 선택되지 않습니다. 각 요구서류의 후보를 직접 확인해 주세요.</p>
-                    </aside>
-                </div>
-            </div>
-        </div>
-    </main>
-</div>
+</dialog>
 <script src="/submissions/submissions.js"></script>
 </body>
 </html>

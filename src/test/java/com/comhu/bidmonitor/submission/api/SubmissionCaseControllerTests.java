@@ -430,6 +430,19 @@ class SubmissionCaseControllerTests {
                 {"fileId":802}
                 """)).andExpect(status().isOk());
         org.assertj.core.api.Assertions.assertThat(localJdbc.queryForObject("SELECT file_id FROM submission_document_selection WHERE requirement_id=?",Long.class,requirement.getId())).isEqualTo(801);
+        mockMvc.perform(post("/api/submission-cases/{id}/collect",a.getId()).param("preserveExistingSelections","true")
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isOk());
+        org.assertj.core.api.Assertions.assertThat(requirementRepository.findBySubmissionCaseId(a.getId()).getFirst().getId()).isEqualTo(requirement.getId());
+        org.assertj.core.api.Assertions.assertThat(localJdbc.queryForObject("SELECT id FROM submission_document_selection WHERE requirement_id=?",Long.class,requirement.getId())).isEqualTo(selection);
+        org.assertj.core.api.Assertions.assertThat(localJdbc.queryForObject("SELECT file_id FROM submission_document_selection WHERE requirement_id=?",Long.class,requirement.getId())).isEqualTo(801);
+        var c=localProjects.createProject("즉시 연결 C",null,List.of(),java.time.LocalDate.of(2026,12,31));
+        mockMvc.perform(post("/api/submission-cases/{id}/collect",c.getId()).param("preserveExistingSelections","true")
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isOk());
+        mockMvc.perform(get("/api/submission-cases/{id}/package",c.getId())).andExpect(jsonPath("$.selections[0].fileId").value(802));
+        mockMvc.perform(post("/api/submission-cases/{id}/collect",c.getId()).param("preserveExistingSelections","true")
+                .contentType(MediaType.APPLICATION_JSON).content("[]")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/submission-cases/{id}/package",c.getId())).andExpect(jsonPath("$.requirements").isEmpty()).andExpect(jsonPath("$.selections").isEmpty());
+
         mockMvc.perform(post("/api/submission-cases/{id}/collect",a.getId()).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isOk());
         org.assertj.core.api.Assertions.assertThat(localJdbc.queryForObject("SELECT file_id FROM submission_document_selection WHERE requirement_id=?",Long.class,requirement.getId())).isEqualTo(802);
         org.assertj.core.api.Assertions.assertThat(localJdbc.queryForObject("SELECT file_id FROM submission_document_selection WHERE submission_case_id=?",Long.class,b.getId())).isEqualTo(801);

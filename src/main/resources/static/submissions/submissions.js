@@ -9,19 +9,15 @@ const elements = {
     addCustomDocument: document.querySelector("#add-custom-document"),
     customDocumentList: document.querySelector("#custom-document-list"),
     checkedDocumentCount: document.querySelector("#checked-document-count"),
-    findDocumentsButton: document.querySelector("#find-documents-button"),
     documentMessage: document.querySelector("#document-message"),
     workspaceLoading: document.querySelector("#workspace-loading"),
     workspaceError: document.querySelector("#workspace-error"),
     workspace: document.querySelector("#submission-workspace"),
     projectName: document.querySelector("#case-project-name"),
     projectMeta: document.querySelector("#case-project-meta"),
-    changeDocumentsButton: document.querySelector("#change-documents-button"),
-    progressPercent: document.querySelector("#progress-percent"),
     progressBar: document.querySelector("#progress-bar"),
     progressTrack: document.querySelector(".progress-track"),
     progressCaption: document.querySelector("#progress-caption"),
-    requirementCount: document.querySelector("#requirement-count"),
     requirementEmpty: document.querySelector("#requirement-empty"),
     requirementList: document.querySelector("#requirement-list"),
     candidateTitle: document.querySelector("#candidate-title"),
@@ -29,12 +25,8 @@ const elements = {
     candidateGuide: document.querySelector("#candidate-guide"),
     candidateLoading: document.querySelector("#candidate-loading"),
     candidateEmpty: document.querySelector("#candidate-empty"),
-    candidatePerformance: document.querySelector("#candidate-performance"),
     candidateError: document.querySelector("#candidate-error"),
     candidateList: document.querySelector("#candidate-list"),
-    packageSelectionCount: document.querySelector("#package-selection-count"),
-    packageEmpty: document.querySelector("#package-empty"),
-    packageList: document.querySelector("#package-list"),
 };
 
 let workspaceRevision = 0;
@@ -117,35 +109,7 @@ function commonStatusClass(status) {
 }
 
 function renderCommonDocumentStatuses() {
-    elements.documentOptions.forEach((option) => {
-        option.setAttribute("aria-label", option.value);
-        const managed = state.commonDocuments.get(option.dataset.reference);
-        const label = option.closest("label");
-        let badge = label.querySelector(".document-admin-status");
-        const currentMaster=commonMaster({sourceReference:option.dataset.reference,documentName:option.value,category:option.dataset.category});
-        if(currentMaster){
-            if(!badge){badge=document.createElement("small");label.append(badge);}
-            badge.className="document-admin-status "+((currentMaster.uploadedFileId || currentMaster.currentFileId)?"available":"unregistered");
-            badge.textContent=(currentMaster.uploadedFileId || currentMaster.currentFileId)?"현재 파일 등록됨":"파일 미등록";
-            badge.title=currentMaster.currentFilename||"서류 관리에서 현재 파일을 등록하세요.";
-            return;
-        }
-        if (!managed) {
-            badge?.remove();
-            return;
-        }
-        if (!badge) {
-            badge = document.createElement("small");
-            badge.className = "document-admin-status";
-            label.append(badge);
-        }
-        badge.className = `document-admin-status ${commonStatusClass(managed.status)}`;
-        badge.textContent = managed.statusDisplayName;
-        const policy = managed.refreshPolicy === "PERIODIC"
-            ? `${managed.refreshIntervalMonths}개월 주기`
-            : managed.refreshPolicy === "EXPIRATION_BASED" ? "유효기간 관리" : "유효기간 없음";
-        badge.title = managed.originalFilename ? `${policy} · ${managed.originalFilename}` : policy;
-    });
+    elements.documentOptions.forEach(option => option.setAttribute("aria-label", option.value));
 }
 
 async function loadCommonDocuments() {
@@ -171,7 +135,7 @@ function renderCustomDocuments() {
         remove.addEventListener("click", () => {
             state.customDocuments.splice(index, 1);
             renderCustomDocuments();
-            updateCheckedCount();
+            queueChecklistSave();
         });
         item.append(text, remove);
         elements.customDocumentList.append(item);
@@ -194,7 +158,7 @@ function addCustomDocument() {
     elements.customDocumentName.value = "";
     setHidden(elements.documentMessage, true);
     renderCustomDocuments();
-    updateCheckedCount();
+    queueChecklistSave();
     elements.customDocumentName.focus();
 }
 
@@ -204,17 +168,8 @@ function performanceComplete() {
 }
 
 function requirementComplete(requirement) {
-    if (state.commonMissing.has(requirement.id)) return false;
+    if (isCompanyCommon(requirement)) return state.selections.has(requirement.id);
     return requirement.performanceSelectionRequired ? performanceComplete() : state.selections.has(requirement.id);
-}
-
-function performanceCaption() {
-    const progress = state.performance;
-    if (progress.loading) return "실적 진행상황 조회 중";
-    if (progress.error) return progress.error;
-    if (!progress.projectId) return "실적증빙 관리를 열면 프로젝트가 자동 연결됩니다.";
-    if (!progress.total) return "등록된 실적 없음 · 실적표를 붙여넣으세요.";
-    return `${progress.total}건 중 ${progress.processed}건 처리 / ${progress.total - progress.processed}건 미처리`;
 }
 
 function performanceManageUrl() {
@@ -224,15 +179,7 @@ function performanceManageUrl() {
     return "/performances/index.html" + (params.size ? "?" + params : "");
 }
 
-function renderPerformancePanel() {
-    const progress = state.performance;
-    document.querySelector("#performance-progress").textContent = performanceCaption();
-    document.querySelector("#performance-manage").href = performanceManageUrl();
-    document.querySelector("#performance-refresh").disabled = progress.loading;
-}
-
 function renderPerformanceProgress() {
-    renderPerformancePanel();
     renderRequirements();
     renderPackage();
 }
@@ -307,21 +254,33 @@ function renderProgress() {
     const total = state.requirements.length;
     const selected = state.requirements.filter(requirementComplete).length;
     const percent = total ? Math.round((selected / total) * 100) : 0;
-    elements.progressPercent.textContent = `${percent}%`;
     elements.progressBar.style.width = `${percent}%`;
     elements.progressTrack.setAttribute("aria-valuenow", String(percent));
-    elements.progressCaption.textContent = `${total}개 중 ${selected}개 완료`;
-    elements.packageSelectionCount.textContent = `${selected} / ${total}`;
+    elements.progressCaption.textContent = `${selected} / ${total}`;
+    const cards = document.querySelector("#category-progress");
+    cards.replaceChildren();
+    for (const [group, label] of Object.entries({COMPANY_COMMON:"회사 공통", PERSONNEL:"인력·자격", PERFORMANCE:"실적", OTHER:"기타"})) {
+        const requirements = state.requirements.filter(item => requirementGroup(item) === group);
+        const prepared = requirements.filter(requirementComplete).length;
+        const percent = requirements.length ? Math.round(prepared / requirements.length * 100) : 0;
+        const card = projectNode("section", null, "surface-card category-progress-card");
+        card.setAttribute("aria-label", label + " 준비율");
+        const heading = projectNode("div");
+        heading.append(projectNode("h3", label), projectNode("strong", prepared + " / " + requirements.length));
+        const track = projectNode("div", null, "progress-track");
+        track.setAttribute("role", "progressbar");track.setAttribute("aria-label", label + " 준비율");
+        track.setAttribute("aria-valuemin", "0");track.setAttribute("aria-valuemax", "100");track.setAttribute("aria-valuenow", String(percent));
+        const bar = projectNode("span");bar.style.width = percent + "%";track.append(bar);
+        card.append(heading, track);cards.append(card);
+    }
 }
 
 function requirementState(requirement) {
-    if (state.commonMissing.has(requirement.id)) return ["파일 미등록", " attention"];
-    if (isCompanyCommon(requirement) && !state.selections.has(requirement.id)) return [(commonMaster(requirement)?.uploadedFileId || commonMaster(requirement)?.currentFileId) ? "모으기 필요" : "파일 미등록", " attention"];
+    if (isCompanyCommon(requirement)) return state.selections.has(requirement.id) ? ["준비 완료", " complete"] : ["파일 미등록", " attention"];
     if (requirement.performanceSelectionRequired) {
-        if (performanceComplete()) return ["완료", " complete"];
         if (state.performance.loading) return ["확인 중", ""];
         if (state.performance.error) return ["확인 필요", " attention"];
-        return ["진행중", " attention"];
+        return [state.performance.processed + " / " + state.performance.total + " 준비", performanceComplete() ? " complete" : " attention"];
     }
     if (state.selections.has(requirement.id)) return ["선택 완료", " complete"];
     if (state.candidateLoadingIds.has(requirement.id)) return ["검색 중", ""];
@@ -333,63 +292,49 @@ function requirementState(requirement) {
     return ["검색 대기", ""];
 }
 
+function requirementGroup(requirement) {
+    if (isCompanyCommon(requirement)) return "COMPANY_COMMON";
+    if (requirement.performanceSelectionRequired) return "PERFORMANCE";
+    const master = documentMasters.find(item => item.requirementCategory === requirement.category &&
+        (item.sourceReference === requirement.sourceReference || normalizeName(item.name) === normalizeName(requirement.documentName)));
+    return master?.category || masterCategory(requirement.category);
+}
+
 function renderRequirements() {
     elements.requirementList.replaceChildren();
-    elements.requirementCount.textContent = `${state.requirements.length}건`;
     setHidden(elements.requirementEmpty, state.requirements.length !== 0);
-    state.requirements.forEach((requirement) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "requirement-item";
-        button.classList.toggle("active", requirement.id === state.activeRequirementId);
-        const content = document.createElement("span");
-        const title = document.createElement("span");
-        title.className = "requirement-item-title";
-        title.textContent = requirement.performanceSelectionRequired ? requirement.documentName + " · 실적증빙 관리" : requirement.documentName;
-        const meta = document.createElement("span");
-        meta.className = "requirement-item-meta";
-        meta.textContent = requirement.performanceSelectionRequired ? performanceCaption() : isCompanyCommon(requirement) ? (state.selections.get(requirement.id)?.originalFilename || "회사 공통 · " + ((commonMaster(requirement)?.uploadedFileId || commonMaster(requirement)?.currentFileId) ? "현재 파일 등록됨" : "파일 미등록")) : categoryLabel(requirement.category);
-        meta.classList.toggle("performance-progress-meta", Boolean(requirement.performanceSelectionRequired));
-        content.append(title, meta);
-        const completion = document.createElement("span");
+    state.requirements.forEach(requirement => {
+        const row = projectNode("tr");row.dataset.requirementId = requirement.id;
+        const title = projectNode("th", requirement.documentName);title.scope = "row";
+        const group = ({COMPANY_COMMON:"회사 공통", PERSONNEL:"인력·자격", PERFORMANCE:"실적", OTHER:"기타"})[requirementGroup(requirement)];
         const [label, className] = requirementState(requirement);
-        completion.className = `requirement-state${className}`;
-        completion.textContent = label;
-        button.append(content, completion);
-        button.addEventListener("click", () => requirement.performanceSelectionRequired ? openPerformanceProject() : selectRequirement(requirement, true));
-        elements.requirementList.append(button);
+        const status = projectNode("td");status.append(projectNode("span", label, "requirement-state" + className));
+        const file = state.selections.get(requirement.id);
+        const filename = projectNode("td", file?.originalFilename || "—", "requirement-filename");
+        const actions = projectNode("td");
+        const button = projectNode("button", requirement.performanceSelectionRequired ? "관리" : isCompanyCommon(requirement) ? "확인" : "파일 연결", "ui-button ui-button-secondary");
+        button.type = "button";
+        button.disabled = Boolean(checklistSave);
+        button.onclick = () => {
+            if (requirement.performanceSelectionRequired) return openPerformanceProject();
+            selectRequirement(requirement, true);
+            document.querySelector("#candidate-dialog").showModal();
+        };
+        actions.append(button);row.append(title, projectNode("td", group), status, filename, actions);
+        elements.requirementList.append(row);
     });
 }
 
 function renderPackage() {
-    const download=document.querySelector("#download-submission-files");
-    if(download){download.href=state.submissionCase?API_BASE+"/"+state.submissionCase.id+"/download":"#";setHidden(download,![...state.selections.values()].some(file=>file.uploadedFileId));}
-    elements.packageList.replaceChildren();
-    const selected = state.requirements.filter(requirement => requirement.performanceSelectionRequired || state.selections.has(requirement.id));
-    setHidden(elements.packageEmpty, selected.length !== 0);
-    setHidden(elements.packageList, selected.length === 0);
-    selected.forEach((requirement) => {
-        const item = document.createElement("li");
-        const name = document.createElement("strong");
-        name.textContent = requirement.documentName;
-        const filename = document.createElement("span");
-        filename.textContent = requirement.performanceSelectionRequired ? performanceCaption() : state.selections.get(requirement.id).originalFilename;
-        item.append(name, filename);
-        if (requirement.performanceSelectionRequired) {
-            const manage = document.createElement("a");
-            manage.className = "ui-button ui-button-secondary";
-            manage.href = performanceManageUrl();
-            manage.textContent = "실적증빙 관리";
-            item.append(manage);
-        }
-        elements.packageList.append(item);
-    });
+    const download = document.querySelector("#download-submission-files");
+    download.href = state.submissionCase ? API_BASE + "/" + state.submissionCase.id + "/download" : "#";
+    setHidden(download, ![...state.selections.values()].some(file => file.uploadedFileId));
     renderProgress();
 }
 
 function showCandidateState(name) {
     const states = { guide: elements.candidateGuide, loading: elements.candidateLoading, empty: elements.candidateEmpty,
-        performance: elements.candidatePerformance, error: elements.candidateError, list: elements.candidateList };
+        error: elements.candidateError, list: elements.candidateList };
     Object.entries(states).forEach(([key, element]) => setHidden(element, key !== name));
     setHidden(elements.candidateCount, name !== "list");
 }
@@ -427,7 +372,7 @@ function renderCandidates(requirement, candidates) {
         select.type = "button";
         select.className = "ui-button ui-button-secondary candidate-select";
         select.textContent = selected ? "선택됨" : "이 파일 선택";
-        select.disabled = selected;
+        select.disabled = selected || Boolean(selectionSave || checklistSave);
         select.addEventListener("click", () => saveSelection(requirement, candidate));
         actions.append(select);
 
@@ -471,15 +416,11 @@ async function selectRequirement(requirement, retry = false) {
     state.activeRequirementId = requirement.id;
     renderRequirements();
     elements.candidateTitle.textContent = requirement.documentName;
-    if (requirement.performanceSelectionRequired) {
-        renderPerformancePanel();
-        showCandidateState("performance");
-        return;
-    }
+    if (requirement.performanceSelectionRequired) return openPerformanceProject();
     if (isCompanyCommon(requirement)) {
         elements.candidateList.replaceChildren();
         const message=document.createElement("p"), selected=state.selections.get(requirement.id);
-        message.textContent=selected ? "연결된 파일: "+selected.originalFilename : (commonMaster(requirement)?.uploadedFileId || commonMaster(requirement)?.currentFileId) ? "선택한 서류 모으기를 실행하면 저장된 현재 파일이 연결됩니다." : "파일 미등록 · 서류 관리에서 현재 파일을 등록하세요.";
+        message.textContent=selected ? "연결된 파일: "+selected.originalFilename : (commonMaster(requirement)?.uploadedFileId || commonMaster(requirement)?.currentFileId) ? "이 서류를 다시 선택하면 저장된 현재 파일이 연결됩니다." : "파일 미등록 · 서류 관리에서 현재 파일을 등록하세요.";
         elements.candidateList.append(message); showCandidateState("list"); setHidden(elements.candidateCount,true); return;
     }
     if (retry) state.candidateErrors.delete(requirement.id);
@@ -499,7 +440,20 @@ async function selectRequirement(requirement, retry = false) {
     } else if (state.candidates.has(requirement.id)) renderCandidates(requirement, state.candidates.get(requirement.id));
 }
 
-async function saveSelection(requirement, candidate) {
+let selectionSave = null;
+function saveSelection(requirement, candidate) {
+    if (selectionSave || checklistSave) return;
+    const revision = workspaceRevision;
+    selectionSave = persistSelection(requirement, candidate).finally(() => {
+        selectionSave = null;
+        if (revision === workspaceRevision && state.activeRequirementId === requirement.id && elements.candidateError.classList.contains("hidden")) {
+            renderCandidates(requirement, state.candidates.get(requirement.id) || []);
+        }
+    });
+    renderCandidates(requirement, state.candidates.get(requirement.id) || []);
+    return selectionSave;
+}
+async function persistSelection(requirement, candidate) {
     const revision = workspaceRevision, caseId = state.submissionCase.id;
     const previous = new Map(state.selections);
     state.selections.set(requirement.id, candidate);
@@ -553,7 +507,9 @@ async function loadWorkspace(submissionCase, openCandidates = false) {
         document.querySelector("#rename-submission-project [name=projectName]").value = submissionCase.projectName;
         document.querySelector("#rename-submission-project [name=deadline]").value = submissionCase.deadline || "";
         document.querySelector("#case-project-deadline").textContent = "마감일 " + (submissionCase.deadline || "미설정");
-        elements.projectMeta.textContent = `${state.requirements.length}개 서류의 회사 파일 후보를 확인합니다.`;
+        renderProjectSummary();
+        document.querySelector("#project-edit-dialog").close();
+        document.querySelector("#candidate-dialog").close();
         renderRequirements();
         renderPackage();
         showCandidateState("guide");
@@ -564,7 +520,7 @@ async function loadWorkspace(submissionCase, openCandidates = false) {
             if (state.activeRequirementId) {
                 renderRequirements();
                 showCandidateState("loading");
-                elements.candidateTitle.closest(".candidate-panel").scrollIntoView({behavior:"smooth", block:"start"});
+
             }
         }
         preloadCandidates();
@@ -579,43 +535,97 @@ async function loadWorkspace(submissionCase, openCandidates = false) {
     }
 }
 
-async function createManualCase(event) {
-    event.preventDefault();
-    const current = state.submissionCase, revision = workspaceRevision;
-    if (!current) return;
-    elements.findDocumentsButton.disabled = true;
+let checklistSave = null;
+function checklistMessage(text, error = false) {
+    elements.documentMessage.textContent = text;
+    elements.documentMessage.classList.toggle("save-error", error);
+    setHidden(elements.documentMessage, !text);
+}
+function handleRequirementChange(event) {
+    const option = event.currentTarget;
+    const saved = state.requirements.find(item => item.category === option.dataset.category && normalizeName(item.documentName) === normalizeName(option.value));
+    const pendingCommon = checklistSave?.inFlight?.some(item => item.category === option.dataset.category && item.documentName === option.value)
+        && Boolean(commonMaster({sourceReference:option.dataset.reference, documentName:option.value, category:option.dataset.category})?.currentFileId
+            || commonMaster({sourceReference:option.dataset.reference, documentName:option.value, category:option.dataset.category})?.uploadedFileId);
+    if (!option.checked && ((saved && state.selections.has(saved.id)) || pendingCommon)) {
+        if (!confirm("연결된 파일이 있는 서류입니다. 이 프로젝트에서 서류와 파일 연결을 제거할까요? 원본 파일은 유지됩니다.")) {
+            option.checked = true;updateCheckedCount();return;
+        }
+    }
+    queueChecklistSave();
+}
+function queueChecklistSave() {
+    if (!state.submissionCase) return;
+    updateCheckedCount();
+    const desired = selectedRequirements();
+    if (checklistSave) { checklistSave.pending = desired;return; }
+    const task = { caseId:state.submissionCase.id, revision:workspaceRevision, pending:desired, inFlight:null, promise:null };
+    checklistSave = task;
+    task.promise = drainChecklistSave(task);
+}
+async function drainChecklistSave(task) {
+    elements.documentForm.setAttribute("aria-busy", "true");
+    renderRequirements();
+    checklistMessage("저장 중…");
     try {
-        const collection = await requestJson(API_BASE + "/" + current.id + "/collect", {
-            method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(selectedRequirements())
-        });
-        if (revision !== workspaceRevision) return;
-        const updated = await requestJson(API_BASE + "/" + current.id);
-        if (revision !== workspaceRevision) return;
-        const expectedRevision=workspaceRevision+1;
-        await loadWorkspace(updated, true);
-        if (workspaceRevision!==expectedRevision || state.submissionCase?.id !== current.id) return;
-        state.commonMissing = new Set(collection.missingRequirementIds || []);
-        renderRequirements(); renderPackage();
+        if (selectionSave) await selectionSave;
+        while (task.pending) {
+            const requested = task.pending;task.pending = null;task.inFlight = requested;
+            await requestJson(API_BASE + "/" + task.caseId + "/collect?preserveExistingSelections=true", {
+                method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(requested)
+            });
+            const [requirements, packageData] = await Promise.all([
+                requestJson(API_BASE + "/" + task.caseId + "/requirements"),
+                requestJson(API_BASE + "/" + task.caseId + "/package")
+            ]);
+            if (task.revision !== workspaceRevision) return;
+            state.requirements = requirements;
+            state.selections = new Map((packageData.selections || []).map(item => [item.requirementId,item]));
+            // A second click may replace the pending snapshot while this request is in flight.
+            if (task.pending && JSON.stringify(task.pending) === JSON.stringify(requested)) task.pending = null;
+            renderRequirements();renderPackage();
+        }
+        resetWorkspace();
+        checklistMessage("저장됨");
+        preloadCandidates();refreshPerformanceProgress();
     } catch (error) {
-        if (revision !== workspaceRevision) return;
-        elements.documentMessage.textContent = friendlyError(error, "create");
-        setHidden(elements.documentMessage,false);
-    } finally { elements.findDocumentsButton.disabled = false; }
+        task.pending = null;
+        // Reconcile a response failure with the server before restoring the checkboxes.
+        try {
+            const [requirements, packageData] = await Promise.all([
+                requestJson(API_BASE + "/" + task.caseId + "/requirements"),requestJson(API_BASE + "/" + task.caseId + "/package")
+            ]);
+            if (task.revision !== workspaceRevision) return;
+            state.requirements = requirements;
+            state.selections = new Map((packageData.selections || []).map(item => [item.requirementId,item]));
+        } catch {}
+        if (task.revision === workspaceRevision) {
+            resetWorkspace();renderPackage();
+            checklistMessage(friendlyError(error,"save") + " 체크 상태를 확인하고 다시 선택해 주세요.", true);
+        }
+    } finally {
+        if (checklistSave === task) checklistSave = null;
+        if (task.revision === workspaceRevision) {
+            elements.documentForm.removeAttribute("aria-busy");renderRequirements();
+        }
+    }
 }
 function resetWorkspace() {
     if (!state.submissionCase) return;
+    const focused = document.activeElement?.matches(".document-option") ? {name:document.activeElement.value, category:document.activeElement.dataset.category} : null;
     renderMasterOptions(state.requirements);
+    if (focused) elements.documentOptions.find(option=>option.value===focused.name && option.dataset.category===focused.category)?.focus();
     state.customDocuments = [];
     renderCustomDocuments(); updateCheckedCount();
     setHidden(elements.documentPicker, false);
-    document.querySelector(".performance-picker-action").href = performanceManageUrl();
+
 }
 async function restoreCaseFromUrl() {
     const id = new URLSearchParams(location.search).get("caseId");
     if (id && /^[0-9]+$/.test(id)) await openSubmissionProject(id);
     else await showSubmissionProjects();
 }
-elements.documentOptions.forEach((option) => option.addEventListener("change", updateCheckedCount));
+
 elements.addCustomDocument.addEventListener("click", addCustomDocument);
 elements.customDocumentName.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -623,16 +633,16 @@ elements.customDocumentName.addEventListener("keydown", (event) => {
         addCustomDocument();
     }
 });
-elements.documentForm.addEventListener("submit", createManualCase);
-elements.changeDocumentsButton.addEventListener("click", () => elements.documentPicker.scrollIntoView({behavior:"smooth"}));
+elements.documentForm.addEventListener("submit", event => event.preventDefault());
+
 updateCheckedCount();
-document.querySelector(".case-overview").after(elements.documentPicker);
+
 
 initializeSubmissionHistory();
 Promise.all([loadCommonDocuments(), loadDocumentMasters()]).finally(restoreCaseFromUrl);
 
 
-document.querySelector("#performance-refresh").addEventListener("click", refreshPerformanceProgress);
+
 window.addEventListener("focus", refreshPerformanceProgress);
 window.addEventListener("pageshow", (event) => { if (event.persisted) refreshPerformanceProgress(); });
 
@@ -653,9 +663,9 @@ function renderSubmissionProjects() {
     document.querySelector("#view-list").setAttribute("aria-pressed", String(projectView === "list"));
     let body = container;
     if (projectView === "list") {
-        const table = projectNode("table", null, "submission-project-table");
+        const table = projectNode("table", null, "submission-project-table project-list-table");
         const head = projectNode("tr");
-        ["프로젝트명","마감일","준비 현황","진행률","최근 수정일"].forEach(text => head.append(projectNode("th",text)));
+        ["프로젝트명","발주기관","마감일","준비 현황","진행률","최근 수정일",""].forEach(text => head.append(projectNode("th",text)));
         const thead = projectNode("thead"); thead.append(head); body = projectNode("tbody");
         table.append(thead,body); container.append(table);
     }
@@ -663,10 +673,11 @@ function renderSubmissionProjects() {
         const count = project.prepared + " / " + project.total;
         const percent = project.total ? Math.round(project.prepared / project.total * 100) : 0;
         const deadline = project.deadline || "미설정";
-        const open = event => { event.preventDefault(); openSubmissionProject(project.id); };
+        const open = event => { if (event.target.closest(".project-menu")) return;event.preventDefault();openSubmissionProject(project.id); };
         if (projectView === "card") {
-            const card = projectNode("a",null,"submission-project-card");
-            card.href = "/submissions/?caseId=" + encodeURIComponent(project.id);
+            const card = projectNode("article",null,"submission-project-card");
+            card.tabIndex=0;card.setAttribute("role","link");card.setAttribute("aria-label",project.projectName+" 상세");
+            card.onkeydown=event=>{if(event.target===card && (event.key==="Enter" || event.key===" "))open(event);};
             card.onclick = event => {
                 if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
                 open(event);
@@ -674,14 +685,20 @@ function renderSubmissionProjects() {
             card.append(projectNode("h3",project.projectName),projectNode("p","마감일 " + deadline),
                 projectNode("p","준비 " + count),projectNode("p","진행률 " + percent + "%"),
                 projectNode("p","최근 수정일 " + formatDate(project.updatedAt)));
-            body.append(card);
+            card.append(projectMenu(project));body.append(card);
         } else {
             const row = projectNode("tr"); row.tabIndex = 0; row.setAttribute("role","link");
             row.setAttribute("aria-label",project.projectName + " 상세");
             row.onclick = open;
-            row.onkeydown = event => { if (event.key === "Enter" || event.key === " ") open(event); };
-            [project.projectName,deadline,count,percent+"%",formatDate(project.updatedAt)].forEach(text => row.append(projectNode("td",text)));
-            body.append(row);
+            row.onkeydown = event => { if (event.target === row && (event.key === "Enter" || event.key === " ")) open(event); };
+            [project.projectName,project.orderingAgency || project.agencyName || "—",deadline,count].forEach(text => row.append(projectNode("td",text)));
+            const progress=projectNode("td"),meter=projectNode("div",null,"project-list-progress"),track=projectNode("div",null,"progress-track");
+            track.setAttribute("role","progressbar");track.setAttribute("aria-label",project.projectName+" 준비율");
+            track.setAttribute("aria-valuemin","0");track.setAttribute("aria-valuemax","100");track.setAttribute("aria-valuenow",String(percent));
+            const bar=projectNode("span");bar.style.width=percent+"%";track.append(bar);
+            meter.append(track,projectNode("span",percent+"%"));progress.append(meter);
+            row.append(progress,projectNode("td",formatDate(project.updatedAt)));
+            const actions=projectNode("td");actions.append(projectMenu(project));row.append(actions);body.append(row);
         }
     }
     document.querySelector("#submission-project-message").textContent = projectRows.length ? "" : "등록된 프로젝트가 없습니다.";
@@ -692,7 +709,11 @@ function changeProjectView(view) {
     renderSubmissionProjects();
 }
 async function showSubmissionProjects() {
+    if (selectionSave) await selectionSave;
+    if (checklistSave) await checklistSave.promise;
     const revision = ++workspaceRevision;
+    document.querySelector("#candidate-dialog").close();
+    document.querySelector("#project-edit-dialog").close();
     state.submissionCase = null;
     state.performance = {projectId:"",projects:[],total:0,processed:0,loading:false,error:"",revision:0};
     setHidden(elements.workspace,true); setHidden(elements.documentPicker,true);
@@ -709,6 +730,8 @@ async function showSubmissionProjects() {
     }
 }
 async function openSubmissionProject(id) {
+    if (selectionSave) await selectionSave;
+    if (checklistSave) await checklistSave.promise;
     const revision = ++workspaceRevision;
     state.submissionCase = null;
     state.performance = {projectId:"",projects:[],total:0,processed:0,loading:false,error:"",revision:0};
@@ -747,19 +770,30 @@ document.querySelector("#create-submission-project").onsubmit = async event => {
         if (revision === workspaceRevision) document.querySelector("#submission-project-message").textContent = friendlyError(error,"create");
     } finally { button.disabled = false; }
 };
+let editingProject = null, projectEditSaving = false;
+function openProjectEdit(project) {
+    editingProject = project;
+    const form = document.querySelector("#rename-submission-project");
+    form.elements.projectName.value = project.projectName;
+    form.elements.deadline.value = project.deadline || "";
+    document.querySelector("#project-edit-message").textContent = "";
+    document.querySelector("#project-edit-dialog").showModal();
+}
 document.querySelector("#rename-submission-project").onsubmit = async event => {
     event.preventDefault();
-    const current = state.submissionCase, revision = workspaceRevision;
-    if (!current) return;
+    const current = editingProject, revision = workspaceRevision;
+    if (!current || projectEditSaving) return;
+    const button=event.currentTarget.querySelector('[type="submit"]');
+    projectEditSaving=true;button.disabled=true;
     try {
         const updated = await requestJson(API_BASE + "/" + current.id,{method:"PUT",headers:{"Content-Type":"application/json"},
             body:JSON.stringify({projectName:event.currentTarget.elements.projectName.value,deadline:event.currentTarget.elements.deadline.value})});
         if (revision !== workspaceRevision) return;
-        state.submissionCase = updated; elements.projectName.textContent = updated.projectName;
-        document.querySelector("#case-project-deadline").textContent = "마감일 " + (updated.deadline || "미설정");
+        projectRows = projectRows.map(project => project.id === current.id ? {...project,...updated} : project);
+        document.querySelector("#project-edit-dialog").close();renderSubmissionProjects();
     } catch(error) {
-        if(revision === workspaceRevision){elements.workspaceError.textContent=friendlyError(error,"update");setHidden(elements.workspaceError,false);}
-    }
+        if(revision === workspaceRevision) document.querySelector("#project-edit-message").textContent=friendlyError(error,"update");
+    } finally {projectEditSaving=false;button.disabled=false;}
 };
 window.addEventListener("popstate", restoreCaseFromUrl);
 function initializeSubmissionHistory() {
@@ -785,21 +819,67 @@ function goToSubmissionList() {
         showSubmissionProjects();
     }
 }
-document.querySelector("#delete-submission-project").onclick = async () => {
-    const current = state.submissionCase, revision = workspaceRevision;
-    if (!current || !confirm('이 프로젝트와 선택한 제출서류 연결을 삭제할까요? 원본 파일은 삭제되지 않습니다.')) return;
-    const button = document.querySelector("#delete-submission-project");
-    button.disabled = true;
+const deletingProjects = new Set();
+async function deleteSubmissionProject(project) {
+    if (deletingProjects.has(project.id) || !confirm('이 프로젝트와 선택한 제출서류 연결을 삭제할까요? 원본 파일은 삭제되지 않습니다.')) return;
+    const revision = workspaceRevision;
+    deletingProjects.add(project.id);renderSubmissionProjects();
     try {
-        await requestJson(API_BASE + "/" + current.id, {method:"DELETE"});
-        if (revision === workspaceRevision) goToSubmissionList();
+        await requestJson(API_BASE + "/" + project.id, {method:"DELETE"});
+        if (revision === workspaceRevision) {projectRows=projectRows.filter(item=>item.id!==project.id);renderSubmissionProjects();}
     } catch (error) {
-        if (revision === workspaceRevision) {
-            elements.workspaceError.textContent = friendlyError(error,"delete");
-            setHidden(elements.workspaceError,false);
+        if (revision === workspaceRevision) document.querySelector("#submission-project-message").textContent=friendlyError(error,"delete");
+    } finally {
+        deletingProjects.delete(project.id);
+        document.querySelectorAll('[data-project-id="'+project.id+'"] button').forEach(button=>button.disabled=false);
+    }
+}
+function projectMenu(project) {
+    const wrapper=projectNode("div",null,"project-menu");wrapper.dataset.projectId=project.id;
+    const toggle=projectNode("button","⋮","project-menu-toggle");toggle.type="button";
+    toggle.setAttribute("aria-label",project.projectName+" 메뉴");toggle.setAttribute("aria-expanded","false");toggle.setAttribute("aria-haspopup","menu");
+    const menu=projectNode("div",null,"project-menu-items hidden");menu.setAttribute("role","menu");
+    const close=()=>{setHidden(menu,true);toggle.setAttribute("aria-expanded","false");};
+    const open=()=>{
+        closeProjectMenus();setHidden(menu,false);toggle.setAttribute("aria-expanded","true");
+        const rect=toggle.getBoundingClientRect();
+        menu.style.left=Math.max(8,rect.right-menu.offsetWidth)+"px";
+        menu.style.top=Math.max(8,Math.min(rect.bottom+4,innerHeight-menu.offsetHeight-8))+"px";
+    };
+    wrapper.addEventListener("click",event=>event.stopPropagation());
+    wrapper.addEventListener("keydown",event=>{
+        event.stopPropagation();
+        if(event.key==="Escape"){close();toggle.focus();}
+        if(event.key==="ArrowDown" || event.key==="ArrowUp") {
+            event.preventDefault();open();
+            const items=[...menu.querySelectorAll("button")],index=items.indexOf(document.activeElement);
+            items[index < 0 ? (event.key==="ArrowDown" ? 0 : items.length-1) : (index+(event.key==="ArrowDown"?1:items.length-1)+items.length)%items.length].focus();
         }
-    } finally { button.disabled = false; }
-};
+    });
+    wrapper.addEventListener("focusout",event=>{if(!wrapper.contains(event.relatedTarget))close();});
+    toggle.onclick=()=>{
+        if(menu.classList.contains("hidden")) {open();menu.querySelector("button").focus();}
+        else close();
+    };
+    for(const [label,action] of [["수정",()=>openProjectEdit(project)],["삭제",()=>deleteSubmissionProject(project)]]) {
+        const button=projectNode("button");button.type="button";button.setAttribute("role","menuitem");
+        const icon=document.createElementNS("http://www.w3.org/2000/svg","svg");
+        icon.setAttribute("viewBox","0 0 24 24");icon.setAttribute("aria-hidden","true");icon.setAttribute("fill","none");icon.setAttribute("stroke","currentColor");icon.setAttribute("stroke-width","1.7");icon.setAttribute("stroke-linecap","round");icon.setAttribute("stroke-linejoin","round");
+        const path=document.createElementNS("http://www.w3.org/2000/svg","path");
+        path.setAttribute("d",label==="수정" ? "M14 5l5 5M4 20l4-1L20 7a2 2 0 0 0-4-4L4 15z" : "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7");
+        icon.append(path);button.append(icon,projectNode("span",label));
+        button.classList.add(label==="삭제" ? "project-menu-delete" : "project-menu-edit");
+        button.onclick=()=>{close();action();};menu.append(button);
+    }
+    wrapper.append(toggle,menu);
+    if(deletingProjects.has(project.id))wrapper.querySelectorAll("button").forEach(button=>button.disabled=true);
+    return wrapper;
+}
+function closeProjectMenus() {
+    document.querySelectorAll(".project-menu-items").forEach(menu=>setHidden(menu,true));
+    document.querySelectorAll(".project-menu-toggle").forEach(button=>button.setAttribute("aria-expanded","false"));
+}
+document.addEventListener("click",closeProjectMenus);
 const MASTER_API = "/api/submission-document-masters";
 let documentMasters = [], performanceOpening = false;
 function commonMaster(requirement) {
@@ -822,7 +902,7 @@ function renderMasterOptions(selected = []) {
         input.type="checkbox"; input.className="document-option"; input.value=item.documentName;
         input.dataset.category=item.category; input.dataset.reference=item.sourceReference || "";
         input.checked=selected.some(r => r.category===item.category && normalizeName(r.documentName)===normalizeName(item.documentName));
-        input.addEventListener("change",updateCheckedCount); text.textContent=item.documentName;
+        input.addEventListener("change",handleRequirementChange); text.textContent=item.documentName;
         label.append(input,text); document.querySelector('[data-master-category="'+item.group+'"]').append(label);
     }
     elements.documentOptions=[...document.querySelectorAll(".document-option")];
@@ -855,5 +935,21 @@ async function openPerformanceProject(event) {
         if(revision===workspaceRevision){elements.workspaceError.textContent=friendlyError(error,"performance");setHidden(elements.workspaceError,false);}
     } finally { performanceOpening=false; }
 }
-document.querySelector("#performance-manage").onclick=openPerformanceProject;
-document.querySelector(".performance-picker-action").onclick=openPerformanceProject;
+
+
+
+function renderProjectSummary() {
+    const project = state.submissionCase;
+    elements.projectMeta.textContent = "발주기관 " + (project.orderingAgency || project.agencyName || "미등록");
+    const date = project.deadline ? new Date(project.deadline + "T00:00:00") : null;
+    const today = new Date();today.setHours(0,0,0,0);
+    const days = date ? Math.round((date - today) / 86400000) : null;
+    document.querySelector("#case-project-dday").textContent = days == null || Number.isNaN(days) ? "—" : days === 0 ? "D-day" : days > 0 ? "D-" + days : "D+" + Math.abs(days);
+}
+document.querySelector("#project-edit-cancel").onclick = () => document.querySelector("#project-edit-dialog").close();
+document.querySelector("#candidate-close").onclick = () => document.querySelector("#candidate-dialog").close();
+
+document.querySelector("#candidate-dialog").addEventListener("close", () => {
+    const row = [...elements.requirementList.rows].find(row => row.dataset.requirementId === String(state.activeRequirementId));
+    row?.querySelector("button")?.focus();
+});

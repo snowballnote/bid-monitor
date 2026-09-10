@@ -55,11 +55,19 @@ public class SubmissionCommonFileService {
     public boolean isCommon(SubmissionDocumentRequirement requirement) { return !references(requirement,false).isEmpty(); }
     @Transactional
     public CollectionResult collect(Long caseId,List<SubmissionCaseService.ManualRequirement> requested) {
+        return collect(caseId, requested, false);
+    }
+    @Transactional
+    public CollectionResult collect(Long caseId,List<SubmissionCaseService.ManualRequirement> requested, boolean preserveExistingSelections) {
         projects.lock(caseId);
         var requirements=cases.replaceRequirements(caseId,requested);
         var missing=new java.util.ArrayList<Long>();
         for(var requirement:requirements) {
             if(!isCommon(requirement))continue;
+            // Checkbox saves must not replace a file already attached to this project.
+            if (preserveExistingSelections && jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM submission_document_selection WHERE submission_case_id=? AND requirement_id=?",
+                    Long.class, caseId, requirement.getId()) > 0) continue;
             var refs=references(requirement,true);
             var current=refs.isEmpty()?List.<Current>of():jdbc.query("SELECT file_id,file_public_id,original_filename,file_ext,uploaded_file_id FROM submission_common_document WHERE document_type=? AND active=TRUE AND (file_id IS NOT NULL OR uploaded_file_id IS NOT NULL)",
                     (rs,n)->new Current(rs.getObject(1,Long.class),rs.getString(2),rs.getString(3),rs.getString(4),rs.getString(5)),refs.getFirst());

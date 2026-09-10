@@ -42,8 +42,9 @@ public class SubmissionCaseController {
 
     @PostMapping("/{id}/collect")
     public com.comhu.bidmonitor.submission.service.SubmissionCommonFileService.CollectionResult collect(@PathVariable Long id,
-            @RequestBody List<com.comhu.bidmonitor.submission.api.dto.CreateSubmissionRequirementRequest> items) {
-        return commonFiles.collect(id,items.stream().map(item->new ManualRequirement(parseCategory(item.category()),item.documentName(),item.sourceReference())).toList());
+            @RequestBody List<com.comhu.bidmonitor.submission.api.dto.CreateSubmissionRequirementRequest> items,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "false") boolean preserveExistingSelections) {
+        return commonFiles.collect(id,items.stream().map(item->new ManualRequirement(parseCategory(item.category()),item.documentName(),item.sourceReference())).toList(), preserveExistingSelections);
     }
     @PostMapping("/{id}/performance-project")
     public SubmissionCaseResponse ensurePerformance(@PathVariable Long id) { return SubmissionCaseResponse.from(performanceLinks.ensure(id)); }
