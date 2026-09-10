@@ -88,24 +88,45 @@
 .performance-page .entry-summary-row { cursor: pointer; }
 .performance-page .entry-summary-row:hover { background: var(--surface-subtle); }
 .performance-page .entry-evidence-cell > * { display: block; width: fit-content; }
-.performance-page .entry-filename { color: var(--muted); margin: 4px 0; }
+.performance-page .entry-filename { display: block; color: var(--muted); margin: 4px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .performance-page .entry-filename:empty { display: none; }
 .performance-page .entry-toggle { margin-top: 6px; min-height: 28px; padding: 3px 9px; font-size: 11px; }
 .performance-page .entry-detail-row > td { padding: 0; }
-.performance-page .entry-detail { padding: 16px; border-top: 1px solid var(--border); background: var(--surface-subtle); }
-.performance-page .entry-detail h3 { margin: 0 0 14px; font-size: 14px; }
+.performance-page .is-expanded > .entry-summary-row { background: var(--primary-soft); }
+.performance-page .is-expanded > .entry-summary-row > td { border-top-color: var(--primary); }
+.performance-page .is-expanded > .entry-summary-row > td:first-child { box-shadow: inset 3px 0 var(--primary); }
+.performance-page .entry-detail { padding: 12px 16px; border-bottom: 1px solid var(--border-strong); border-left: 3px solid var(--primary); background: var(--surface-subtle); }
+.performance-page .entry-detail h3 { margin: 0; font-size: 13px; }
+.performance-page .file-panel-heading, .performance-page .candidate-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.performance-page .file-panel-heading { margin-bottom: 10px; }
+.performance-page .entry-collapse { background: transparent; border: 0; color: var(--muted); min-height: 28px; padding: 3px 6px; font-size: 12px; }
+.performance-page .entry-toggle[aria-expanded=true] { border-color: var(--primary); color: var(--primary); }
 .performance-page tbody.performance-entry { padding: 0; margin: 0; }
-.performance-page .file-management-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
-.performance-page .file-management-columns > section { min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
-.performance-page .file-management-columns h4 { margin: 0 0 10px; font-size: 12px; }
+.performance-page .file-management-columns { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; }
+.performance-page .file-management-columns > * { min-width: 0; }
+.performance-page .file-management-columns h4 { margin: 0; font-size: 12px; }
+.performance-page .local-file-column { border-left: 1px solid var(--border); padding-left: 16px; }
+.performance-page .current-file-section { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.performance-page .current-evidence-file { margin: 6px 0 0; font-weight: 600; }
+.performance-page .candidate-search-context { margin: 6px 0; color: var(--muted); font-size: 11px; }
+.performance-page .entry-detail .candidates { max-height: 240px; overflow-y: auto; margin-top: 8px; }
+.performance-page .entry-detail .candidates > p { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
 
-.performance-page .file-candidate-option { display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; }
+.performance-page .file-candidate-option { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; }
 .performance-page .file-candidate-option:has(input:checked) { background: var(--primary-soft); border-color: var(--primary); }
-.performance-page .file-candidate-option span { overflow-wrap: anywhere; }
-.performance-page .entry-detail .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.performance-page .file-candidate-option span { min-width: 0; overflow-wrap: anywhere; line-height: 1.5; }
+.performance-page .file-candidate-option input { flex: 0 0 auto; }
+.performance-page .entry-detail .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.performance-page .entry-detail button { min-height: 30px; padding: 5px 10px; font-size: 12px; }
 .performance-page .current-evidence-file, .performance-page .file-management-message, .performance-page .local-file-upload p { font-size: 12px; overflow-wrap: anywhere; }
 .performance-page .file-management-message:empty { display: none; }
-@media (max-width: 800px) { .performance-page .file-management-columns { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 800px) {
+    .performance-page .file-management-columns { grid-template-columns: minmax(0, 1fr); }
+    .performance-page .local-file-column { border-left: 0; border-top: 1px solid var(--border); padding: 12px 0 0; }
+}
 
-.performance-page .local-file-upload label { margin-bottom: 10px; }
+.performance-page .local-file-upload { display: grid; grid-template-columns: minmax(0, 110px) minmax(0, 1fr); gap: 8px; align-items: end; }
+.performance-page .local-file-upload h4 { grid-column: 1 / -1; }
+.performance-page .local-file-upload label { margin: 0; gap: 4px; }
+.performance-page .local-file-upload button { grid-column: 1 / -1; justify-self: start; }
 .performance-page .local-file-upload input[type=file] { width: 100%; }

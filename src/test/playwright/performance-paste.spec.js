@@ -160,6 +160,29 @@ test('performance uploads: FMS can replace uploaded selection and upload failure
     await expect(panel.getByRole('button',{name:'파일 직접 등록',exact:true})).toBeEnabled();
 });
 
+test('performance files: connected expansion stays compact with long filenames and keyboard collapse', async ({page},testInfo)=>{
+    await page.setViewportSize({width:1440,height:1050});
+    const longName='계약서_사업정보'.repeat(30)+'.pdf';
+    const options={candidates:[{file:{driveFileId:'drive-long',originalFilename:longName},evidenceType:'CONTRACT',reason:'사업명 일치'}]};
+    await setup(page,false,options);await importOne(page);
+    await page.locator('.entry-summary-row td').first().click();
+    const panel=page.getByRole('region',{name:'증빙 파일 관리'});
+    await expect(panel).toBeVisible();
+    await expect(page.locator('.performance-entry')).toHaveClass(/is-expanded/);
+    await expect(panel.getByRole('radio')).toBeVisible();
+    const left=await panel.locator('.fms-file-section').boundingBox(),right=await panel.locator('.local-file-column').boundingBox();
+    expect(right.x).toBeGreaterThan(left.x+left.width);
+    expect(await panel.evaluate(node=>node.scrollWidth<=node.clientWidth)).toBe(true);
+    await expect(panel.getByText('통합시스템 구축',{exact:true})).toHaveCount(0);
+    await page.locator('.entries-table-wrap').screenshot({path:testInfo.outputPath('expanded-files.png')});
+    await panel.getByRole('button',{name:'접기',exact:true}).click();
+    await expect(panel).toBeHidden();
+    const toggle=page.getByRole('button',{name:'1. 통합시스템 구축 파일 관리',exact:true});
+    await expect(toggle).toBeFocused();await toggle.press('Enter');await expect(panel).toBeVisible();
+    await page.setViewportSize({width:390,height:844});
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
 test('performance files: compact table expands file-only panel, saves, replaces and clears selection', async ({page})=>{
     const writes=await setup(page,false,{candidates:fileCandidates});
     await importOne(page);
