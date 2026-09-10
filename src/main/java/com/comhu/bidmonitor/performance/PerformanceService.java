@@ -19,8 +19,14 @@ public class PerformanceService {
     private final PerformanceTableParser parser;
     private final CompanyFileSearchPort files;
     private final DriveEvidenceService drive;
+    private final PerformanceUploadStore uploads;
 
     public PerformanceService(PerformanceRepository repository, PerformanceTableParser parser, CompanyFileSearchPort files, DriveEvidenceService drive) {
+        this(repository, parser, files, drive, null);
+    }
+    @org.springframework.beans.factory.annotation.Autowired
+    public PerformanceService(PerformanceRepository repository, PerformanceTableParser parser, CompanyFileSearchPort files, DriveEvidenceService drive, PerformanceUploadStore uploads) {
+        this.uploads = uploads;
         this.repository = repository;
         this.parser = parser;
         this.files = files;
@@ -63,7 +69,10 @@ public class PerformanceService {
         EntryInput input = normalize(raw);
         String filename = null;
         String ext = null;
-        if (input.selectedDriveFileId() != null) {
+        if (input.selectedUploadedFileId() != null) {
+            var uploaded = uploads.require(projectId, id, input.selectedUploadedFileId());
+            filename = uploaded.filename();ext = uploaded.ext();
+        } else if (input.selectedDriveFileId() != null) {
             if (input.selectedDriveFileId().equals(old.info().selectedDriveFileId())
                     && input.evidenceType() == old.info().evidenceType()) {
                 filename = old.selectedFilename(); ext = old.selectedExt();
@@ -81,6 +90,19 @@ public class PerformanceService {
             }
         }
         return repository.update(projectId, id, input, filename, ext);
+    }
+
+    @Transactional
+    public Entry upload(String projectId, String id, org.springframework.web.multipart.MultipartFile file, EvidenceType type) {
+        var old = repository.entry(projectId, id);
+        if (type == null) throw new IllegalArgumentException("증빙유형을 선택하세요.");
+        if (old.resolvedStatus() == BusinessStatus.IN_PROGRESS && type != EvidenceType.CONTRACT)
+            throw new IllegalArgumentException("수행중 사업은 계약서를 등록하세요.");
+        var stored = uploads.save(projectId, id, file);
+        var info = old.info();
+        return update(projectId, id, new EntryInput(info.pptNumber(), info.businessName(), info.businessPeriod(),
+                info.contractAmount(), info.client(), info.businessStatus(), null, type, info.kitcStatus(),
+                info.requestedAt(), info.repliedAt(), null, stored.id()));
     }
 
     public Recommendations candidates(String projectId, String id) {
@@ -115,19 +137,19 @@ public class PerformanceService {
         String amount = required(input.contractAmount(), 200, "계약금액");
         String client = required(input.client(), 500, "발주처");
         if (input.kitcStatus() == null) throw new IllegalArgumentException("KITC 상태가 필요합니다.");
-        if (input.selectedFileId() != null && input.selectedDriveFileId() != null) {
-            throw new IllegalArgumentException("회사 DB 파일과 Drive 파일 중 하나만 선택하세요.");
-        }
+        int sources = (input.selectedFileId() == null ? 0 : 1) + (input.selectedDriveFileId() == null ? 0 : 1)
+                + (input.selectedUploadedFileId() == null ? 0 : 1);
+        if (sources > 1) throw new IllegalArgumentException("회사 파일, FMS 파일, 직접 등록 파일 중 하나만 선택하세요.");
         if (input.selectedDriveFileId() != null) {
             try { java.util.UUID.fromString(input.selectedDriveFileId()); }
             catch (IllegalArgumentException exception) { throw new IllegalArgumentException("Drive 파일 선택 ID를 확인하세요."); }
         }
-        if ((input.selectedFileId() == null && input.selectedDriveFileId() == null) != (input.evidenceType() == null)
+        if ((sources == 0) != (input.evidenceType() == null)
                 || (input.selectedFileId() != null && input.selectedFileId() <= 0)) {
             throw new IllegalArgumentException("파일과 증빙유형을 함께 지정하세요.");
         }
         var normalized = new EntryInput(number, name, period, amount, client, input.businessStatus(),
-                input.selectedFileId(), input.evidenceType(), input.kitcStatus(), input.requestedAt(), input.repliedAt(), input.selectedDriveFileId());
+                input.selectedFileId(), input.evidenceType(), input.kitcStatus(), input.requestedAt(), input.repliedAt(), input.selectedDriveFileId(), input.selectedUploadedFileId());
         if (resolveStatus(normalized) == BusinessStatus.IN_PROGRESS && input.evidenceType() == EvidenceType.CERTIFICATE) {
             throw new IllegalArgumentException("수행중 사업은 계약서를 연결하세요.");
         }

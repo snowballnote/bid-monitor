@@ -238,7 +238,7 @@ async function migratePerformanceLink() {
             if (state.performance !== progress || progress.revision !== revision) return;
             if (!Array.isArray(entries)) throw new Error("실적 진행상황을 확인할 수 없습니다.");
             progress.total = entries.length;
-            progress.processed = entries.filter(entry => (entry.info?.selectedFileId != null || entry.info?.selectedDriveFileId != null)).length;
+            progress.processed = entries.filter(entry => (entry.info?.selectedFileId != null || entry.info?.selectedDriveFileId != null || entry.info?.selectedUploadedFileId != null)).length;
         }
     } catch {
         if (state.performance !== progress || progress.revision !== revision) return;

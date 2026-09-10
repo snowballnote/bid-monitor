@@ -26,6 +26,10 @@ public class PerformanceApiExceptionHandler {
     ResponseEntity<?> driveFailure(FmsDriveException exception) {
         return error(exception.forbidden() ? 403 : 503, exception.getMessage());
     }
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    ResponseEntity<?> uploadTooLarge() { return error(413, "20MB 이하 파일을 선택하세요."); }
+    @ExceptionHandler(java.io.UncheckedIOException.class)
+    ResponseEntity<?> uploadFailed() { return error(503, "파일을 저장하지 못했습니다. 자체 저장소 상태를 확인하세요."); }
     @ExceptionHandler(IOException.class)
     ResponseEntity<?> downloadFailed() { return error(503, "ZIP을 만들 수 없습니다. 파일 상태·NAS 연결·원본 합계 100MB 제한을 확인하세요."); }
     private ResponseEntity<?> error(int status, String message) {

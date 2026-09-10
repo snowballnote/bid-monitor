@@ -276,12 +276,23 @@ CREATE TABLE IF NOT EXISTS performance_drive_file (
 );
 ALTER TABLE performance_entry ADD COLUMN IF NOT EXISTS selected_drive_file_id VARCHAR(36)
     REFERENCES performance_drive_file(id);
+CREATE TABLE IF NOT EXISTS performance_uploaded_file (
+    id VARCHAR(36) PRIMARY KEY,
+    project_id VARCHAR(36) NOT NULL REFERENCES performance_project(id),
+    entry_id VARCHAR(36) NOT NULL REFERENCES performance_entry(id),
+    original_filename VARCHAR(2000) NOT NULL,
+    file_ext VARCHAR(100),
+    size_bytes BIGINT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+ALTER TABLE performance_entry ADD COLUMN IF NOT EXISTS selected_uploaded_file_id VARCHAR(36) REFERENCES performance_uploaded_file(id);
 ALTER TABLE performance_entry DROP CONSTRAINT IF EXISTS ck_performance_file;
 ALTER TABLE performance_entry ADD CONSTRAINT ck_performance_file CHECK(
-    (selected_file_id IS NULL AND selected_drive_file_id IS NULL
+    (selected_file_id IS NULL AND selected_drive_file_id IS NULL AND selected_uploaded_file_id IS NULL
         AND selected_filename IS NULL AND selected_ext IS NULL AND evidence_type IS NULL)
-    OR (((selected_file_id IS NOT NULL AND selected_drive_file_id IS NULL)
-        OR (selected_file_id IS NULL AND selected_drive_file_id IS NOT NULL))
+    OR (((selected_file_id IS NOT NULL AND selected_drive_file_id IS NULL AND selected_uploaded_file_id IS NULL)
+        OR (selected_file_id IS NULL AND selected_drive_file_id IS NOT NULL AND selected_uploaded_file_id IS NULL)
+        OR (selected_file_id IS NULL AND selected_drive_file_id IS NULL AND selected_uploaded_file_id IS NOT NULL))
         AND selected_filename IS NOT NULL AND evidence_type IS NOT NULL)
 );
 CREATE TABLE IF NOT EXISTS drive_file_index (

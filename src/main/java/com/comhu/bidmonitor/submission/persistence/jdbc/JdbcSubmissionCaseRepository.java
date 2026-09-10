@@ -114,7 +114,7 @@ public class JdbcSubmissionCaseRepository implements SubmissionCaseRepository {
         return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM performance_entry WHERE project_id=?", Long.class, id);
     }
     public long performanceMissing(String id) {
-        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM performance_entry WHERE project_id=? AND selected_file_id IS NULL AND selected_drive_file_id IS NULL", Long.class, id);
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM performance_entry WHERE project_id=? AND selected_file_id IS NULL AND selected_drive_file_id IS NULL AND selected_uploaded_file_id IS NULL", Long.class, id);
     }
     private Optional<SubmissionCase> find(String sql, Object parameter) {
         List<SubmissionCase> rows = jdbcTemplate.query(sql, this::map, parameter);

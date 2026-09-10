@@ -26,7 +26,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.datasource.url=jdbc:h2:mem:performance-api;DB_CLOSE_DELAY=-1",
         "spring.datasource.driver-class-name=org.h2.Driver", "spring.datasource.username=sa",
         "spring.datasource.password=", "spring.sql.init.mode=always",
-        "company-db.enabled=false", "external-notice.scheduler.enabled=false"
+        "company-db.enabled=false", "external-notice.scheduler.enabled=false",
+        "performance.upload-directory=./target/performance-test-uploads"
 })
 class PerformanceControllerTests {
     @Autowired MockMvc mvc;
@@ -35,6 +36,84 @@ class PerformanceControllerTests {
     @MockitoBean CompanyFileSearchPort files;
     @MockitoBean PerformanceFileContentPort content;
     @MockitoBean DriveEvidenceService drive;
+
+    @Test
+    void uploadsOngoingContractReplacesAndUnlinksWithoutFmsAccess() throws Exception {
+        var project = service.create(new ProjectInput("Upload", LocalDate.now())).id();
+        var entry = service.paste(project, new PasteInput("1\t사업\t2026.01 ~ 수행중\t100\t기관", null)).saved().getFirst();
+        String url = "/api/performance-projects/" + project + "/entries/" + entry.id();
+        mvc.perform(multipart(url + "/upload").file(new org.springframework.mock.web.MockMultipartFile(
+                "file", "certificate.pdf", "application/pdf", new byte[]{1}))
+                .param("evidenceType", "CERTIFICATE")).andExpect(status().isBadRequest());
+        mvc.perform(multipart(url + "/upload").file(new org.springframework.mock.web.MockMultipartFile(
+                "file", "C:\\fakepath\\contract.pdf", "application/pdf", new byte[]{1, 2, 3}))
+                .param("evidenceType", "CONTRACT"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.selectedFilename").value("contract.pdf"))
+                .andExpect(jsonPath("$.info.selectedUploadedFileId").isNotEmpty())
+                .andExpect(jsonPath("$.info.selectedDriveFileId").isEmpty())
+                .andExpect(jsonPath("$.info.selectedFileId").isEmpty())
+                .andExpect(jsonPath("$.info.evidenceType").value("CONTRACT"));
+        String first = service.entries(project).getFirst().info().selectedUploadedFileId();
+        org.junit.jupiter.api.Assertions.assertEquals("READY", service.project(project).status());
+        mvc.perform(multipart(url + "/upload").file(new org.springframework.mock.web.MockMultipartFile(
+                "file", "replacement.pdf", "application/pdf", new byte[]{4, 5}))
+                .param("evidenceType", "CONTRACT")).andExpect(status().isOk());
+        org.junit.jupiter.api.Assertions.assertNotEquals(first, service.entries(project).getFirst().info().selectedUploadedFileId());
+        var download = mvc.perform(get("/api/performance-projects/" + project + "/download"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
+        try (var zip = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(download))) {
+            org.junit.jupiter.api.Assertions.assertTrue(zip.getNextEntry().getName().contains("계약서"));
+            org.junit.jupiter.api.Assertions.assertArrayEquals(new byte[]{4, 5}, zip.readAllBytes());
+            org.junit.jupiter.api.Assertions.assertNull(zip.getNextEntry());
+        }
+        mvc.perform(put(url).contentType("application/json").content("""
+                {"pptNumber":"1","businessName":"사업","businessPeriod":"2026.01 ~ 수행중",
+                 "contractAmount":"100","client":"기관","kitcStatus":"NEEDED"}
+                """)).andExpect(status().isOk()).andExpect(jsonPath("$.info.selectedUploadedFileId").isEmpty())
+                .andExpect(jsonPath("$.selectedFilename").isEmpty());
+        verifyNoInteractions(files, drive, content);
+    }
+
+    @Test
+    void uploadedAndFmsFilesShareZipAndUploadedIdsAreEntryScoped() throws Exception {
+        var first = entry();
+        var second = service.paste(first.projectId(), new PasteInput("2\t사업B\t2024.01 ~ 2025.12\t200\t기관", null)).saved().getFirst();
+        service.upload(first.projectId(), first.id(), new org.springframework.mock.web.MockMultipartFile(
+                "file", "local.pdf", "application/pdf", new byte[]{9}), EvidenceType.CERTIFICATE);
+        var uploaded = service.entries(first.projectId()).stream().filter(e -> e.id().equals(first.id())).findFirst().orElseThrow();
+        var i = second.info();
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> service.update(second.projectId(), second.id(),
+                new EntryInput(i.pptNumber(), i.businessName(), i.businessPeriod(), i.contractAmount(), i.client(), null,
+                        null, EvidenceType.CERTIFICATE, KitcStatus.NEEDED, null, null, null, uploaded.info().selectedUploadedFileId())));
+        var ref = registry.register("test-origin", "CNH", new FmsDrivePort.Item("fms.pdf", "/test/fms.pdf", false, 1, null));
+        when(drive.selectable(ref.id(), EvidenceType.CERTIFICATE)).thenReturn(ref);
+        service.update(second.projectId(), second.id(), new EntryInput(i.pptNumber(), i.businessName(), i.businessPeriod(),
+                i.contractAmount(), i.client(), null, null, EvidenceType.CERTIFICATE, KitcStatus.NEEDED, null, null, ref.id()));
+        when(drive.open(ref.id())).thenReturn(new java.io.ByteArrayInputStream(new byte[]{8}));
+        byte[] bytes = mvc.perform(get("/api/performance-projects/" + first.projectId() + "/download"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
+        var payloads = new java.util.HashSet<Integer>();
+        try (var zip = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(bytes))) {
+            while (zip.getNextEntry() != null) payloads.add((int) zip.readAllBytes()[0]);
+        }
+        org.junit.jupiter.api.Assertions.assertEquals(java.util.Set.of(8, 9), payloads);
+        verify(drive).open(ref.id());verifyNoInteractions(files, content);
+    }
+
+    @Test
+    void invalidUploadsPreserveExistingSelection() throws Exception {
+        var entry = entry();
+        var selected = service.upload(entry.projectId(), entry.id(), new org.springframework.mock.web.MockMultipartFile(
+                "file", "valid.pdf", "application/pdf", new byte[]{1}), EvidenceType.CONTRACT);
+        String url = "/api/performance-projects/" + entry.projectId() + "/entries/" + entry.id() + "/upload";
+        mvc.perform(multipart(url).file(new org.springframework.mock.web.MockMultipartFile("file", new byte[0]))
+                .param("evidenceType", "CONTRACT")).andExpect(status().isBadRequest());
+        mvc.perform(multipart(url).file(new org.springframework.mock.web.MockMultipartFile("file", "large.pdf", "application/pdf",
+                new byte[(int) PerformanceUploadStore.MAX_BYTES + 1])).param("evidenceType", "CONTRACT"))
+                .andExpect(status().isBadRequest());
+        org.junit.jupiter.api.Assertions.assertEquals(selected.info().selectedUploadedFileId(), service.entries(entry.projectId()).getFirst().info().selectedUploadedFileId());
+        verifyNoInteractions(files, drive, content);
+    }
 
     @Test
     void createsProjectAndImportsPartialRowsWithoutLeakingInternalFields() throws Exception {
@@ -112,7 +191,7 @@ class PerformanceControllerTests {
         mvc.perform(get("/performances/index.html")).andExpect(status().isOk())
                 .andExpect(result -> org.assertj.core.api.Assertions.assertThat(result.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8))
                         .contains("<th>프로젝트명</th><th>D-day</th><th>상태</th>"));
-        mvc.perform(get("/submissions/index.html")).andExpect(status().isOk())
+        mvc.perform(get("/submissions/submissions.js")).andExpect(status().isOk())
                 .andExpect(content().string(containsString("/performances/index.html")));
     }
 

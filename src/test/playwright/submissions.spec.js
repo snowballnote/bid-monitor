@@ -20,6 +20,7 @@ async function setup(page, options = {}) {
     };
     if (options.empty) { state.requirements = []; state.selections = []; }
     if (options.unlinked) state.project.performanceProjectId = null;
+    if (options.uploadedPerformance) state.entries = [{ info: { selectedUploadedFileId: 'local-1' } }, { info: { selectedDriveFileId: 'drive-1' } }];
     const masters = state.requirements.filter(item => item.id !== 85).map(item => ({
         id: item.id, name: item.documentName, sourceReference: item.sourceReference,
         requirementCategory: item.category, category: item.companyCommon ? 'COMPANY_COMMON' : item.category,
@@ -165,6 +166,12 @@ test('submissions: project edit, list/card switch, history, create and delete', 
     await page.locator('#create-submission-project').getByLabel('마감일').fill('2026-09-30');
     await page.getByRole('button', { name: '프로젝트 생성', exact: true }).click();
     await expect(page.locator('#case-project-name')).toHaveText('새 프로젝트');
+});
+
+test('submissions: uploaded performance files count in preparation progress', async ({page}) => {
+    await setup(page, {uploadedPerformance:true});
+    await expect(row(page,84)).toContainText('2 / 2 준비');
+    await expect(page.locator('#progress-caption')).toHaveText('3 / 5');
 });
 
 test('submissions: performance management links project and preserves return case', async ({ page }) => {

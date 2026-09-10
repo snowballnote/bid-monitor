@@ -9,12 +9,17 @@ async function setup(page, fail = false, options = {}) {
     await page.route('**/*', async route => {
         const request = route.request(), pathname = new URL(request.url()).pathname;
         if (pathname.startsWith('/api/')) {
-            if (request.method() !== 'GET') writes.push({ path: pathname, body: request.postDataJSON() });
+            if (request.method() !== 'GET') writes.push({ path: pathname, body: pathname.endsWith('/upload') ? request.postData() : request.postDataJSON() });
+            if (pathname.endsWith('/upload')) {
+                if(options.uploadError) return route.fulfill({status:503,json:{message:'파일 저장에 실패했습니다.'}});
+                const count=writes.filter(item=>item.path.endsWith('/upload')).length;
+                return route.fulfill({json:{id:'entry1',projectId:'p1',resolvedStatus:options.resolvedStatus||'COMPLETED',selectedFilename:'직접등록'+count+'.pdf',info:{pptNumber:'1',businessName:'통합시스템 구축',businessPeriod:'2024.01 ~ 2025.12',contractAmount:'100,000,000원',client:'테스트기관',kitcStatus:'NEEDED',selectedUploadedFileId:'upload-'+count,selectedDriveFileId:null,selectedFileId:null,evidenceType:options.resolvedStatus==='IN_PROGRESS'?'CONTRACT':'CERTIFICATE'}}});
+            }
             if (pathname.endsWith('/import')) {
                 if (fail) return route.fulfill({ status: 400, json: { message: '저장 실패' } });
-                return route.fulfill({ json: { saved: [{ id: 'entry1', projectId: 'p1', resolvedStatus: 'COMPLETED', info: { pptNumber: '1', businessName: '통합시스템 구축', businessPeriod: '2024.01 ~ 2025.12', contractAmount: '100,000,000원', client: '테스트기관', kitcStatus: 'NEEDED' } }], errors: [] } });
+                return route.fulfill({ json: { saved: [{ id: 'entry1', projectId: 'p1', resolvedStatus: options.resolvedStatus || 'COMPLETED', info: { pptNumber: '1', businessName: '통합시스템 구축', businessPeriod: '2024.01 ~ 2025.12', contractAmount: '100,000,000원', client: '테스트기관', kitcStatus: 'NEEDED' } }], errors: [] } });
             }
-            if (pathname.endsWith('/candidates')) return route.fulfill({ json: { candidates: options.candidates || [], nextAction: 'KITC 요청 필요' } });
+            if (pathname.endsWith('/candidates')) return route.fulfill(options.candidateError ? {status:503,json:{message:options.candidateError}} : { json: { candidates: options.candidates || [], nextAction: 'KITC 요청 필요' } });
             if (request.method() === 'PUT' && pathname.endsWith('/entries/entry1')) {
                 if (options.saveError) return route.fulfill({status:400,json:{message:'지정 파일 저장 실패'}});
                 const info=request.postDataJSON();
@@ -110,6 +115,51 @@ async function importOne(page) {
 }
 const fileCandidates=[{file:{driveFileId:'drive-1',originalFilename:'증빙1.pdf'},evidenceType:'CERTIFICATE',reason:'정확히 일치'},{file:{driveFileId:'drive-2',originalFilename:'증빙2.pdf'},evidenceType:'CONTRACT',reason:'사업명 일치'}];
 
+test('performance uploads: ongoing contract uploads despite FMS error, replaces, downloads and unlinks', async ({page})=>{
+    const writes=await setup(page,false,{resolvedStatus:'IN_PROGRESS',candidateError:'계약서 검색 폴더를 설정하세요.'});
+    await importOne(page);
+    await page.getByRole('button',{name:'1. 통합시스템 구축 파일 관리',exact:true}).click();
+    const panel=page.getByRole('region',{name:'증빙 파일 관리'});
+    await expect(panel.getByLabel('증빙유형')).toHaveValue('CONTRACT');
+    await expect(panel.getByLabel('증빙유형').locator('option')).toHaveCount(1);
+    for(let count=1;count<=2;count++) {
+        await panel.getByLabel('PC 파일').setInputFiles({name:'contract.pdf',mimeType:'application/pdf',buffer:Buffer.from('contract')});
+        await panel.getByRole('button',{name:'파일 직접 등록',exact:true}).click();
+        await expect(page.locator('.entry-summary-row')).toContainText('직접등록'+count+'.pdf');
+        await expect(page.locator('.entry-summary-row')).toContainText('준비 완료');
+    }
+    const uploads=writes.filter(item=>item.path.endsWith('/upload'));
+    expect(uploads).toHaveLength(2);
+    expect(uploads[0].body).toContain('filename="contract.pdf"');
+    expect(uploads[0].body).toContain('CONTRACT');
+    await expect(page.locator('#download')).toBeEnabled();
+    const download=page.waitForEvent('download');await page.locator('#download').click();await download;
+    await panel.getByRole('button',{name:'연결 해제',exact:true}).click();
+    await panel.getByRole('button',{name:'지정 파일 저장',exact:true}).click();
+    await expect.poll(()=>writes.filter(item=>item.path.endsWith('/entries/entry1')).length).toBe(1);
+    expect(writes.at(-1).body).toMatchObject({selectedUploadedFileId:null,selectedDriveFileId:null,selectedFileId:null,evidenceType:null});
+    await expect(page.locator('#download')).toBeDisabled();
+});
+
+test('performance uploads: FMS can replace uploaded selection and upload failure remains retryable', async ({page})=>{
+    const writes=await setup(page,false,{candidates:fileCandidates});await importOne(page);
+    await page.getByRole('button',{name:'1. 통합시스템 구축 파일 관리',exact:true}).click();
+    const panel=page.getByRole('region',{name:'증빙 파일 관리'});
+    await panel.getByLabel('PC 파일').setInputFiles({name:'local.pdf',mimeType:'application/pdf',buffer:Buffer.from('local')});
+    await panel.getByRole('button',{name:'파일 직접 등록',exact:true}).click();
+    await expect(page.locator('.entry-summary-row')).toContainText('직접등록1.pdf');
+    await panel.getByRole('radio',{name:'증빙1.pdf · 정확히 일치'}).check();
+    await panel.getByRole('button',{name:'지정 파일 저장'}).click();
+    await expect(page.locator('.entry-summary-row')).toContainText('선택한증빙.pdf');
+    expect(writes.at(-1).body).toMatchObject({selectedUploadedFileId:null,selectedDriveFileId:'drive-1'});
+    await page.route('**/entries/entry1/upload',route=>route.fulfill({status:503,json:{message:'파일 저장에 실패했습니다.'}}));
+    await panel.getByLabel('PC 파일').setInputFiles({name:'retry.pdf',mimeType:'application/pdf',buffer:Buffer.from('retry')});
+    await panel.getByRole('button',{name:'파일 직접 등록',exact:true}).click();
+    await expect(panel.locator('.file-management-message')).toHaveText('파일 저장에 실패했습니다.');
+    await expect(page.locator('.entry-summary-row')).toContainText('선택한증빙.pdf');
+    await expect(panel.getByRole('button',{name:'파일 직접 등록',exact:true})).toBeEnabled();
+});
+
 test('performance files: compact table expands file-only panel, saves, replaces and clears selection', async ({page})=>{
     const writes=await setup(page,false,{candidates:fileCandidates});
     await importOne(page);
@@ -118,7 +168,7 @@ test('performance files: compact table expands file-only panel, saves, replaces 
     await page.getByRole('button',{name:'1. 통합시스템 구축 파일 관리',exact:true}).click();
     const panel=page.getByRole('region',{name:'증빙 파일 관리'});
     await expect(panel).toBeVisible();
-    await expect(panel.locator('input[type=text], input[type=date], textarea, select')).toHaveCount(0);
+    await expect(panel.locator('input[type=text], input[type=date], textarea')).toHaveCount(0);
     await panel.getByRole('radio',{name:'증빙1.pdf · 정확히 일치'}).check();
     await panel.getByRole('button',{name:'지정 파일 저장'}).click();
     await expect(page.locator('.entry-summary-row')).toContainText('준비 완료');
@@ -151,4 +201,21 @@ test('performance files: failed save retains choice and ZIP uses existing downlo
     const downloadPromise=page.waitForEvent('download');
     await page.getByRole('button',{name:'준비된 지정 파일 ZIP 다운로드'}).click();
     expect((await downloadPromise).suggestedFilename()).toBe('performance-evidence.zip');
+});
+
+
+test('performance candidates: contract configuration error is distinct from no matches and retry clears it', async ({page})=>{
+    const options={resolvedStatus:'IN_PROGRESS',candidateError:'계약서 검색 폴더를 설정하세요.',candidates:[fileCandidates[1]]};
+    await setup(page,false,options);await importOne(page);
+    await page.getByRole('button',{name:'1. 통합시스템 구축 파일 관리',exact:true}).click();
+    const panel=page.getByRole('region',{name:'증빙 파일 관리'});
+    await expect(panel.locator('.candidate-search-context')).toHaveText('수행중 · 계약서 검색');
+    await expect(panel.getByRole('alert')).toContainText('계약서 검색 폴더를 설정하세요.');
+    await expect(panel.getByRole('radio')).toHaveCount(0);
+    await expect(panel).not.toContainText('연결할 FMS 후보 파일이 없습니다.');
+    options.candidateError=null;
+    await panel.getByRole('button',{name:'후보 추천',exact:true}).click();
+    await expect(panel.getByRole('radio')).toHaveCount(1);
+    await expect(panel).not.toContainText('계약서 검색 폴더를 설정하세요.');
+    await expect(panel.getByRole('alert')).toHaveCount(0);
 });

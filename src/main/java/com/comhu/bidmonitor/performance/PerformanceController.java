@@ -37,6 +37,12 @@ public class PerformanceController {
     public Entry update(@PathVariable String projectId, @PathVariable String id, @RequestBody EntryInput input) {
         return service.update(projectId, id, input);
     }
+    @PostMapping(value = "/{projectId}/entries/{id}/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Entry upload(@PathVariable String projectId, @PathVariable String id,
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file,
+            @RequestParam("evidenceType") EvidenceType evidenceType) {
+        return service.upload(projectId, id, file, evidenceType);
+    }
     @GetMapping("/{projectId}/entries/{id}/candidates")
     public Recommendations candidates(@PathVariable String projectId, @PathVariable String id) {
         return service.candidates(projectId, id);

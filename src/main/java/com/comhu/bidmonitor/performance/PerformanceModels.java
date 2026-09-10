@@ -19,7 +19,13 @@ public final class PerformanceModels {
     public record EntryInput(String pptNumber, String businessName, String businessPeriod,
                              String contractAmount, String client, BusinessStatus businessStatus,
                              Long selectedFileId, EvidenceType evidenceType, KitcStatus kitcStatus,
-                             LocalDate requestedAt, LocalDate repliedAt, String selectedDriveFileId) {
+                             LocalDate requestedAt, LocalDate repliedAt, String selectedDriveFileId, String selectedUploadedFileId) {
+        public EntryInput(String pptNumber, String businessName, String businessPeriod, String contractAmount,
+                          String client, BusinessStatus businessStatus, Long selectedFileId, EvidenceType evidenceType,
+                          KitcStatus kitcStatus, LocalDate requestedAt, LocalDate repliedAt, String selectedDriveFileId) {
+            this(pptNumber, businessName, businessPeriod, contractAmount, client, businessStatus,
+                    selectedFileId, evidenceType, kitcStatus, requestedAt, repliedAt, selectedDriveFileId, null);
+        }
         public EntryInput(String pptNumber, String businessName, String businessPeriod, String contractAmount,
                           String client, BusinessStatus businessStatus, Long selectedFileId, EvidenceType evidenceType,
                           KitcStatus kitcStatus, LocalDate requestedAt, LocalDate repliedAt) {

@@ -98,11 +98,14 @@
 .performance-page .file-management-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
 .performance-page .file-management-columns > section { min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
 .performance-page .file-management-columns h4 { margin: 0 0 10px; font-size: 12px; }
-.performance-page .file-management-columns:has(.local-file-unavailable[hidden]) { grid-template-columns: minmax(0, 1fr); }
+
 .performance-page .file-candidate-option { display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; }
 .performance-page .file-candidate-option:has(input:checked) { background: var(--primary-soft); border-color: var(--primary); }
 .performance-page .file-candidate-option span { overflow-wrap: anywhere; }
 .performance-page .entry-detail .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-.performance-page .current-evidence-file, .performance-page .file-management-message, .performance-page .local-file-unavailable p { font-size: 12px; overflow-wrap: anywhere; }
+.performance-page .current-evidence-file, .performance-page .file-management-message, .performance-page .local-file-upload p { font-size: 12px; overflow-wrap: anywhere; }
 .performance-page .file-management-message:empty { display: none; }
 @media (max-width: 800px) { .performance-page .file-management-columns { grid-template-columns: minmax(0, 1fr); } }
+
+.performance-page .local-file-upload label { margin-bottom: 10px; }
+.performance-page .local-file-upload input[type=file] { width: 100%; }

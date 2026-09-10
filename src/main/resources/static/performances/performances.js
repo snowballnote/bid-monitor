@@ -25,7 +25,7 @@ function updateReturnLink() {
 }
 function updateEntrySummary() {
     const entries = [...entriesById.values()];
-    const processed = entries.filter(entry => (entry.info.selectedDriveFileId != null || entry.info.selectedFileId != null)).length;
+    const processed = entries.filter(entry => (entry.info.selectedDriveFileId != null || entry.info.selectedFileId != null || entry.info.selectedUploadedFileId != null)).length;
     $('#entry-summary').textContent = entries.length
         ? entries.length + '건 중 ' + processed + '건 처리 / ' + (entries.length - processed) + '건 미처리'
         : '등록된 실적 없음';
@@ -52,7 +52,7 @@ const el = (tag, text) => { const node = document.createElement(tag); if (tag ==
 
 async function api(path = '', options = {}) {
     const response = await fetch(apiBase + path, {
-        ...options, headers: { 'Content-Type': 'application/json', ...options.headers }
+        ...options, headers: { ...(options.body instanceof FormData ? {} : {'Content-Type':'application/json'}), ...options.headers }
     });
     if (!response.ok) {
         const body = await response.json().catch(() => ({}));
@@ -118,7 +118,7 @@ async function openProject(id) {
     $('#entries').append(...entries.map(entry => renderEntry(entry)));
 }
 function evidencePresentation(entry, recommendedFiles = null) {
-    if ((entry.info.selectedDriveFileId != null || entry.info.selectedFileId != null)) {
+    if ((entry.info.selectedDriveFileId != null || entry.info.selectedFileId != null || entry.info.selectedUploadedFileId != null)) {
         return { label: '선택 완료', tone: 'complete', detail: '저장된 FMS 증빙파일이 연결되어 있습니다.' };
     }
     if (recommendedFiles === null) {
@@ -147,10 +147,19 @@ function renderEntry(entry, expanded = false) {
     const current = el('p', '현재 지정 파일: ' + (entry.selectedFilename || '없음'));current.className = 'current-evidence-file';panel.append(current);
     const columns = el('div');columns.className = 'file-management-columns';
     const fms = el('section');fms.append(el('h4', 'FMS 후보 파일'));
+    const searchContext = el('p', entry.resolvedStatus === 'COMPLETED' ? '수행완료 · 실적증명서 우선, 없으면 계약서 검색' : '수행중 · 계약서 검색');
+    searchContext.className = 'candidate-search-context';fms.append(searchContext);
     const candidates = el('div');candidates.className = 'candidates';fms.append(candidates);
-    const upload = el('section');upload.className = 'local-file-unavailable';
-    upload.append(el('h4', 'KITC 파일 등록'), el('p', '현재 PC 파일 등록은 지원되지 않습니다.'));
-    upload.hidden = true;
+    const upload = el('section');upload.className = 'local-file-upload';
+    upload.append(el('h4', '파일 직접 등록'), el('p', 'PC 파일을 등록하면 이 실적의 지정 파일로 저장됩니다. (최대 20MB)'));
+    const typeLabel = el('label', '증빙유형');const typeSelect = el('select');
+    const types = entry.resolvedStatus === 'COMPLETED' ? [['CERTIFICATE','실적증명서'],['CONTRACT','계약서']] : [['CONTRACT','계약서']];
+    for (const [value,label] of types) {const option=el('option',label);option.value=value;typeSelect.append(option);}
+    typeSelect.value = types.some(type=>type[0]===info.evidenceType) ? info.evidenceType : types[0][0];
+    typeLabel.append(typeSelect);
+    const fileLabel = el('label', 'PC 파일');const fileInput = el('input');fileInput.type='file';fileLabel.append(fileInput);
+    const uploadButton=el('button','파일 직접 등록');uploadButton.type='button';
+    upload.append(typeLabel,fileLabel,uploadButton);
     columns.append(fms, upload);panel.append(columns);
     const message = el('p');message.className = 'file-management-message';message.setAttribute('role', 'status');panel.append(message);
     const actions = el('div');actions.className = 'actions';
@@ -158,11 +167,13 @@ function renderEntry(entry, expanded = false) {
     const search = el('button', '후보 추천');search.type = 'button';
     const clear = el('button', '연결 해제');clear.type = 'button';
     let driveFileId = info.selectedDriveFileId || null, fileId = info.selectedFileId || null, evidenceType = info.evidenceType || null;
+    let uploadedFileId = info.selectedUploadedFileId || null;
+    let fileActionBusy = false;
     let recommendedFiles = null;
     function renderStatus() {
         const status = evidencePresentation(entry, recommendedFiles);
         evidence.className = 'entry-evidence-status requirement-state ' + status.tone;
-        evidence.textContent = (info.selectedDriveFileId || info.selectedFileId) ? '준비 완료' : status.label;
+        evidence.textContent = (info.selectedDriveFileId || info.selectedFileId || info.selectedUploadedFileId) ? '준비 완료' : status.label;
         evidence.title = status.detail;
     }
     renderStatus();
@@ -171,43 +182,62 @@ function renderEntry(entry, expanded = false) {
         for (const candidate of (recommendedFiles || []).filter(candidate => candidate.file.driveFileId)) {
             const label = el('label');label.className = 'file-candidate-option';
             const radio = el('input');radio.type = 'radio';radio.name = 'evidence-' + entry.id;
-            radio.checked = driveFileId === candidate.file.driveFileId;
+            radio.checked = driveFileId === candidate.file.driveFileId;radio.disabled=fileActionBusy;
             radio.onchange = () => {
-                driveFileId = candidate.file.driveFileId;fileId = null;evidenceType = candidate.evidenceType;
+                driveFileId = candidate.file.driveFileId;fileId = null;uploadedFileId = null;evidenceType = candidate.evidenceType;
                 message.textContent = '후보를 선택했습니다. 저장하면 지정 파일이 변경됩니다.';
             };
             label.append(radio, el('span', candidate.file.originalFilename + ' · ' + candidate.reason));candidates.append(label);
         }
         if (!candidates.children.length) candidates.append(el('p', '연결할 FMS 후보 파일이 없습니다.'));
-        upload.hidden = Boolean(candidates.querySelector('input'));
+
     }
     const searchProjectId = entry.projectId || projectId;
     async function searchCandidates() {
-        if (search.disabled) return;
+        if (search.disabled || fileActionBusy) return;
         search.disabled = true;
+        message.textContent = '';
         candidates.replaceChildren(el('p', 'FMS 후보 검색 중…'));
-        evidence.textContent = (info.selectedDriveFileId || info.selectedFileId) ? '준비 완료' : '검색 중';
+        evidence.textContent = (info.selectedDriveFileId || info.selectedFileId || info.selectedUploadedFileId) ? '준비 완료' : '검색 중';
         try {
             const result = await api('/' + encodeURIComponent(searchProjectId) + '/entries/' + encodeURIComponent(entry.id) + '/candidates');
             if (!Array.isArray(result.candidates)) throw new Error('FMS 후보 응답 형식을 확인하세요.');
             recommendedFiles = result.candidates;renderChoices();renderStatus();
         } catch (error) {
-            candidates.replaceChildren(el('p', error.message + ' · 후보 추천 버튼으로 재시도하세요.'));
-            evidence.textContent = (info.selectedDriveFileId || info.selectedFileId) ? '준비 완료' : '검색 오류';
-            message.textContent = error.message;
+            const warning = el('p', error.message.includes('검색 폴더를 설정') ? error.message + ' 검색 폴더 설정과 인덱스 갱신 후 후보 추천을 다시 실행하세요.' : error.message + ' · 후보 추천 버튼으로 재시도하세요.');
+            warning.setAttribute('role', 'alert');candidates.replaceChildren(warning);
+            evidence.textContent = (info.selectedDriveFileId || info.selectedFileId || info.selectedUploadedFileId) ? '준비 완료' : '검색 오류';
         } finally { search.disabled = false; }
     }
     search.onclick = searchCandidates;
     clear.onclick = () => {
-        driveFileId = null;fileId = null;evidenceType = null;
+        driveFileId = null;fileId = null;uploadedFileId = null;evidenceType = null;
         candidates.querySelectorAll('input').forEach(input => input.checked = false);
         message.textContent = '연결 해제는 지정 파일 저장을 누르면 반영됩니다.';
     };
+    function setFileBusy(busy) {
+        fileActionBusy=busy;
+        [save,clear,uploadButton,fileInput,typeSelect].forEach(control=>control.disabled=busy);
+        candidates.querySelectorAll('input').forEach(input=>input.disabled=busy);
+    }
+    uploadButton.onclick = () => action(uploadButton, async () => {
+        const file=fileInput.files[0];
+        if(!file || file.size===0 || file.size>20*1024*1024) {message.textContent='비어 있지 않은 20MB 이하 파일을 선택하세요.';return;}
+        setFileBusy(true);message.textContent='파일 등록 중…';
+        try {
+            const data=new FormData();data.append('file',file);data.append('evidenceType',typeSelect.value);
+            const updated=await api('/'+encodeURIComponent(searchProjectId)+'/entries/'+encodeURIComponent(entry.id)+'/upload',{method:'POST',body:data});
+            if(!body.isConnected || projectId!==searchProjectId)return;
+            entriesById.set(updated.id,updated);body.replaceWith(renderEntry(updated,!detail.hidden));
+            updateEntrySummary();await loadProjects();$('#message').textContent='파일을 등록하고 지정했습니다.';
+        } catch(error) {message.textContent=error.message;}
+        finally {setFileBusy(false);}
+    });
     save.onclick = () => action(save, async () => {
-        search.disabled = true;clear.disabled = true;candidates.querySelectorAll('input').forEach(input => input.disabled = true);
+        setFileBusy(true);
         message.textContent = '';
         try {
-            const data = {...info, selectedDriveFileId:driveFileId, selectedFileId:fileId, evidenceType};
+            const data = {...info, selectedDriveFileId:driveFileId, selectedFileId:fileId, selectedUploadedFileId:uploadedFileId, evidenceType};
             const updated = await api('/' + encodeURIComponent(searchProjectId) + '/entries/' + encodeURIComponent(entry.id), {method:'PUT', body:JSON.stringify(data)});
             if (!body.isConnected || projectId !== searchProjectId) return;
             entriesById.set(updated.id, updated);
@@ -215,7 +245,7 @@ function renderEntry(entry, expanded = false) {
             updateEntrySummary();await loadProjects();
             $('#message').textContent = '지정 파일을 저장했습니다.';
         } catch (error) {message.textContent = error.message;}
-        finally {search.disabled = false;clear.disabled = false;candidates.querySelectorAll('input').forEach(input => input.disabled = false);}
+        finally {setFileBusy(false);}
     });
     actions.append(save, search, clear);panel.append(actions);detailCell.append(panel);detail.append(detailCell);
     const toggleDetail = () => {
