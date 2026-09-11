@@ -20,7 +20,7 @@ class DriveIndexFailureLoggingTests {
             var config = new FmsDriveProperties();
             config.setBaseUrl("http://private-host");
             config.setSessionToken("private-session");
-            config.setCertificateFolders(List.of("/private-root"));
+            config.setIndexRoots(List.of("/private-root"));
             var drive = mock(FmsDrivePort.class);
             var index = mock(DriveFileIndexRepository.class);
             var service = new DriveFileIndexRefreshService(drive, config, index);
@@ -38,12 +38,12 @@ class DriveIndexFailureLoggingTests {
             assertThat(output).doesNotContain("private-root", "private-session", "private-host",
                     "password", "credential", "suppressed-secret", "SESSION");
             appender.list.clear();
-            config.setCertificateFolders(List.of("/private-root/../secret"));
+            config.setIndexRoots(List.of("/private-root/../secret"));
             assertThatThrownBy(service::refresh).isInstanceOf(FmsDriveException.class);
             assertThat(appender.list.getFirst().getFormattedMessage()).contains("kind=INVALID_ROOT", "stage=VALIDATION")
                     .doesNotContain("private-root");
             appender.list.clear();
-            config.setCertificateFolders(List.of());
+            config.setIndexRoots(List.of());
             assertThatThrownBy(service::refresh).isInstanceOf(FmsDriveException.class);
             assertThat(appender.list.getFirst().getFormattedMessage()).contains("kind=INVALID_CONFIG", "stage=CONFIG");
         } finally { logger.detachAppender(appender); appender.stop(); }
@@ -56,7 +56,7 @@ class DriveIndexFailureLoggingTests {
         appender.start(); logger.addAppender(appender);
         try {
             var config = new FmsDriveProperties();
-            config.setCertificateFolders(List.of("/private"));
+            config.setIndexRoots(List.of("/private"));
             var port = mock(FmsDrivePort.class);
             var index = mock(DriveFileIndexRepository.class);
             for (int status : List.of(401, 403, 404)) {

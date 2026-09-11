@@ -13,9 +13,16 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
         SubmissionCaseController.class,
         SubmissionProjectController.class,
         CommonSubmissionDocumentController.class,
-        SubmissionDocumentMasterController.class
+        SubmissionDocumentMasterController.class,
+        SubmissionPersonnelController.class
 })
 public class SubmissionApiExceptionHandler {
+
+    @ExceptionHandler(com.comhu.bidmonitor.performance.FmsDriveException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    SubmissionErrorResponse personnelIndex(com.comhu.bidmonitor.performance.FmsDriveException exception) {
+        return new SubmissionErrorResponse(exception.getMessage());
+    }
 
     @ExceptionHandler(SubmissionNotFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)

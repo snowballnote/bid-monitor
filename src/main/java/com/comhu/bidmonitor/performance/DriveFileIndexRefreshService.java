@@ -26,8 +26,7 @@ public class DriveFileIndexRefreshService {
     }
     private String source() { return properties.getBaseUrl().replaceAll("/+$", ""); }
     private List<String> roots() {
-        List<String> roots = new ArrayList<>(properties.getCertificateFolders());
-        roots.addAll(properties.getContractFolders());
+        List<String> roots = properties.getIndexRoots();
         return roots.stream().filter(root -> root != null && !root.isBlank())
                 .map(FmsDriveHttpAdapter::normalizedPath).distinct().toList();
     }
@@ -69,7 +68,7 @@ public class DriveFileIndexRefreshService {
                             String path = FmsDriveHttpAdapter.normalizedPath(item.path());
                             if (!FmsDriveHttpAdapter.parentOf(path).equals(folder.path())) throw new FmsDriveException("폴더 범위 오류");
                             if (item.directory()) {
-                                if (folder.depth() >= Math.max(0, properties.getMaxDepth())) throw new FmsDriveException("검색 깊이 초과");
+                                if (properties.getMaxDepth() >= 0 && folder.depth() >= properties.getMaxDepth()) throw new FmsDriveException("검색 깊이 초과");
                                 queue.add(new Folder(path, folder.depth() + 1));
                             } else {
                                 files.putIfAbsent(path, item);

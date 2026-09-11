@@ -18,9 +18,10 @@ import java.util.zip.*;
 public class SubmissionUploadService {
     private final JdbcTemplate jdbc;
     private final Path root;
+    private final SubmissionPersonnelService personnel;
     public SubmissionUploadService(@Qualifier("jdbcTemplate") JdbcTemplate jdbc,
-            @Value("${submissions.upload-directory:./data/submission-uploads}") String directory) {
-        this.jdbc=jdbc;this.root=Path.of(directory).toAbsolutePath().normalize();
+            @Value("${submissions.upload-directory:./data/submission-uploads}") String directory, SubmissionPersonnelService personnel) {
+        this.jdbc=jdbc;this.root=Path.of(directory).toAbsolutePath().normalize();this.personnel=personnel;
     }
     public record Uploaded(String id,String originalFilename,long sizeBytes) { }
     private Path path(String id) { return root.resolve(UUID.fromString(id).toString()+".bin"); }
@@ -55,7 +56,8 @@ public class SubmissionUploadService {
     public StreamingResponseBody zip(Long caseId) {
         if(jdbc.queryForObject("SELECT COUNT(*) FROM submission_case WHERE id=?",Long.class,caseId)==0)throw new SubmissionNotFoundException("프로젝트를 찾을 수 없습니다.");
         var rows=jdbc.queryForList("SELECT requirement_id,uploaded_file_id,original_filename FROM submission_document_selection WHERE submission_case_id=? ORDER BY requirement_id,id",caseId);
-        if(rows.isEmpty())throw new IllegalArgumentException("모은 파일이 없습니다.");
+        var personnelFiles=personnel.collected(caseId);
+        if(rows.isEmpty() && personnelFiles.isEmpty())throw new IllegalArgumentException("모은 파일이 없습니다.");
         for(var row:rows) {
             if(row.get("uploaded_file_id")==null)throw new IllegalArgumentException("기존 회사 파일 참조가 포함되어 있습니다. 서류 관리에서 파일을 업로드하고 다시 모아주세요.");
             if(!Files.isRegularFile(path(row.get("uploaded_file_id").toString())))throw new IllegalStateException("저장된 파일을 찾을 수 없습니다.");
@@ -67,6 +69,7 @@ public class SubmissionUploadService {
                     zip.putNextEntry(new ZipEntry(row.get("requirement_id")+"_"+filename));
                     Files.copy(path(row.get("uploaded_file_id").toString()),zip);zip.closeEntry();
                 }
+                personnel.appendZip(zip,personnelFiles);
             }
         };
     }

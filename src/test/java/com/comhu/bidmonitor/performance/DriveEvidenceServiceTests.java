@@ -38,6 +38,7 @@ class DriveEvidenceServiceTests {
         repository = new PerformanceRepository(jdbc);
         config = new FmsDriveProperties();
         config.setBaseUrl("http://fms.test");
+        config.setIndexRoots(List.of("/cert", "/contracts"));
         config.setCertificateFolders(List.of("/cert"));
         config.setContractFolders(List.of("/contracts"));
         port = mock(FmsDrivePort.class);
@@ -219,6 +220,7 @@ class DriveEvidenceServiceTests {
 
     @Test
     void refreshPreservesSnapshotOnFailureDeduplicatesRootsAndExcludesHiddenFiles() {
+        config.setIndexRoots(List.of("/cert", "/cert/"));
         config.setCertificateFolders(List.of("/cert", "/cert/"));
         config.setContractFolders(List.of("/cert"));
         var file = item("/cert", BUSINESS + " 실적증명서.pdf");
@@ -300,6 +302,40 @@ class DriveEvidenceServiceTests {
         assertThat(result.getContentAsString()).contains("FAILED", "REFRESH_FAILED")
                 .doesNotContain("/private", "secret", "SESSION", "/cert", "fms.test");
     }
+    @Test
+    void sharedBusinessRootIndexesAllFeaturesAndEvidenceSearchStaysWithinItsFolder() {
+        config.setIndexRoots(List.of("/business"));
+        config.setCertificateFolders(List.of("/business/cert"));
+        config.setContractFolders(List.of("/business/contracts"));
+        when(port.list("/business")).thenReturn(List.of(
+                new FmsDrivePort.Item("cert", "/business/cert", true, 0, null),
+                new FmsDrivePort.Item("team", "/business/team", true, 0, null),
+                item("/business", BUSINESS + " 실적증명서.pdf")));
+        when(port.list("/business/cert")).thenReturn(List.of(item("/business/cert", BUSINESS + " 실적증명서.pdf")));
+        String parent = "/business/team";
+        for (String child : List.of("archive", "2026", "people", "01_프로필")) {
+            String path = parent + "/" + child;
+            when(port.list(parent)).thenReturn(List.of(new FmsDrivePort.Item(child, path, true, 0, null)));
+            parent = path;
+        }
+        when(port.list(parent)).thenReturn(List.of(item(parent, "프로필_김종수_20260901.pdf")));
+        refresh.refresh();
+        assertThat(index.state("http://fms.test", "CNH", "/business").status()).isEqualTo("SUCCESS");
+        assertThat(index.files("http://fms.test", "CNH", "/business")).hasSize(3);
+        clearInvocations(port);
+        assertThat(service.candidates(project, entry("1", false).id()).candidates()).hasSize(1);
+        assertThat(service.candidates(project, entry("2", true).id()).candidates()).isEmpty();
+        verifyNoInteractions(port);
+        var before = index.state("http://fms.test", "CNH", "/business");
+        when(port.list(parent)).thenThrow(new FmsDriveException("read failed"));
+        refresh.refresh();
+        var after = index.state("http://fms.test", "CNH", "/business");
+        assertThat(after.status()).isEqualTo("FAILED");
+        assertThat(after.lastSuccessAt()).isEqualTo(before.lastSuccessAt());
+        assertThat(after.fileCount()).isEqualTo(3);
+        assertThatThrownBy(() -> service.candidates(project, entry("3", false).id())).isInstanceOf(FmsDriveException.class);
+    }
+
     private Entry entry(String number, boolean ongoing) {
         return service.paste(project, new PasteInput(number + "\t" + BUSINESS
                 + (ongoing ? "\t2024.01 ~ 수행중" : "\t2024.01 ~ 2025.12") + "\t100\t한국관광공사", null)).saved().getFirst();

@@ -63,5 +63,19 @@ public class DriveFileIndexRepository {
                             rs.getLong("size"), instant(rs.getTimestamp("last_modified"))), source, company, root);
         });
     }
+    /** Search scope is a path filter, not the identity of the crawl root. */
+    public List<FmsDrivePort.Item> filesUnderFolder(String source, String company, String folder) {
+        return transaction.execute(tx -> {
+            var roots = jdbc.queryForList("SELECT root FROM drive_index_root_state WHERE source=? AND company=?",
+                    String.class, source, company).stream()
+                    .filter(root -> root.equals(folder) || below(folder, root) || below(root, folder)).toList();
+            if (roots.isEmpty()) throw new FmsDriveException("Drive 인덱스가 미구축 상태입니다. 인덱스를 갱신하세요.");
+            return roots.stream().flatMap(root -> files(source, company, root).stream())
+                    .filter(file -> below(file.path(), folder)).distinct().toList();
+        });
+    }
+    private static boolean below(String path, String folder) {
+        return path.startsWith(folder.equals("/") ? "/" : folder + "/");
+    }
     private static Instant instant(Timestamp value) { return value == null ? null : value.toInstant(); }
 }

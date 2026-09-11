@@ -35,7 +35,7 @@ public class DriveEvidenceService {
         List<Match> matches = new ArrayList<>();
         for (String root : roots.stream().filter(value -> !value.isBlank())
                 .map(FmsDriveHttpAdapter::normalizedPath).distinct().toList()) {
-            for (var item : index.files(origin(), properties.getCompany(), root)) {
+            for (var item : index.filesUnderFolder(origin(), properties.getCompany(), root)) {
                 if (!seenFiles.add(item.path()) || evidenceType(item.name()) != type) continue;
                 Match match = match(entry.info(), item);
                 if (match != null) matches.add(match);

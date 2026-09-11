@@ -392,3 +392,23 @@ ALTER TABLE submission_document_selection ADD CONSTRAINT IF NOT EXISTS ck_submis
     (uploaded_file_id IS NOT NULL AND file_id IS NULL AND file_public_id IS NULL)
     OR (uploaded_file_id IS NULL AND file_id IS NOT NULL AND file_public_id IS NOT NULL)
 );
+
+-- Project-scoped personnel collection; stored only in Biz Assist H2.
+CREATE TABLE IF NOT EXISTS submission_person (
+    id VARCHAR(36) PRIMARY KEY,
+    submission_case_id BIGINT NOT NULL REFERENCES submission_case(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    department VARCHAR(255) NOT NULL DEFAULT '',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+ALTER TABLE submission_person ALTER COLUMN department VARCHAR(255);
+CREATE TABLE IF NOT EXISTS submission_person_document (
+    person_id VARCHAR(36) NOT NULL REFERENCES submission_person(id) ON DELETE CASCADE,
+    document_type VARCHAR(30) NOT NULL,
+    needed BOOLEAN NOT NULL DEFAULT FALSE,
+    drive_file_id VARCHAR(36) REFERENCES performance_drive_file(id),
+    uploaded_file_id VARCHAR(36) REFERENCES submission_uploaded_file(id),
+    filename VARCHAR(2000),
+    PRIMARY KEY(person_id, document_type),
+    CHECK (drive_file_id IS NULL OR uploaded_file_id IS NULL)
+);

@@ -12,6 +12,8 @@ public interface SubmissionCaseRepository {
     boolean performanceProjectExists(String id);
     long performanceMissing(String id);
     long performanceTotal(String id);
+    default long personnelTotal(Long id) { return 0; }
+    default long personnelPrepared(Long id) { return 0; }
     SubmissionCase save(SubmissionCase submissionCase);
 
     Optional<SubmissionCase> findById(Long id);

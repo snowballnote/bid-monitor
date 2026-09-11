@@ -15,9 +15,11 @@ public class FmsDriveProperties {
     private String baseUrl = "";
     private String sessionToken = "";
     private String company = "CNH";
+    // Shared business folders to crawl; evidence folders below are search filters only.
+    private List<String> indexRoots = new ArrayList<>();
     private List<String> certificateFolders = new ArrayList<>();
     private List<String> contractFolders = new ArrayList<>();
-    private int maxDepth = 3;
+    private int maxDepth = -1;
     private int maxFolders = 100;
     private int maxFiles = 5000;
 }

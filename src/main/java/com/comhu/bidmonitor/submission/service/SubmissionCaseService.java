@@ -154,7 +154,8 @@ public class SubmissionCaseService {
                     && caseRepository.performanceMissing(performance) == 0;
             long ready = requirements.stream().filter(r -> requiresPerformanceSelection(r) ? performanceReady : selected.contains(r.getId())).count();
             return new ProjectSummary(value.getId(), value.getProjectId(), value.getProjectName(),
-                    value.getProjectId() == null ? null : value.getOrganizationName(), ready, requirements.size(), value.getUpdatedAt(), value.getDeadline());
+                    value.getProjectId() == null ? null : value.getOrganizationName(), ready + caseRepository.personnelPrepared(value.getId()),
+                    requirements.size() + caseRepository.personnelTotal(value.getId()), value.getUpdatedAt(), value.getDeadline());
         }).toList();
     }
 

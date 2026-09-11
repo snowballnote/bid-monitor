@@ -113,6 +113,12 @@ public class JdbcSubmissionCaseRepository implements SubmissionCaseRepository {
     public long performanceTotal(String id) {
         return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM performance_entry WHERE project_id=?", Long.class, id);
     }
+    public long personnelTotal(Long id) {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM submission_person_document d JOIN submission_person p ON p.id=d.person_id WHERE p.submission_case_id=? AND d.needed=TRUE", Long.class, id);
+    }
+    public long personnelPrepared(Long id) {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM submission_person_document d JOIN submission_person p ON p.id=d.person_id WHERE p.submission_case_id=? AND d.needed=TRUE AND d.filename IS NOT NULL", Long.class, id);
+    }
     public long performanceMissing(String id) {
         return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM performance_entry WHERE project_id=? AND selected_file_id IS NULL AND selected_drive_file_id IS NULL AND selected_uploaded_file_id IS NULL", Long.class, id);
     }

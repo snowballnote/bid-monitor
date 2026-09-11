@@ -31,6 +31,7 @@ async function setup(page, options = {}) {
     await page.route('**/*', async route => {
         const request = route.request(), url = new URL(request.url()), method = request.method(), pathname = url.pathname;
         if (pathname.startsWith('/api/')) {
+            if (pathname.endsWith('/people')) return route.fulfill({ json: [] });
             if (method !== 'GET') state.writes.push({ method, path: pathname, body: request.postData() ? request.postDataJSON() : null, query: url.search });
             if (pathname === '/api/submission-document-masters') return route.fulfill({ json: masters });
             if (pathname === '/api/submission-common-documents') return route.fulfill({ json: [] });

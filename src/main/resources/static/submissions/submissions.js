@@ -251,22 +251,24 @@ async function migratePerformanceLink() {
     }
 }
 function renderProgress() {
-    const total = state.requirements.length;
-    const selected = state.requirements.filter(requirementComplete).length;
-    const percent = total ? Math.round((selected / total) * 100) : 0;
+    const personnel = window.SubmissionPersonnel.stats();
+    const total = state.requirements.length + personnel.total;
+    const selected = state.requirements.filter(requirementComplete).length + personnel.prepared;
+    const percent = total && personnel.loaded ? Math.round((selected / total) * 100) : 0;
     elements.progressBar.style.width = `${percent}%`;
     elements.progressTrack.setAttribute("aria-valuenow", String(percent));
-    elements.progressCaption.textContent = `${selected} / ${total}`;
+    elements.progressCaption.textContent = personnel.loaded ? `${selected} / ${total}` : '인력 확인 필요';
     const cards = document.querySelector("#category-progress");
     cards.replaceChildren();
     for (const [group, label] of Object.entries({COMPANY_COMMON:"회사 공통", PERSONNEL:"인력·자격", PERFORMANCE:"실적", OTHER:"기타"})) {
         const requirements = state.requirements.filter(item => requirementGroup(item) === group);
-        const prepared = requirements.filter(requirementComplete).length;
-        const percent = requirements.length ? Math.round(prepared / requirements.length * 100) : 0;
+        const prepared = requirements.filter(requirementComplete).length + (group === 'PERSONNEL' ? personnel.prepared : 0);
+        const groupTotal = requirements.length + (group === 'PERSONNEL' ? personnel.total : 0);
+        const percent = groupTotal ? Math.round(prepared / groupTotal * 100) : 0;
         const card = projectNode("section", null, "surface-card category-progress-card");
         card.setAttribute("aria-label", label + " 준비율");
         const heading = projectNode("div");
-        heading.append(projectNode("h3", label), projectNode("strong", prepared + " / " + requirements.length));
+        heading.append(projectNode("h3", label), projectNode("strong", group === 'PERSONNEL' && !personnel.loaded ? '확인 필요' : prepared + " / " + groupTotal));
         const track = projectNode("div", null, "progress-track");
         track.setAttribute("role", "progressbar");track.setAttribute("aria-label", label + " 준비율");
         track.setAttribute("aria-valuemin", "0");track.setAttribute("aria-valuemax", "100");track.setAttribute("aria-valuenow", String(percent));
@@ -328,7 +330,7 @@ function renderRequirements() {
 function renderPackage() {
     const download = document.querySelector("#download-submission-files");
     download.href = state.submissionCase ? API_BASE + "/" + state.submissionCase.id + "/download" : "#";
-    setHidden(download, ![...state.selections.values()].some(file => file.uploadedFileId));
+    setHidden(download, ![...state.selections.values()].some(file => file.uploadedFileId) && !window.SubmissionPersonnel.stats().prepared);
     renderProgress();
 }
 
@@ -487,6 +489,7 @@ async function loadWorkspace(submissionCase, openCandidates = false) {
     setHidden(document.querySelector("#submission-project-list"), true);
     setHidden(document.querySelector("#submission-detail-toolbar"), false);
     state.submissionCase = submissionCase;
+    window.SubmissionPersonnel.load(submissionCase.id);
     state.activeRequirementId = null;
     state.commonMissing.clear();
     state.candidates.clear();
@@ -709,6 +712,7 @@ function changeProjectView(view) {
     renderSubmissionProjects();
 }
 async function showSubmissionProjects() {
+    window.SubmissionPersonnel.load(null);
     if (selectionSave) await selectionSave;
     if (checklistSave) await checklistSave.promise;
     const revision = ++workspaceRevision;
@@ -730,6 +734,7 @@ async function showSubmissionProjects() {
     }
 }
 async function openSubmissionProject(id) {
+    window.SubmissionPersonnel.load(null);
     if (selectionSave) await selectionSave;
     if (checklistSave) await checklistSave.promise;
     const revision = ++workspaceRevision;
@@ -898,6 +903,7 @@ function renderMasterOptions(selected = []) {
             options.push({...item, group:masterCategory(item.category)});
     }
     for (const item of options) {
+        if (item.group === 'PERSONNEL' && !selected.some(r => r.category === item.category && normalizeName(r.documentName) === normalizeName(item.documentName))) continue;
         const label = document.createElement("label"), input = document.createElement("input"), text = document.createElement("span");
         input.type="checkbox"; input.className="document-option"; input.value=item.documentName;
         input.dataset.category=item.category; input.dataset.reference=item.sourceReference || "";
@@ -906,6 +912,8 @@ function renderMasterOptions(selected = []) {
         label.append(input,text); document.querySelector('[data-master-category="'+item.group+'"]').append(label);
     }
     elements.documentOptions=[...document.querySelectorAll(".document-option")];
+    const legacyPersonnel = document.querySelector('[data-master-category="PERSONNEL"]');
+    setHidden(legacyPersonnel.closest('details'), !legacyPersonnel.children.length);
     renderCommonDocumentStatuses(); updateCheckedCount();
 }
 async function loadDocumentMasters() {
@@ -953,3 +961,4 @@ document.querySelector("#candidate-dialog").addEventListener("close", () => {
     const row = [...elements.requirementList.rows].find(row => row.dataset.requirementId === String(state.activeRequirementId));
     row?.querySelector("button")?.focus();
 });
+document.addEventListener('personnel-change', () => { if (state.submissionCase) renderPackage(); });
