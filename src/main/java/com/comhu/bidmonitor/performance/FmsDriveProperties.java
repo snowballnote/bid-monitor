@@ -13,7 +13,8 @@ import java.util.List;
 @ConfigurationProperties("performance.drive")
 public class FmsDriveProperties {
     private String baseUrl = "";
-    private String sessionToken = "";
+    private String loginId = "";
+    private String password = "";
     private String company = "CNH";
     // Shared business folders to crawl; evidence folders below are search filters only.
     private List<String> indexRoots = new ArrayList<>();

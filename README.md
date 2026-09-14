@@ -158,7 +158,7 @@ BIZ_ASSIST_MAIL_FROM
 ### FMS Drive 검색·다운로드 설정
 
 - `FMS_DRIVE_BASE_URL`: FMS 서버 기본 URL
-- `FMS_DRIVE_SESSION_TOKEN`: FMS 인증 세션 값. 서버에서 `SESSION` 쿠키로 전달하며 브라우저에 공개하지 않습니다.
+- `FMS_DRIVE_LOGIN_ID` / `FMS_DRIVE_PASSWORD`: FMS 로그인 정보. 최초 Drive 요청에서 로그인하고 응답의 `SESSION`을 서버 메모리에 보관합니다. 401이면 재로그인 후 해당 요청을 한 번만 재시도합니다. 수동 `FMS_DRIVE_SESSION_TOKEN` 설정은 사용하지 않습니다.
 - `FMS_DRIVE_COMPANY`: 기본값 `CNH`
 - `FMS_DRIVE_CERTIFICATE_FOLDERS`, `FMS_DRIVE_CONTRACT_FOLDERS`: 각 검색 폴더의 절대 Drive 경로, 여러 폴더는 쉼표로 구분합니다.
 

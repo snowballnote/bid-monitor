@@ -25,6 +25,44 @@ public class FmsDriveHttpAdapter implements FmsDrivePort {
     private static HttpClient defaultClient() { return HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
             .followRedirects(HttpClient.Redirect.NEVER).build(); }
     private final ObjectMapper mapper = new ObjectMapper();
+    private record Session(String base, String value) { }
+    private Session session;
+
+    // Serialize login and reuse a session already renewed by another request.
+    private synchronized Session authenticate(String base, Session rejected) throws Exception {
+        if (session != null && session.base().equals(base) && session != rejected) return session;
+        session = null;
+        if (properties.getLoginId().isBlank() || properties.getPassword().isBlank())
+            throw new FmsDriveException("FMS 로그인 아이디와 비밀번호 설정을 확인하세요.", true)
+                    .details(Stage.CONFIG, Kind.INVALID_CONFIG, null, null);
+        byte[] body = mapper.writeValueAsBytes(java.util.Map.of(
+                "loginId", properties.getLoginId(), "password", properties.getPassword()));
+        var request = HttpRequest.newBuilder(URI.create(base + "/api/auth/login"))
+                .version(HttpClient.Version.HTTP_1_1).timeout(Duration.ofSeconds(20))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body)).build();
+        var result = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        try (var ignored = result.body()) {
+            if (result.statusCode() != 200)
+                throw new FmsDriveException("FMS 로그인에 실패했습니다. 인증 정보를 확인하세요.", true)
+                        .details(Stage.CONFIG, Kind.HTTP_ERROR, result.statusCode(), null);
+            for (String header : result.headers().allValues("Set-Cookie")) {
+                String pair = header.split(";", 2)[0].trim();
+                if (!pair.startsWith("SESSION=")) continue;
+                String value = pair.substring("SESSION=".length());
+                if (value.isBlank() || value.chars().anyMatch(c -> c <= 32 || c >= 127 || c == ',' || c == '"' || c == '\\'))
+                    break;
+                session = new Session(base, value);
+                return session;
+            }
+            throw new FmsDriveException("FMS 로그인 응답에 유효한 SESSION이 없습니다.", true)
+                    .details(Stage.CONFIG, Kind.INVALID_RESPONSE, result.statusCode(), null);
+        }
+    }
+
+    private synchronized void invalidate(Session rejected) {
+        if (session == rejected) session = null;
+    }
 
     @org.springframework.beans.factory.annotation.Autowired
     public FmsDriveHttpAdapter(FmsDriveProperties properties) { this(properties, defaultClient()); }
@@ -94,16 +132,16 @@ public class FmsDriveHttpAdapter implements FmsDrivePort {
         try {
             String base = properties.getBaseUrl().replaceAll("/+$", "");
             URI configured = URI.create(base);
-            String session = properties.getSessionToken();
             if (!List.of("http", "https").contains(configured.getScheme()) || configured.getHost() == null
-                    || configured.getUserInfo() != null || configured.getQuery() != null || configured.getFragment() != null
-                    || session.isBlank() || session.contains(";") || session.chars().anyMatch(c -> c <= 32 || c >= 127)) {
-                throw new FmsDriveException("FMS 서버 주소와 세션 설정을 확인하세요.").details(stage(endpoint), Kind.INVALID_CONFIG, null, null);
+                    || configured.getUserInfo() != null || configured.getQuery() != null || configured.getFragment() != null) {
+                throw new FmsDriveException("FMS 서버 주소 설정을 확인하세요.").details(stage(endpoint), Kind.INVALID_CONFIG, null, null);
             }
+            Session active = authenticate(base, null);
             String query = "?path=" + URLEncoder.encode(path, StandardCharsets.UTF_8);
             if (company) query += "&company=" + URLEncoder.encode(properties.getCompany(), StandardCharsets.UTF_8);
+            for (int attempt = 0; attempt < 2; attempt++) {
             var builder = HttpRequest.newBuilder(URI.create(base + endpoint + query))
-                    .timeout(Duration.ofSeconds(20)).header("Cookie", "SESSION=" + session).GET();
+                    .timeout(Duration.ofSeconds(20)).header("Cookie", "SESSION=" + active.value()).GET();
 
             // NAS 파일 목록을 조회하는 FMS Drive API는 Java HttpClient의 HTTP/2 협상 시 timeout이 발생하므로
             // 호환성을 위해 HTTP/1.1을 사용한다.
@@ -123,12 +161,23 @@ public class FmsDriveHttpAdapter implements FmsDrivePort {
                     response.statusCode(), (System.nanoTime() - started) / 1_000_000, response.version());
             if (response.statusCode() != 200) {
                 response.body().close();
+                if (response.statusCode() == 401 && attempt == 0) {
+                    active = authenticate(base, active);
+                    continue;
+                }
+                if (response.statusCode() == 401) {
+                    invalidate(active);
+                    throw new FmsDriveException("FMS 재인증 후에도 인증에 실패했습니다. 인증 정보를 확인하세요.", true)
+                            .details(stage(endpoint), Kind.HTTP_ERROR, 401, null);
+                }
                 if (response.statusCode() == 401 || response.statusCode() == 403) {
                     throw new FmsDriveException("FMS 인증 또는 접근 권한을 확인하세요.", true).details(stage(endpoint), Kind.HTTP_ERROR, response.statusCode(), null);
                 }
                 throw new FmsDriveException("FMS 조회 또는 다운로드를 완료하지 못했습니다.").details(stage(endpoint), Kind.HTTP_ERROR, response.statusCode(), null);
             }
             return response.body();
+            }
+            throw new IllegalStateException();
         } catch (FmsDriveException exception) {
             if (listRequest) log.warn("FMS list failure: kind={} status={} elapsedMs={}",
                     exception.kind(), exception.httpStatus(), (System.nanoTime() - started) / 1_000_000);

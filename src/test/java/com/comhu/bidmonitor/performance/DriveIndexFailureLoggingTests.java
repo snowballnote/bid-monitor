@@ -19,7 +19,7 @@ class DriveIndexFailureLoggingTests {
         try {
             var config = new FmsDriveProperties();
             config.setBaseUrl("http://private-host");
-            config.setSessionToken("private-session");
+            config.setPassword("private-session");
             config.setIndexRoots(List.of("/private-root"));
             var drive = mock(FmsDrivePort.class);
             var index = mock(DriveFileIndexRepository.class);
