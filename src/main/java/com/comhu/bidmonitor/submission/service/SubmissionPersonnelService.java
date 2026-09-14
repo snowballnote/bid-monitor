@@ -23,8 +23,8 @@ import java.util.zip.*;
 public class SubmissionPersonnelService {
     public enum Type {
         PROFILE("프로필", List.of("프로필", "이력서", "profile")),
-        QUALIFICATION("자격사본", List.of("자격사본", "자격증", "자격증사본")),
-        KOSA("KOSA 경력증명서", List.of("kosa", "소프트웨어기술자경력증명", "소프트웨어기술경력증")),
+        QUALIFICATION("자격사본", List.of("자격")),
+        KOSA("KOSA 경력증명서", List.of("kosa", "경력증명서", "소프트웨어기술자경력증명", "소프트웨어기술경력증")),
         PIA("개인정보 영향평가 전문인력 인증서", List.of("전문인력인증", "전문인력인정", "영향평가인증", "pia인증"));
         public final String label;
         final List<String> terms;
@@ -63,18 +63,27 @@ public class SubmissionPersonnelService {
     private static String compact(String value) {
         return Normalizer.normalize(value, Normalizer.Form.NFKC).toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]", "");
     }
-    private static final Map<String, Type> PERSONNEL_FOLDERS = Map.of(
-            compact("01_프로필"), Type.PROFILE,
-            compact("02_자격사본"), Type.QUALIFICATION,
-            compact("03_KOSA경력증명서"), Type.KOSA,
-            compact("04_개인정보 영향평가 전문인력 인증서"), Type.PIA);
+    private static final Set<String> PERSONNEL_ROOTS = Set.of("/컴앤휴먼_감리_인력", "/컴앤휴먼_개인정보_인력",
+            "/컴앤휴먼_인공지능본부_인력", "/컴앤휴먼_컨설팅_인력");
     private static String[] pathParts(String path) { return path.replace('\\', '/').split("/"); }
-    private static Type folderType(String path) {
-        String[] parts = pathParts(path);
-        // Compare complete directory components, never a substring or the filename.
+    private static boolean personnelPath(String path) {
+        String normalized = Normalizer.normalize(path.replace('\\', '/'), Normalizer.Form.NFKC);
+        return PERSONNEL_ROOTS.stream().anyMatch(root -> normalized.startsWith(root + "/"));
+    }
+    private static Set<Type> keywordTypes(String text) {
+        String normalized = compact(text);
+        Set<Type> types = EnumSet.noneOf(Type.class);
+        for (Type type : Type.values()) if (type.terms.stream().anyMatch(normalized::contains)) types.add(type);
+        return types;
+    }
+    private static Type documentType(FmsDrivePort.Item file) {
+        // Explicit filename labels win over generic enclosing folders (e.g. KOSA in 자격사본).
+        Set<Type> types = keywordTypes(file.name());
+        if (!types.isEmpty()) return types.size() == 1 ? types.iterator().next() : null;
+        String[] parts = pathParts(file.path());
         for (int i = parts.length - 2; i >= 0; i--) {
-            Type type = PERSONNEL_FOLDERS.get(compact(parts[i]));
-            if (type != null) return type;
+            types = keywordTypes(parts[i]);
+            if (!types.isEmpty()) return types.size() == 1 ? types.iterator().next() : null;
         }
         return null;
     }
@@ -85,7 +94,7 @@ public class SubmissionPersonnelService {
         // Remove known document labels before splitting, including attached label/name forms.
         var labels = new ArrayList<String>(List.of("개인정보 영향평가 전문인력 인증서", "개인정보영향평가전문인력인증서",
                 "개인정보", "영향평가", "전문인력", "인증서", "인정서", "경력증명서", "경력증명", "자격증사본", "자격사본",
-                "자격증", "프로파일", "프로필", "이력서", "KOSA", "profile", "최종본", "최종", "수정본", "수정", "사본", "원본", "최신", "날짜없음", "양식", "서식", "샘플", "작성예시", "예시"));
+                "자격증", "경력", "자격", "프로파일", "프로필", "이력서", "KOSA", "profile", "최종본", "최종", "수정본", "수정", "사본", "원본", "최신", "날짜없음", "양식", "서식", "샘플", "작성예시", "예시"));
         labels.sort(Comparator.comparingInt(String::length).reversed());
         for (String label : labels) text = text.replaceAll("(?i)" + Pattern.quote(label), " ");
         var names = new LinkedHashSet<String>();
@@ -99,27 +108,30 @@ public class SubmissionPersonnelService {
         String[] parts = pathParts(path);
         // Only explicit organizational labels are treated as departments.
         for (int i = parts.length - 2; i >= 0; i--) {
-            if (PERSONNEL_FOLDERS.containsKey(compact(parts[i]))) continue;
+            if (!keywordTypes(parts[i]).isEmpty()) continue;
             String label = parts[i].replaceFirst("^\\d+[._ -]*", "").strip();
             if (label.matches("[가-힣A-Za-z0-9 ]{1,80}(팀|본부|부서|사업부|센터|연구소|그룹|실|처)")) return label;
         }
         return "";
     }
     private static boolean matches(FmsDrivePort.Item file, String name, Type type) {
-        return folderType(file.path()) == type && name.equals(extractName(file.name()));
+        return documentType(file) == type && name.equals(extractName(file.name()));
     }
     private String origin() { return properties.getBaseUrl().replaceAll("/+$", ""); }
     private List<FmsDrivePort.Item> indexedFiles() {
         if (origin().isBlank()) throw new FmsDriveException("FMS 파일 인덱스 연결을 확인하세요. 직접 업로드도 가능합니다.");
-        var states = jdbc.queryForList("SELECT root,status FROM drive_index_root_state WHERE source=? AND company=?", origin(), properties.getCompany());
-        if (states.isEmpty() || states.stream().noneMatch(row -> "SUCCESS".equals(row.get("status")))
-                || states.stream().anyMatch(row -> folderType(row.get("root") + "/file") != null && !"SUCCESS".equals(row.get("status"))))
+        var states = jdbc.queryForList("SELECT root,status FROM drive_index_root_state WHERE source=? AND company=?", origin(), properties.getCompany())
+                .stream().filter(row -> {
+                    String root = row.get("root").toString().replaceAll("/+$", "");
+                    return PERSONNEL_ROOTS.stream().anyMatch(scope -> scope.equals(root) || scope.startsWith(root + "/") || root.startsWith(scope + "/"));
+                }).toList();
+        if (states.isEmpty() || states.stream().anyMatch(row -> !"SUCCESS".equals(row.get("status"))))
             throw new FmsDriveException("FMS 인덱스가 미구축·갱신 중이거나 조회에 실패했습니다. 직접 업로드도 가능합니다.");
         var files = jdbc.query("SELECT DISTINCT name,path,size,last_modified FROM drive_file_index WHERE source=? AND company=? ORDER BY path",
                 (rs, n) -> new FmsDrivePort.Item(rs.getString("name"), rs.getString("path"), false,
                         rs.getLong("size"), rs.getTimestamp("last_modified") == null ? null : rs.getTimestamp("last_modified").toInstant()),
                 origin(), properties.getCompany());
-        var scoped = files.stream().filter(file -> folderType(file.path()) != null).toList();
+        var scoped = files.stream().filter(file -> personnelPath(file.path())).toList();
         if (states.stream().anyMatch(row -> !"SUCCESS".equals(row.get("status")) && scoped.stream().anyMatch(file ->
                 file.path().replace('\\', '/').startsWith(row.get("root").toString().replaceAll("/+$", "") + "/"))))
             throw new FmsDriveException("인력 파일 인덱스 갱신 상태를 확인하세요. 직접 업로드도 가능합니다.");
