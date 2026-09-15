@@ -1,0 +1,27 @@
+.react-submissions { min-width: 0; }
+.react-submissions .submission-project-card h3 { overflow-wrap: anywhere; }
+.react-submissions #submission-project-message { padding-inline: 20px; }
+.react-submissions .project-name-form label { min-width: 0; }
+.react-submission-detail .detail-actions { padding: 12px 0; }
+.react-submission-detail .detail-progress > span { font-size: 13px; }
+.react-submission-detail .category-progress-card a { font-size: 12px; }
+.react-submission-detail .detail-help { padding: 0 20px; color: var(--muted); font-size: 12px; }
+.react-submission-detail .detail-required-groups { padding: 0 20px; }
+.react-submission-detail .detail-required-groups h3 { font-size: 14px; }
+.react-submission-detail .detail-required-groups li, .react-submission-detail .detail-required-groups p { font-size: 13px; overflow-wrap: anywhere; }
+.react-submission-detail .document-picker > .detail-actions { padding: 16px 20px; }
+.react-submission-detail .panel-header { flex-wrap: wrap; }
+.react-submission-detail .requirement-table-scroll { max-width: 100%; overflow-x: auto; }
+.react-submission-detail .case-identity h2 { overflow-wrap: anywhere; }
+.common-documents-scroll { overflow-x: auto; max-width: 100%; }
+.common-documents table { min-width: 580px; }
+.common-documents .panel-header { flex-wrap: wrap; }
+.common-documents input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); }
+.common-documents th, .common-documents td { overflow-wrap: anywhere; }
+.common-snapshot-label { display: block; color: var(--muted); font-size: 11px; font-weight: normal; }
+@media (max-width: 520px) {
+  .react-submissions .document-picker-heading { flex-wrap: wrap; }
+  .react-submissions .project-controls { gap: 8px; }
+  .react-submissions .project-name-form { align-items: stretch; flex-direction: column; }
+  .react-submissions .project-name-form label { display: grid; gap: 6px; }
+}

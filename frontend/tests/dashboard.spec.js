@@ -112,7 +112,13 @@ test('React routes survive reload and retain legacy navigation URLs', async ({ p
     await expect(page).toHaveURL(/index\.html#\/$/);
     await expect(page.locator('#submission-count')).toHaveText('3건');
     await expect(page.getByRole('navigation').getByRole('link', { name: '서류 관리' })).toHaveAttribute('href', '/documents/');
-    await expect(page.getByRole('navigation').getByRole('link', { name: '서류 모으기' })).toHaveAttribute('href', '/submissions/');
+    await expect(page.getByRole('navigation').getByRole('link', { name: '서류 모으기' })).toHaveAttribute('href', '#/submissions');
+    await page.getByRole('navigation').getByRole('link', { name: '서류 모으기' }).click();
+    await expect(page).toHaveURL(/#\/submissions$/);
+    await expect(page.locator('.submission-project-card')).toHaveCount(4);
+    await page.getByRole('navigation').getByRole('link', { name: '홈', exact: true }).click();
+    await expect(page.locator('#submission-count')).toHaveText('3건');
+    await expect(page.locator('.react-submissions')).toHaveCount(0);
 });
 
 test('React loading state does not invent zero counts', async ({ page }) => {

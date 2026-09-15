@@ -34,13 +34,31 @@ CI에서는 `npm ci` → `npm run build:spring` → 기존 Maven 패키징 순�
 - `src/pages/Dashboard.jsx`: 업무 요약, 최근 작업, 빠른 작업, 중요공지
 - `src/components/`: AppLayout, Button, StatusBadge
 - `src/api/`: 기존 GET API 호출과 응답 배열 검증, 최대 4개 동시 증빙 조회
-- `src/main.jsx`: React Router HashRouter. 대시보드는 `#/`, 알 수 없는 hash는 홈으로 이동
-- 기존 메뉴와 작업 링크는 일반 `<a>`로 기존 화면으로 이동하며 기존 화면의 홈은 기존 `/`를 유지
+- `src/main.jsx`: React Router HashRouter. 대시보드는 `#/`, 목록은 `#/submissions`, 상세는 `#/submissions/:caseId`, 알 수 없는 hash는 홈으로 이동
+- 서류 모으기 메뉴와 대시보드의 목록 링크는 React 목록으로 이동한다. 나머지 메뉴와 대시보드 최근 작업 링크는 기존 화면을 유지한다
 - 기존 `common.css`와 `home.css`를 직접 import하여 개발·빌드에서 같은 스타일 사용
 - `scripts/stage-spring.mjs`: Spring Boot 정적 경로로 빌드 복사
 
 HashRouter는 서버의 SPA fallback이나 컨트롤러 수정 없이 새로고침과 직접 접근을 지원한다.
-다음 이전 대상은 `/submissions/`이며 현재 단계에서는 기존 화면을 계속 사용한다.
+프로젝트 목록은 `pages/submissions`, `components/submissions`, `api/submissions`로 분리했다.
+기존 `/api/submission-cases` GET/POST 및 `/{id}` PUT/DELETE를 사용하고 보기 방식은 기존
+`biz-assist.submissions.view` 저장 키를 공유한다. 생성 성공 및 카드/행 클릭은
+`#/submissions/{id}` React 상세 화면으로 이동한다.
+기존 vanilla 목록과 상세 파일은 유지한다.
+
+상세는 `/{id}`, `/{id}/requirements`, `/{id}/package`, `/{id}/people`,
+`/api/submission-document-masters`와 이미 연결된 실적의 `/api/performance-projects/{id}/entries`를 GET으로 조회한다.
+기존 저장 응답으로 전체/카테고리 준비율과 선택된 서류·파일을 표시한다. 필수 조회가 실패하면
+불완전한 준비 수치 대신 오류와 새로고침을 제공한다. ZIP은 기존 `/{id}/download`를 사용한다.
+회사 공통서류 체크는 `/{id}/collect?preserveExistingSelections=true`에 전체 요구서류 목록을 POST한다.
+다른 카테고리의 요구서류는 그대로 보존하며, 새 체크에는 현재 마스터 파일을 연결하고 기존 프로젝트 연결 파일은 유지한다.
+연결된 서류 해제 시 확인하며, 저장은 직렬화하고 requirements/package 재조회로 체크·파일·준비율을 갱신한다.
+저장 실패 시 서버 상태를 재조회한다. 재조회까지 실패하면 체크를 잠그고 새로고침을 안내한다.
+공통서류 파일 업로드·교체는 기존 `/documents/`에 둔다. 인력 관리·실적 연결·기타 파일 관리는 기존 상세 화면으로 연결한다.
+회사 공통서류 관련 검증은 `npx playwright test common-documents.spec.js submission-detail.spec.js`로 실행한다.
+
+목록 관련 테스트만 실행하려면 `npm run build` 후
+`npx playwright test submissions.spec.js submission-detail.spec.js`를 실행한다.
 
 ## 관련 프론트 검증
 

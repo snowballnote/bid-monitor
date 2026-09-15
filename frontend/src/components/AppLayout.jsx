@@ -12,7 +12,9 @@ export default function AppLayout() {
       </NavLink>
       <nav className="app-nav" aria-label="주요 메뉴">
         <NavLink className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`} to="/" end>홈</NavLink>
-        {menus.map(([href, label]) => <a className="app-nav-link" href={href} key={href}>{label}</a>)}
+        {menus.map(([href, label]) => href === '/submissions/'
+          ? <NavLink key={href} to="/submissions" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>{label}</NavLink>
+          : <a className="app-nav-link" href={href} key={href}>{label}</a>)}
       </nav>
       <p className="app-sidebar-description">경영지원에 필요한 정보를 한곳에서 확인하세요.</p>
     </aside>
