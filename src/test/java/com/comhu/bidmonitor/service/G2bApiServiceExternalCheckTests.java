@@ -195,6 +195,6 @@ class G2bApiServiceExternalCheckTests {
                 BidQualificationDto.class
         );
         method.setAccessible(true);
-        method.invoke(new G2bApiService(), qualification);
+        method.invoke(G2bApiServiceAttachmentSecurityTests.localService(), qualification);
     }
 }

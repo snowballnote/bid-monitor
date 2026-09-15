@@ -74,6 +74,11 @@ public class G2bApiService {
     private static final Set<String> HWP_ANALYSIS_DOCUMENT_TYPES =
             Set.of("공고문", "과업지시서", "제안요청서");
     private static final int MAX_HWPX_SECTION_XML_BYTES = 25 * 1024 * 1024;
+    private static final int MAX_HWPX_ENTRIES = 1_000;
+    private static final long MAX_HWPX_UNCOMPRESSED_BYTES = 50L * 1024 * 1024;
+    private static final int MAX_ATTACHMENT_DOWNLOAD_BYTES = 20 * 1024 * 1024;
+    private static final int MAX_ATTACHMENT_REDIRECTS = 5;
+    private Set<String> allowedAttachmentHosts = Set.of("g2b.go.kr", "www.g2b.go.kr");
     private static final int MAX_HWP_DOWNLOAD_BYTES = 20 * 1024 * 1024;
     private static final int MAX_HWP_EXTRACTED_TEXT_LENGTH = 2_000_000;
     private static final int HWP_CONNECT_TIMEOUT_MILLIS = 10_000;
@@ -385,11 +390,7 @@ public class G2bApiService {
         attachment.setDocumentAnalysis(new BidDocumentAnalysisDto());
 
         try {
-            byte[] pdfBytes = RestClient.create()
-                    .get()
-                    .uri(URI.create(attachment.getFileUrl()))
-                    .retrieve()
-                    .body(byte[].class);
+            byte[] pdfBytes = downloadAttachment(attachment.getFileUrl(), "PDF", MAX_ATTACHMENT_DOWNLOAD_BYTES);
             if (pdfBytes == null || pdfBytes.length == 0) {
                 throw new IllegalStateException("다운로드한 PDF 파일이 비어 있습니다.");
             }
@@ -446,11 +447,7 @@ public class G2bApiService {
         attachment.setDocumentAnalysis(new BidDocumentAnalysisDto());
 
         try {
-            byte[] hwpxBytes = RestClient.create()
-                    .get()
-                    .uri(URI.create(attachment.getFileUrl()))
-                    .retrieve()
-                    .body(byte[].class);
+            byte[] hwpxBytes = downloadAttachment(attachment.getFileUrl(), "HWPX", MAX_ATTACHMENT_DOWNLOAD_BYTES);
             if (hwpxBytes == null || hwpxBytes.length == 0) {
                 throw new IllegalStateException("다운로드한 HWPX 파일이 비어 있습니다.");
             }
@@ -1153,43 +1150,71 @@ public class G2bApiService {
 
     /** 연결·응답 시간과 최대 크기를 제한해 분석할 HWP 파일을 안전하게 내려받는다. */
     private byte[] downloadHwpAttachment(String fileUrl) throws IOException {
-        HttpURLConnection connection = (HttpURLConnection) URI.create(fileUrl).toURL().openConnection();
-        connection.setConnectTimeout(HWP_CONNECT_TIMEOUT_MILLIS);
-        connection.setReadTimeout(HWP_READ_TIMEOUT_MILLIS);
-        connection.setInstanceFollowRedirects(true);
-        connection.setRequestMethod("GET");
+        return downloadAttachment(fileUrl, "HWP", MAX_HWP_DOWNLOAD_BYTES);
+    }
 
-        try {
-            int statusCode = connection.getResponseCode();
-            if (statusCode < 200 || statusCode >= 300) {
-                throw new IOException("HWP 다운로드 응답 코드가 정상 범위가 아닙니다: " + statusCode);
-            }
-
-            long contentLength = connection.getContentLengthLong();
-            if (contentLength > MAX_HWP_DOWNLOAD_BYTES) {
-                throw new IOException("HWP 파일 크기가 분석 허용 범위를 초과했습니다.");
-            }
-
-            try (InputStream inputStream = connection.getInputStream();
-                 ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
-                byte[] buffer = new byte[8192];
-                int totalBytes = 0;
-                int readBytes;
-                while ((readBytes = inputStream.read(buffer)) != -1) {
-                    totalBytes += readBytes;
-                    if (totalBytes > MAX_HWP_DOWNLOAD_BYTES) {
-                        throw new IOException("HWP 파일 크기가 분석 허용 범위를 초과했습니다.");
-                    }
-                    outputStream.write(buffer, 0, readBytes);
-                }
-                if (totalBytes == 0) {
-                    throw new IOException("다운로드한 HWP 파일이 비어 있습니다.");
-                }
-                return outputStream.toByteArray();
-            }
-        } finally {
-            connection.disconnect();
+    /** 최초 URL과 각 리다이렉트 URL에 동일한 허용 목록을 적용한다. */
+    private void validateAttachmentUrl(URI uri) throws IOException {
+        String scheme = getSafeValue(uri.getScheme()).toLowerCase(Locale.ROOT);
+        String host = getSafeValue(uri.getHost()).toLowerCase(Locale.ROOT);
+        if ((!scheme.equals("https") && !scheme.equals("http"))
+                || !allowedAttachmentHosts.contains(host) || uri.getRawUserInfo() != null) {
+            throw new IOException("허용되지 않은 첨부파일 다운로드 주소입니다.");
         }
+    }
+
+    private byte[] downloadAttachment(String fileUrl, String format, int maxBytes) throws IOException {
+        URI currentUri = URI.create(fileUrl);
+        for (int redirects = 0; redirects <= MAX_ATTACHMENT_REDIRECTS; redirects++) {
+            validateAttachmentUrl(currentUri);
+            HttpURLConnection connection = (HttpURLConnection) currentUri.toURL().openConnection();
+            connection.setConnectTimeout(HWP_CONNECT_TIMEOUT_MILLIS);
+            connection.setReadTimeout(HWP_READ_TIMEOUT_MILLIS);
+            connection.setInstanceFollowRedirects(false);
+            connection.setRequestMethod("GET");
+
+            try {
+                int statusCode = connection.getResponseCode();
+                if (Set.of(301, 302, 303, 307, 308).contains(statusCode)) {
+                    String location = connection.getHeaderField("Location");
+                    if (location == null || location.isBlank()) {
+                        throw new IOException("첨부파일 리다이렉트 주소가 없습니다.");
+                    }
+                    currentUri = currentUri.resolve(location);
+                    validateAttachmentUrl(currentUri);
+                    continue;
+                }
+                if (statusCode < 200 || statusCode >= 300) {
+                    throw new IOException(format + " 다운로드 응답 코드가 정상 범위가 아닙니다: " + statusCode);
+                }
+
+                long contentLength = connection.getContentLengthLong();
+                if (contentLength > maxBytes) {
+                    throw new IOException(format + " 파일 크기가 분석 허용 범위를 초과했습니다.");
+                }
+
+                try (InputStream inputStream = connection.getInputStream();
+                     ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+                    byte[] buffer = new byte[8192];
+                    int totalBytes = 0;
+                    int readBytes;
+                    while ((readBytes = inputStream.read(buffer)) != -1) {
+                        totalBytes += readBytes;
+                        if (totalBytes > maxBytes) {
+                            throw new IOException(format + " 파일 크기가 분석 허용 범위를 초과했습니다.");
+                        }
+                        outputStream.write(buffer, 0, readBytes);
+                    }
+                    if (totalBytes == 0) {
+                        throw new IOException("다운로드한 " + format + " 파일이 비어 있습니다.");
+                    }
+                    return outputStream.toByteArray();
+                }
+            } finally {
+                connection.disconnect();
+            }
+        }
+        throw new IOException("첨부파일 리다이렉트 횟수가 허용 범위를 초과했습니다.");
     }
 
     /** 확장자만 신뢰하지 않고 OLE 복합문서 및 HWP 5.x 내부 서명을 함께 검증한다. */
@@ -1261,19 +1286,27 @@ public class G2bApiService {
         StringBuilder extractedText = new StringBuilder();
         int totalSectionXmlBytes = 0;
         int sectionCount = 0;
+        int entryCount = 0;
+        long[] totalUncompressedBytes = {0};
 
         try (ZipInputStream zipInputStream = new ZipInputStream(new ByteArrayInputStream(hwpxBytes))) {
             ZipEntry zipEntry;
             while ((zipEntry = zipInputStream.getNextEntry()) != null) {
+                if (++entryCount > MAX_HWPX_ENTRIES) {
+                    throw new IOException("HWPX ZIP 항목 수가 분석 허용 범위를 초과했습니다.");
+                }
                 String entryName = zipEntry.getName().replace('\\', '/');
                 if (!zipEntry.isDirectory() && HWPX_SECTION_XML_PATTERN.matcher(entryName).matches()) {
-                    byte[] sectionXml = readHwpxSectionXml(zipInputStream);
+                    byte[] sectionXml = readHwpxEntry(zipInputStream, totalUncompressedBytes, true);
                     totalSectionXmlBytes += sectionXml.length;
                     if (totalSectionXmlBytes > MAX_HWPX_SECTION_XML_BYTES) {
                         throw new IOException("HWPX 본문 XML 크기가 분석 허용 범위를 초과했습니다.");
                     }
                     extractedText.append(extractHwpxSectionText(sectionXml)).append('\n');
                     sectionCount++;
+                } else {
+                    // 비본문 및 디렉터리 항목도 제한을 적용하며 끝까지 읽는다.
+                    readHwpxEntry(zipInputStream, totalUncompressedBytes, false);
                 }
                 zipInputStream.closeEntry();
             }
@@ -1286,12 +1319,20 @@ public class G2bApiService {
     }
 
     /** 비정상적으로 큰 압축 항목으로 인한 메모리 사용을 막으며 현재 section XML을 읽는다. */
-    private byte[] readHwpxSectionXml(ZipInputStream zipInputStream) throws IOException {
+    private byte[] readHwpxEntry(ZipInputStream zipInputStream, long[] totalUncompressedBytes,
+                                 boolean section) throws IOException {
         try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[8192];
             int readBytes;
             int sectionBytes = 0;
             while ((readBytes = zipInputStream.read(buffer)) != -1) {
+                totalUncompressedBytes[0] += readBytes;
+                if (totalUncompressedBytes[0] > MAX_HWPX_UNCOMPRESSED_BYTES) {
+                    throw new IOException("HWPX ZIP 누적 해제량이 분석 허용 범위를 초과했습니다.");
+                }
+                if (!section) {
+                    continue;
+                }
                 sectionBytes += readBytes;
                 if (sectionBytes > MAX_HWPX_SECTION_XML_BYTES) {
                     throw new IOException("HWPX section XML 크기가 분석 허용 범위를 초과했습니다.");

@@ -51,7 +51,7 @@ class G2bApiServiceHwpxAttachmentAnalysisTests {
                 "NOT_ANALYZED"
         );
 
-        new G2bApiService().analyzeHwpxAttachment(attachment);
+        G2bApiServiceAttachmentSecurityTests.localService().analyzeHwpxAttachment(attachment);
 
         assertEquals("ANALYZED", attachment.getAnalysisStatus());
         assertTrue(attachment.getExternalReferenceDetected());
@@ -74,7 +74,7 @@ class G2bApiServiceHwpxAttachmentAnalysisTests {
                 "NOT_ANALYZED"
         );
 
-        new G2bApiService().analyzeHwpxAttachment(attachment);
+        G2bApiServiceAttachmentSecurityTests.localService().analyzeHwpxAttachment(attachment);
 
         assertEquals("NOT_ANALYZED", attachment.getAnalysisStatus());
         assertFalse(attachment.getExternalReferenceDetected());

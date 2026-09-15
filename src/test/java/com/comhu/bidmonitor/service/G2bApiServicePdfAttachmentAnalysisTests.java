@@ -49,7 +49,7 @@ class G2bApiServicePdfAttachmentAnalysisTests {
                 "NOT_ANALYZED"
         );
 
-        new G2bApiService().analyzePdfAttachment(attachment);
+        G2bApiServiceAttachmentSecurityTests.localService().analyzePdfAttachment(attachment);
 
         assertEquals("ANALYZED", attachment.getAnalysisStatus());
         assertTrue(attachment.getExternalReferenceDetected());
