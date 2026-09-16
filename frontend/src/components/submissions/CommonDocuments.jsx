@@ -94,7 +94,7 @@ export default function CommonDocuments({ data, view, onSaved, onBusy }) {
     current.promise = drain(current);
   }
   return <section id="common-documents" className="surface-card common-documents" aria-labelledby="common-documents-title" aria-busy={busy}>
-    <header className="panel-header"><h2 id="common-documents-title">회사 공통서류</h2><a href="/documents/" className="ui-button ui-button-secondary">서류 관리</a></header>
+    <header className="panel-header"><h2 id="common-documents-title">회사 공통서류</h2><a href="#/documents" className="ui-button ui-button-secondary">서류 관리</a></header>
     <p className="detail-help">체크하면 프로젝트에 포함됩니다. 연결된 프로젝트 파일은 공통서류 파일을 교체해도 유지됩니다.</p>
     <p className="detail-help" role={failed ? 'alert' : 'status'}>{message}{uncertain ? ' 새로고침 후 다시 시도해 주세요.' : ''}</p>
     {!options.length ? <p className="panel-state">등록된 회사 공통서류가 없습니다.</p> : <div className="common-documents-scroll">
@@ -111,7 +111,7 @@ export default function CommonDocuments({ data, view, onSaved, onBusy }) {
             <th scope="row">{option.requirement.documentName}{!option.master && <small className="common-snapshot-label">프로젝트에 보존된 서류</small>}</th>
             <td>{included ? file?.originalFilename || '파일 없음' : option.master?.currentFilename || '파일 없음'}
               {included && file && <small className="common-snapshot-label">프로젝트 연결 파일</small>}</td>
-            <td><a href="/documents/">{included && !file ? '파일 등록' : '서류 관리'}</a></td>
+            <td><a href="#/documents">{included && !file ? '파일 등록' : '서류 관리'}</a></td>
           </tr>;
         })}</tbody></table>
     </div>}

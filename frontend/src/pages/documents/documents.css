@@ -1,0 +1,11 @@
+.react-documents { min-width: 0; }
+.react-documents .documents-list { max-width: 100%; }
+.react-documents .documents-table { min-width: 680px; }
+.react-documents .documents-table thead th:nth-child(1) { width: 23%; }
+.react-documents .documents-table thead th:nth-child(2) { width: 30%; }
+.react-documents .documents-table thead th:nth-child(3) { width: 14%; }
+.react-documents .documents-table thead th:nth-child(4) { width: 33%; }
+.react-documents .document-name { overflow-wrap: anywhere; }
+@media (max-width: 520px) {
+  .react-documents .page-heading-actions { flex-wrap: wrap; gap: 12px; }
+}

@@ -84,7 +84,7 @@ test('common: missing file remains unprepared and links to existing documents wi
   await expect(page.locator('#common-documents [role=status]')).toHaveText('저장됨');
   await expect(row(page, '인증서')).toContainText('미준비');
   await expect(row(page, '인증서')).toContainText('파일 없음');
-  await expect(row(page, '인증서').getByRole('link')).toHaveAttribute('href', '/documents/');
+  await expect(row(page, '인증서').getByRole('link')).toHaveAttribute('href', '#/documents');
   await expect(page.locator('input[type=file]')).toHaveCount(0);
   await expect(page.locator('.case-progress')).toContainText('1 / 3');
 });
@@ -138,4 +138,17 @@ test('common: empty section and mobile compact table', async ({ page }) => {
   await checkbox(page, '인증서').check();
   await expect(row(page, '인증서')).toContainText('미준비');
   await page.screenshot({ path: 'test-results/common-documents-mobile.png', fullPage: true });
+});
+
+test('common: documents navigation waits for pending selection save', async ({ page }) => {
+  const state = await setup(page, { hold: true });
+  await checkbox(page, '재무제표').check();
+  await expect.poll(() => !!state.release).toBe(true);
+  await page.locator('#common-documents .panel-header a').click();
+  await expect(page).toHaveURL(/#\/submissions\/71$/);
+  state.release();
+  await expect(page).toHaveURL(/#\/documents$/);
+  await expect(page.getByRole('heading', { name: '서류 관리', exact: true })).toBeVisible();
+  expect(state.selections.some(file => file.originalFilename === '재무제표.pdf')).toBe(true);
+  expect(state.writes).toHaveLength(1);
 });
