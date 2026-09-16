@@ -3,9 +3,11 @@ import Button from '../Button';
 import { legacyDetailUrl } from '../../api/submissions';
 import * as api from '../../api/submissions/personnel';
 import './personnel.css';
+import PersonnelCandidates from './PersonnelCandidates';
 
 export default function Personnel({ projectId, people, onSaved, onBusy }) {
   const [searchOpen, setSearchOpen] = useState(false);
+  const [candidateTarget, setCandidateTarget] = useState(null);
   const [results, setResults] = useState(null);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
@@ -106,11 +108,15 @@ export default function Personnel({ projectId, people, onSaved, onBusy }) {
                 const needed = event.target.checked;
                 mutate(() => api.setDocumentNeeded(projectId, person.id, doc.type, needed), '필요 서류를 저장했습니다.');
               }} aria-label={`${person.name} ${doc.label || doc.type} 필요`} /></td>
-              <th scope="row">{doc.label || doc.type}</th><td>{doc.filename || '—'}</td>
+              <th scope="row">{doc.label || doc.type}</th><td>{doc.filename || '—'}
+                <Button className="ui-button ui-button-secondary personnel-candidates-open" disabled={busy || uncertain}
+                  onClick={() => setCandidateTarget({ person, document: doc })}>후보 조회</Button></td>
             </tr>)}</tbody></table>
         </div>
       </div>;
     })}
+    {candidateTarget && <PersonnelCandidates key={JSON.stringify([projectId, candidateTarget.person.id, candidateTarget.document.type])}
+      projectId={projectId} {...candidateTarget} onClose={() => setCandidateTarget(null)} />}
     {searchOpen && <dialog ref={dialog} className="common-document-dialog react-personnel-search" aria-labelledby="personnel-search-title" onCancel={event => { event.preventDefault(); if (!busy) closeSearch(); }}>
       <form onSubmit={search}><header><h2 id="personnel-search-title">인력 추가</h2></header>
         <label>이름 검색 <input name="query" maxLength={100} required autoFocus disabled={busy} /></label>

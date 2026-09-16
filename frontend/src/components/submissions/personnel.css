@@ -1,4 +1,4 @@
-﻿.react-personnel { box-shadow: none; min-width: 0; }
+.react-personnel { box-shadow: none; min-width: 0; }
 .react-personnel .panel-header, .react-personnel-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .react-personnel .panel-header h2 { font-size: 16px; }
 .react-personnel-person { border-top: 1px solid var(--border); }
@@ -16,3 +16,14 @@
 .react-personnel-results li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .react-personnel-results li > span { flex: 1; overflow-wrap: anywhere; }
 .react-personnel-search { max-height: 85vh; overflow-y: auto; }
+.react-personnel .personnel-candidates-open { display: block; margin-top: 6px; }
+.react-personnel .personnel-candidates { width: min(620px, calc(100vw - 24px)); max-height: 85vh; overflow-y: auto; padding: 18px; box-sizing: border-box; }
+.react-personnel .personnel-candidates h2 { font-size: 16px; margin: 0 0 16px; }
+.react-personnel .personnel-candidates h3 { font-size: 13px; margin: 0 0 8px; }
+.react-personnel .personnel-candidates p, .react-personnel .personnel-candidates h2, .react-personnel .personnel-candidates small { overflow-wrap: anywhere; white-space: normal; }
+.react-personnel .personnel-candidates p { font-size: 13px; margin: 6px 0; }
+.personnel-current-file { border-bottom: 1px solid var(--border); padding-bottom: 14px; margin-bottom: 14px; }
+.personnel-candidate-list { list-style: none; margin: 0; padding: 0; }
+.personnel-candidate-list li { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.personnel-candidate-list .requirement-state { display: inline-block; margin-top: 6px; }
+.react-personnel .personnel-candidates footer { display: flex; justify-content: flex-end; margin-top: 16px; }

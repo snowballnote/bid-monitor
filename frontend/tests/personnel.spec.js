@@ -4,7 +4,7 @@ const person = (id, name, ready = 0) => ({ id, name, department: '감리팀', do
 const panel = page => page.locator('#react-personnel');
 const entry = (page, id) => panel(page).locator(`[data-person-id="${id}"]`);
 async function setup(page, options = {}) {
-  const state = { people: options.empty ? [] : [person('one', '최효재', 3), person('two', '김대원', 1)], writes: [], reads: [], fail: false, failRead: false, commitFailure: false, hold: false, release: null, searchFail: false, searchEmpty: false };
+  const state = { people: options.empty ? [] : [person('one', '최효재', 3), person('two', '김대원', 1)], writes: [], reads: [], candidates: {}, candidateError: false, holdCandidates: false, releaseCandidates: null, fail: false, failRead: false, commitFailure: false, hold: false, release: null, searchFail: false, searchEmpty: false };
   if (!options.empty) state.people[1].documents[3].needed = false;
   const prefix = '/api/submission-cases/71/people';
   await page.route('**/api/**', async route => {
@@ -12,6 +12,12 @@ async function setup(page, options = {}) {
     if (req.method() !== 'GET') state.writes.push({ path, method: req.method(), body: req.postData() ? req.postDataJSON() : null });
     else state.reads.push(path + url.search);
     if (path.startsWith(prefix)) {
+      if (path.endsWith('/candidates')) {
+        const parts = path.split('/'), key = parts.at(-4) + '/' + parts.at(-2);
+        const response = state.candidateError ? { status: 503, json: { message: '후보 인덱스 조회 실패' } } : { json: state.candidates[key] || [] };
+        if (state.holdCandidates) await new Promise(resolve => { state.releaseCandidates = resolve; });
+        return route.fulfill(response);
+      }
       if (path.endsWith('/search')) return route.fulfill(state.searchFail ? { status: 503, json: { message: '인력 파일 인덱스 오류' } } : { json: state.searchEmpty ? [] : [{ name: '박민수', department: '감리팀' }, { name: '최효재', department: '감리팀' }] });
       if (req.method() === 'GET') return route.fulfill(state.failRead ? { status: 500, json: { message: '인력 조회 실패' } } : { json: state.people });
       if (state.hold) await new Promise(resolve => { state.release = resolve; });
@@ -272,4 +278,103 @@ test('personnel needed: rapid clicks cannot duplicate or overlap saves; mobile c
   expect(state.writes).toHaveLength(2);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await panel(page).screenshot({ path: 'test-results/personnel-needed-mobile.png' });
+});
+
+const candidateButton = (page, id, label) => entry(page, id).getByRole('row').filter({ has: page.getByRole('rowheader', { name: label, exact: true }) }).getByRole('button', { name: '후보 조회' });
+const candidate = (id, filename, recommended = false) => ({ id, filename, filenameDate: '2026-09-01', recommended, note: recommended ? '파일명 날짜 기준 최신 후보' : '이전 날짜 후보' });
+
+test('personnel candidates: current file, server order and recommendations; closing does not change any saved state', async ({ page }) => {
+  const state = await setup(page);
+  const original = structuredClone(state.people);
+  const progress = await page.locator('.case-progress').innerText();
+  const common = await page.locator('#common-documents').innerText();
+  const performance = await page.getByRole('region', { name: '실적증빙', exact: true }).innerText();
+  state.candidates['one/PROFILE'] = [candidate('older', '이전프로필.pdf'), candidate('latest', '최신프로필.pdf', true)];
+  state.candidates['one/PROFILE'][0].filenameDate = null;
+  await candidateButton(page, 'one', '프로필').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('region', { name: '현재 연결 파일' })).toContainText('최효재_PROFILE.pdf');
+  await expect(dialog.locator('.personnel-candidate-list li p')).toHaveText(['이전프로필.pdf', '최신프로필.pdf']);
+  await expect(dialog.locator('.personnel-candidate-list li').first()).toContainText('파일명 날짜 없음');
+  await expect(dialog.locator('.personnel-candidate-list li').last()).toContainText('최신 후보');
+  await expect(dialog.getByRole('radio')).toHaveCount(0);
+  await expect(dialog.locator('input[type=file]')).toHaveCount(0);
+  await expect(dialog.getByRole('button')).toHaveText(['닫기']);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(candidateButton(page, 'one', '프로필')).toBeFocused();
+  expect(state.people).toEqual(original);
+  expect(await page.locator('.case-progress').innerText()).toBe(progress);
+  expect(await page.locator('#common-documents').innerText()).toBe(common);
+  expect(await page.getByRole('region', { name: '실적증빙', exact: true }).innerText()).toBe(performance);
+  expect(state.writes).toEqual([]);
+  expect(state.reads.filter(path => path.endsWith('/candidates'))).toEqual(['/api/submission-cases/71/people/one/documents/PROFILE/candidates']);
+  expect(state.reads.some(path => /refresh|\/selection/.test(path))).toBe(false);
+});
+
+test('personnel candidates: loading deduplicates, close aborts stale result, people and document types stay isolated', async ({ page }) => {
+  const state = await setup(page);
+  state.holdCandidates = true;
+  state.candidates['one/PROFILE'] = [candidate('old', '늦은응답.pdf')];
+  await candidateButton(page, 'one', '프로필').evaluate(button => { button.click(); button.click(); });
+  await expect(page.getByRole('dialog').getByRole('status')).toHaveText('FMS 후보 조회 중…');
+  await expect.poll(() => !!state.releaseCandidates).toBe(true);
+  expect(state.reads.filter(path => path.endsWith('/candidates'))).toHaveLength(1);
+  await page.getByRole('dialog').getByRole('button', { name: '닫기' }).click();
+  state.holdCandidates = false;
+  state.releaseCandidates();
+  for (const [id, type, label] of [['one', 'QUALIFICATION', '자격사본'], ['two', 'KOSA', 'KOSA 경력증명서'], ['one', 'PIA', '개인정보 영향평가 전문인력 인증서']]) {
+    state.candidates[`${id}/${type}`] = [candidate(type, `${id}-${type}.pdf`)];
+    await candidateButton(page, id, label).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.locator('.personnel-candidate-list li p')).toHaveText([`${id}-${type}.pdf`]);
+    await expect(dialog.getByText('늦은응답.pdf')).toHaveCount(0);
+    if (type === 'PIA') {
+      await expect(dialog.locator('.requirement-state')).toHaveCount(0);
+      await expect(dialog.getByRole('region', { name: '현재 연결 파일' })).toContainText('파일 미등록');
+    }
+    await dialog.getByRole('button', { name: '닫기' }).click();
+  }
+  expect(state.writes).toEqual([]);
+  expect(state.reads.filter(path => path.endsWith('/candidates'))).toHaveLength(4);
+});
+
+test('personnel candidates: empty, error retry and malformed response preserve connected file', async ({ page }) => {
+  const state = await setup(page);
+  await candidateButton(page, 'one', '프로필').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('status')).toHaveText('FMS 후보가 없습니다.');
+  await dialog.getByRole('button', { name: '닫기' }).click();
+  state.candidateError = true;
+  await candidateButton(page, 'one', '프로필').click();
+  await expect(dialog.getByRole('alert')).toHaveText('후보 인덱스 조회 실패');
+  await expect(dialog.getByRole('region', { name: '현재 연결 파일' })).toContainText('최효재_PROFILE.pdf');
+  state.candidateError = false;
+  state.candidates['one/PROFILE'] = [{ invalid: true }];
+  await dialog.getByRole('button', { name: '다시 조회' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('FMS 후보 목록을 확인할 수 없습니다.');
+  state.candidates['one/PROFILE'] = [candidate('ok', '복구.pdf')];
+  await dialog.getByRole('button', { name: '다시 조회' }).click();
+  await expect(dialog.locator('.personnel-candidate-list li p')).toHaveText(['복구.pdf']);
+  await dialog.getByRole('button', { name: '닫기' }).click();
+  await expect(page.locator('.case-progress')).toContainText('6 / 9');
+  expect(state.writes).toEqual([]);
+});
+
+test('personnel candidates: long filenames and metadata wrap in mobile modal', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await setup(page);
+  const filename = '프로필_최효재_' + '긴파일명'.repeat(30) + '.pdf';
+  state.candidates['one/PROFILE'] = [candidate('long', filename, true), candidate('next', '두번째.pdf')];
+  await candidateButton(page, 'one', '프로필').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByText(filename, { exact: true })).toBeVisible();
+  const bounds = await dialog.boundingBox();
+  expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
+  expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  expect(await dialog.evaluate(el => parseFloat(getComputedStyle(el).paddingLeft))).toBeGreaterThanOrEqual(16);
+  await dialog.getByRole('button', { name: '닫기' }).scrollIntoViewIfNeeded();
+  await expect(dialog.getByRole('button', { name: '닫기' })).toBeInViewport();
+  await page.screenshot({ path: 'test-results/personnel-candidates-mobile.png', fullPage: true });
+  expect(state.writes).toEqual([]);
 });
