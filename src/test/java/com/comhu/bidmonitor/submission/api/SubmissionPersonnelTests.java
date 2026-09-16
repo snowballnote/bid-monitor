@@ -55,6 +55,82 @@ class SubmissionPersonnelTests {
     void indexPath(String filename, String path, String modified) {
         jdbc.update("INSERT INTO drive_file_index(source,company,root,name,path,ext,size,last_modified,indexed_at) VALUES('http://fms.test','CNH','/컴앤휴먼_컨설팅_인력',?,?,'pdf',10,?,CURRENT_TIMESTAMP)", filename, path, java.sql.Timestamp.valueOf(modified));
     }
+    private com.fasterxml.jackson.databind.JsonNode profileResponse() throws Exception {
+        String json = mvc.perform(get("/api/submission-cases/{id}/people", caseId))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        var people = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
+        for (var person : people) {
+            if (!person.get("id").asText().equals(personId)) continue;
+            for (var document : person.get("documents")) {
+                if (document.get("type").asText().equals("PROFILE")) return document;
+            }
+        }
+        throw new AssertionError("Missing profile response");
+    }
+    @Test void documentIdentifierIsAdditiveAndNullForNoConnectionAndDirectUpload() throws Exception {
+        var empty = profileResponse();
+        Set<String> fields = new HashSet<>();
+        empty.fieldNames().forEachRemaining(fields::add);
+        assertThat(fields).containsExactlyInAnyOrder("type", "label", "needed", "filename", "source", "filenameDate", "latestStatus", "fmsReferenceId");
+        assertThat(empty.get("fmsReferenceId").isNull()).isTrue();
+        assertThat(empty.get("type").asText()).isEqualTo("PROFILE");
+        assertThat(empty.get("label").asText()).isEqualTo("프로필");
+        assertThat(empty.get("needed").asBoolean()).isFalse();
+        assertThat(empty.get("filename").isNull()).isTrue();
+        assertThat(empty.get("source").isNull()).isTrue();
+        assertThat(empty.get("filenameDate").isNull()).isTrue();
+        assertThat(empty.get("latestStatus").asText()).isEqualTo("파일 미등록");
+        String filename = "프로필_김대원_20260911.pdf";
+        index(filename, "2026-09-11 00:00:00");
+        service.select(caseId, personId, Type.PROFILE, service.candidates(caseId, personId, Type.PROFILE).getFirst().id());
+        assertThat(profileResponse().get("fmsReferenceId").isTextual()).isTrue();
+        service.upload(caseId, personId, Type.PROFILE, new MockMultipartFile("file", filename, "application/pdf", new byte[]{1}));
+        var uploaded = profileResponse();
+        assertThat(uploaded.get("fmsReferenceId").isNull()).isTrue();
+        assertThat(uploaded.get("source").asText()).isEqualTo("PC");
+        assertThat(uploaded.get("filename").asText()).isEqualTo(filename);
+        assertThat(uploaded.get("filenameDate").asText()).isEqualTo("2026-09-11");
+        service.select(caseId, personId, Type.PROFILE, null);
+        assertThat(profileResponse().get("fmsReferenceId").isNull()).isTrue();
+        verifyNoInteractions(drive);
+    }
+    @Test void referenceIdentifierDisambiguatesSameFilenameAndReadsPreserveStoredState() throws Exception {
+        String filename = "프로필_김대원_20260911.pdf";
+        String root = "/컴앤휴먼_컨설팅_인력/개발팀/01_프로필/";
+        indexPath(filename, root + "first/" + filename, "2026-09-11 00:00:00");
+        indexPath(filename, root + "second/" + filename, "2026-09-11 00:00:00");
+        var candidates = service.candidates(caseId, personId, Type.PROFILE);
+        assertThat(candidates).hasSize(2);
+        service.select(caseId, personId, Type.PROFILE, candidates.getFirst().id());
+        String firstId = profileResponse().get("fmsReferenceId").asText();
+        service.select(caseId, personId, Type.PROFILE, candidates.getLast().id());
+        String secondId = profileResponse().get("fmsReferenceId").asText();
+        assertThat(secondId).isNotEqualTo(firstId);
+        assertThat(jdbc.queryForObject("SELECT drive_file_id FROM submission_person_document WHERE person_id=? AND document_type='PROFILE'", String.class, personId)).isEqualTo(secondId);
+        service.needed(caseId, personId, Type.PROFILE, false);
+        var references = jdbc.queryForList("SELECT * FROM performance_drive_file ORDER BY id");
+        var documents = jdbc.queryForList("SELECT * FROM submission_person_document ORDER BY person_id,document_type");
+        var projects = jdbc.queryForList("SELECT * FROM submission_case ORDER BY id");
+        var index = jdbc.queryForList("SELECT * FROM drive_file_index ORDER BY path");
+        var roots = jdbc.queryForList("SELECT * FROM drive_index_root_state ORDER BY root");
+        for (int repeat = 0; repeat < 2; repeat++) {
+            var current = profileResponse();
+            assertThat(current.get("fmsReferenceId").asText()).isEqualTo(secondId);
+            assertThat(current.get("filename").asText()).isEqualTo(filename);
+            assertThat(current.get("source").asText()).isEqualTo("FMS");
+            assertThat(current.get("needed").asBoolean()).isFalse();
+            mvc.perform(get("/api/submission-cases/{id}/people/{person}/documents/PROFILE/candidates", caseId, personId))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2))
+                    .andExpect(jsonPath("$[0].id").value(firstId)).andExpect(jsonPath("$[1].id").value(secondId))
+                    .andExpect(jsonPath("$[0].filename").value(filename)).andExpect(jsonPath("$[1].filename").value(filename));
+        }
+        assertThat(jdbc.queryForList("SELECT * FROM performance_drive_file ORDER BY id")).isEqualTo(references);
+        assertThat(jdbc.queryForList("SELECT * FROM submission_person_document ORDER BY person_id,document_type")).isEqualTo(documents);
+        assertThat(jdbc.queryForList("SELECT * FROM submission_case ORDER BY id")).isEqualTo(projects);
+        assertThat(jdbc.queryForList("SELECT * FROM drive_file_index ORDER BY path")).isEqualTo(index);
+        assertThat(jdbc.queryForList("SELECT * FROM drive_index_root_state ORDER BY root")).isEqualTo(roots);
+        verifyNoInteractions(drive);
+    }
     @Test void candidatesGetDoesNotInsertOrRefreshReferencesOrChangeSelections() throws Exception {
         index("프로필_김대원_20260723.pdf", "2026-07-23 00:00:00");
         index("프로필_김대원_20260314.pdf", "2026-03-14 00:00:00");

@@ -36,7 +36,7 @@ public class SubmissionPersonnelService {
     public record Person(String id, String name, String department, List<Document> documents) { }
     public record PersonOption(String name, String department) { }
     public record Document(Type type, String label, boolean needed, String filename, String source,
-                           LocalDate filenameDate, String latestStatus) { }
+                           LocalDate filenameDate, String latestStatus, String fmsReferenceId) { }
     public record Candidate(String id, String filename, LocalDate filenameDate, boolean recommended, String note) { }
     private record Saved(Type type, boolean needed, String driveId, String uploadId, String filename) { }
     private final JdbcTemplate jdbc;
@@ -171,7 +171,7 @@ public class SubmissionPersonnelService {
                             : date == null ? "파일명 날짜 없음" : newest == null ? "비교 후보 없음 · 직접 확인" : newest.isAfter(date) ? "더 최신 후보 있음" : "파일명 날짜 기준 최신";
                 }
                 return new Document(row.type(), row.type().label, row.needed(), row.filename(), row.uploadId() != null ? "PC" : row.driveId() != null ? "FMS" : null,
-                        filenameDate(row.filename()), latest);
+                        filenameDate(row.filename()), latest, row.filename() != null && row.uploadId() == null ? row.driveId() : null);
             }).toList();
             return new Person(id, name, rs.getString("department"), documents);
         }, caseId);
