@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Button from '../Button';
 import { legacyDetailUrl } from '../../api/submissions';
 import * as api from '../../api/submissions/personnel';
@@ -84,7 +84,7 @@ export default function Personnel({ projectId, people, onSaved, onBusy }) {
   return <section id="react-personnel" className="surface-card react-personnel" aria-labelledby="react-personnel-title" aria-busy={busy}>
     <header className="panel-header"><h2 id="react-personnel-title">인력·자격 <span className="count-badge">{documents.filter(doc => doc.filename).length} / {documents.length}</span></h2>
       <Button className="ui-button ui-button-primary" disabled={busy || uncertain} onClick={() => { setResults(null); setSearchError(''); setSearchOpen(true); }}>+ 인력 추가</Button></header>
-    <p className="detail-help">필요 서류 체크와 파일 변경은 파일 관리에서 진행하세요.</p>
+    <p className="detail-help">필요 서류를 체크하면 즉시 저장됩니다. 파일 변경은 파일 관리에서 진행하세요.</p>
     {!searchOpen && error && <p className="detail-help" role="alert">{error}</p>}
     {message && <p className="detail-help" role="status">{message}</p>}
     {busy && <p className="detail-help" role="status">인력 상태 확인 중…</p>}
@@ -102,7 +102,10 @@ export default function Personnel({ projectId, people, onSaved, onBusy }) {
           <table className="submission-project-table"><thead><tr>{['상태', '필요', '서류명', '연결 파일'].map(label => <th scope="col" key={label}>{label}</th>)}</tr></thead>
             <tbody>{person.documents.map(doc => <tr key={doc.type}>
               <td><span className={`requirement-state${!doc.needed ? '' : doc.filename ? ' complete' : ' attention'}`}>{!doc.needed ? '미선택' : doc.filename ? '준비됨' : '미준비'}</span></td>
-              <td><input type="checkbox" checked={doc.needed} disabled aria-label={`${person.name} ${doc.label || doc.type} 필요`} /></td>
+              <td><input type="checkbox" checked={doc.needed} disabled={busy || uncertain} onChange={event => {
+                const needed = event.target.checked;
+                mutate(() => api.setDocumentNeeded(projectId, person.id, doc.type, needed), '필요 서류를 저장했습니다.');
+              }} aria-label={`${person.name} ${doc.label || doc.type} 필요`} /></td>
               <th scope="row">{doc.label || doc.type}</th><td>{doc.filename || '—'}</td>
             </tr>)}</tbody></table>
         </div>

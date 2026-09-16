@@ -1,4 +1,4 @@
-﻿import { test, expect } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 const types = [['PROFILE', '프로필'], ['QUALIFICATION', '자격사본'], ['KOSA', 'KOSA 경력증명서'], ['PIA', '개인정보 영향평가 전문인력 인증서']];
 const person = (id, name, ready = 0) => ({ id, name, department: '감리팀', documents: types.map(([type, label], index) => ({ type, label, needed: true, filename: index < ready ? `${name}_${type}.pdf` : null, reference: index < ready ? `snapshot-${id}-${type}` : null })) });
 const panel = page => page.locator('#react-personnel');
@@ -21,7 +21,11 @@ async function setup(page, options = {}) {
         if (state.people.some(row => row.name === input.name)) return route.fulfill({ status: 400, json: { message: '이미 추가한 인력입니다.' } });
         const added = person('new', input.name); added.documents.forEach(doc => { doc.needed = false; }); state.people.push(added);
       } else if (req.method() === 'DELETE') state.people = state.people.filter(row => row.id !== path.split('/').at(-1));
-      else return route.fulfill({ status: 400 });
+      else if (req.method() === 'PUT' && /\/documents\/[^/]+$/.test(path)) {
+        const parts = path.split('/');
+        const document = state.people.find(person => person.id === parts.at(-3)).documents.find(doc => doc.type === parts.at(-1));
+        document.needed = req.postDataJSON().needed;
+      } else return route.fulfill({ status: 400 });
       return route.fulfill(state.commitFailure ? { status: 500, json: { message: '응답 실패' } } : { json: state.people });
     }
     if (req.method() !== 'GET') return route.fulfill({ status: 400 });
@@ -57,7 +61,7 @@ test('personnel: saved four document states, references, person/category/project
   await expect(page.getByRole('region', { name: '인력·자격', exact: true })).toContainText('4 / 7');
   await expect(page.locator('.case-progress')).toContainText('6 / 9 · 67%');
   await expect(entry(page, 'one').getByRole('checkbox').first()).toBeChecked();
-  await expect(entry(page, 'one').getByRole('checkbox').first()).toBeDisabled();
+  await expect(entry(page, 'one').getByRole('checkbox').first()).toBeEnabled();
   await expect(page.locator('input[type=file]')).toHaveCount(0);
   expect(state.writes).toEqual([]);
   expect(state.reads.some(path => /candidates|refresh|selection/.test(path))).toBe(false);
@@ -170,4 +174,102 @@ test('personnel: stale searches ignored after closing and mobile compact table/m
   release();
   await panel(page).getByRole('button', { name: '+ 인력 추가' }).click();
   await expect(page.getByRole('dialog').getByRole('listitem')).toHaveCount(0);
+});
+
+const neededCheckbox = (page, id, label) => entry(page, id).getByRole('checkbox', { name: new RegExp(label + ' 필요$') });
+
+test('personnel needed: uncheck without vanilla confirmation, recheck preserves files and updates all totals', async ({ page }) => {
+  const state = await setup(page);
+  const original = structuredClone(state.people);
+  const dialogs = [];
+  page.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.dismiss(); });
+  const profile = neededCheckbox(page, 'one', '프로필');
+  await profile.click();
+  await expect(profile).not.toBeChecked();
+  await expect(page.getByLabel('최효재 준비율')).toHaveText('2 / 3');
+  await expect(panel(page).getByRole('heading')).toContainText('3 / 6');
+  await expect(page.getByRole('region', { name: '인력·자격', exact: true })).toContainText('3 / 6');
+  await expect(page.locator('.case-progress')).toContainText('5 / 8');
+  await expect(entry(page, 'one').locator('tbody tr').first()).toContainText('미선택');
+  await expect(entry(page, 'one')).toContainText('최효재_PROFILE.pdf');
+  expect(state.people[0].documents[0]).toEqual({ ...original[0].documents[0], needed: false });
+  expect(state.people[1]).toEqual(original[1]);
+  expect(dialogs).toEqual([]);
+  await profile.click();
+  await expect(profile).toBeChecked();
+  await expect(entry(page, 'one').locator('tbody tr').first()).toContainText('준비됨');
+  await expect(page.getByLabel('최효재 준비율')).toHaveText('3 / 4');
+  await expect(panel(page).getByRole('heading')).toContainText('4 / 7');
+  await expect(page.locator('.case-progress')).toContainText('6 / 9');
+  expect(state.people).toEqual(original);
+  await expect(page.getByRole('region', { name: '회사 공통', exact: true })).toContainText('1 / 1');
+  await expect(page.getByRole('region', { name: '실적증빙', exact: true })).toContainText('1 / 1');
+  await expect(page.locator('#common-documents')).toContainText('회사.pdf');
+  expect(state.writes).toEqual([false, true].map(needed => ({ path: '/api/submission-cases/71/people/one/documents/PROFILE', method: 'PUT', body: { needed } })));
+  expect(state.reads.some(path => /candidates|refresh|selection/.test(path))).toBe(false);
+});
+
+test('personnel needed: all four types save independently including missing files', async ({ page }) => {
+  const state = await setup(page);
+  for (const [type, label] of types) {
+    const checkbox = neededCheckbox(page, 'one', label);
+    await checkbox.click();
+    await expect(checkbox).not.toBeChecked();
+    await expect(checkbox).toBeEnabled();
+    expect(state.writes.at(-1)).toEqual({ path: `/api/submission-cases/71/people/one/documents/${type}`, method: 'PUT', body: { needed: false } });
+    await checkbox.click();
+    await expect(checkbox).toBeChecked();
+    await expect(checkbox).toBeEnabled();
+    expect(state.writes.at(-1).body).toEqual({ needed: true });
+  }
+  await neededCheckbox(page, 'two', '개인정보 영향평가 전문인력 인증서').click();
+  await expect(page.getByLabel('김대원 준비율')).toHaveText('1 / 4');
+  await expect(entry(page, 'two').locator('tbody tr').last()).toContainText('미준비');
+  await expect(panel(page).getByRole('heading')).toContainText('4 / 8');
+  await expect(page.locator('.case-progress')).toContainText('6 / 10 · 60%');
+});
+
+test('personnel needed: failed save restores checks; uncertain committed save locks until re-read', async ({ page }) => {
+  const state = await setup(page);
+  const profile = neededCheckbox(page, 'one', '프로필');
+  state.fail = true;
+  await profile.click();
+  await expect(panel(page).getByRole('alert')).toContainText('인력 저장 실패');
+  await expect(profile).toBeChecked();
+  await expect(profile).toBeEnabled();
+  await expect(page.locator('.case-progress')).toContainText('6 / 9');
+  expect(state.reads.filter(path => path === '/api/submission-cases/71/people')).toHaveLength(2);
+  state.commitFailure = true; state.failRead = true;
+  await profile.click();
+  await expect(panel(page)).toContainText('마지막으로 확인한 상태');
+  await expect(profile).toBeDisabled();
+  await expect(profile).toBeChecked();
+  state.failRead = false;
+  await page.getByRole('button', { name: '인력 다시 조회' }).click();
+  await expect(profile).not.toBeChecked();
+  await expect(profile).toBeEnabled();
+  await expect(entry(page, 'one')).toContainText('최효재_PROFILE.pdf');
+  await expect(page.locator('.case-progress')).toContainText('5 / 8');
+});
+
+test('personnel needed: rapid clicks cannot duplicate or overlap saves; mobile checkbox works', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await setup(page); state.hold = true;
+  const profile = neededCheckbox(page, 'one', '프로필');
+  await profile.evaluate(checkbox => { checkbox.click(); checkbox.click(); checkbox.click(); });
+  await expect.poll(() => !!state.release).toBe(true);
+  expect(state.writes).toHaveLength(1);
+  await expect(profile).toBeDisabled();
+  await expect(neededCheckbox(page, 'two', '자격사본')).toBeDisabled();
+  await expect(panel(page).getByRole('button', { name: '+ 인력 추가' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '새로고침', exact: true })).toBeDisabled();
+  state.release();
+  await expect(profile).not.toBeChecked();
+  await expect(profile).toBeEnabled();
+  state.hold = false;
+  await profile.click();
+  await expect(profile).toBeChecked();
+  expect(state.writes).toHaveLength(2);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await panel(page).screenshot({ path: 'test-results/personnel-needed-mobile.png' });
 });

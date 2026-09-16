@@ -22,3 +22,8 @@ export const addPerson = async (id, option) => people(await request(id, '', {
   method: 'POST', body: JSON.stringify({ name: option.name, department: option.department || '' }),
 }));
 export const removePerson = async (id, personId) => people(await request(id, '/' + encodeURIComponent(personId), { method: 'DELETE' }));
+
+export const setDocumentNeeded = async (id, personId, type, needed) => people(await request(id,
+  '/' + encodeURIComponent(personId) + '/documents/' + encodeURIComponent(type), {
+    method: 'PUT', body: JSON.stringify({ needed }),
+  }));
