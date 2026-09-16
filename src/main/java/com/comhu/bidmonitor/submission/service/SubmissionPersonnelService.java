@@ -12,6 +12,9 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.*;
 import java.nio.file.*;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.text.Normalizer;
 import java.time.LocalDate;
 import java.util.*;
@@ -215,6 +218,25 @@ public class SubmissionPersonnelService {
         jdbc.update("UPDATE submission_person_document SET needed=? WHERE person_id=? AND document_type=?", needed, personId, type.name());
         touch(caseId); return list(caseId);
     }
+    // Candidate IDs for unregistered files are opaque, stable lookup keys, not stored references.
+    // Selection always resolves them against the current scoped index before registering a file.
+    private String indexedCandidateId(FmsDrivePort.Item file) {
+        String key = origin() + "\0" + properties.getCompany() + "\0" + file.path();
+        try {
+            return "index-" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(key.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException unavailable) {
+            throw new IllegalStateException(unavailable);
+        }
+    }
+    private Map<String, String> registeredCandidateIds() {
+        Map<String, String> ids = new HashMap<>();
+        jdbc.query("SELECT drive_path,id FROM performance_drive_file WHERE origin=? AND company=?",
+                (org.springframework.jdbc.core.RowCallbackHandler) rs -> ids.put(rs.getString("drive_path"), rs.getString("id")),
+                origin(), properties.getCompany());
+        return ids;
+    }
+    @Transactional(readOnly = true)
     public List<Candidate> candidates(Long caseId, String personId, Type type) {
         String name = personName(caseId, personId);
         var files = indexedFiles().stream().filter(file -> matches(file, name, type))
@@ -222,23 +244,28 @@ public class SubmissionPersonnelService {
                         Comparator.comparing((FmsDrivePort.Item file) -> filenameDate(file.name()), Comparator.nullsLast(Comparator.reverseOrder()))
                                 .thenComparing(FmsDrivePort.Item::name)).toList();
         LocalDate newest = files.stream().map(file -> filenameDate(file.name())).filter(Objects::nonNull).max(Comparator.naturalOrder()).orElse(null);
+        var registeredIds = registeredCandidateIds();
         return files.stream().map(file -> {
-            var ref = references.register(origin(), properties.getCompany(), file);
             LocalDate date = filenameDate(file.name());
             boolean recommended = type != Type.PIA && date != null && date.equals(newest);
-            return new Candidate(ref.id(), file.name(), date, recommended,
+            return new Candidate(registeredIds.getOrDefault(file.path(), indexedCandidateId(file)), file.name(), date, recommended,
                     type == Type.PIA ? "기존 인증서 · 내용 확인 후 선택" : recommended ? "파일명 날짜 기준 최신 후보" : date == null ? "파일명 날짜 없음 · 직접 확인" : "이전 날짜 후보");
         }).toList();
     }
     @Transactional
     public List<Person> select(Long caseId, String personId, Type type, String candidateId) {
-        project(caseId, true); personName(caseId, personId);
+        project(caseId, true);
+        String name = personName(caseId, personId);
         if (candidateId == null) jdbc.update("UPDATE submission_person_document SET drive_file_id=NULL,uploaded_file_id=NULL,filename=NULL WHERE person_id=? AND document_type=?", personId, type.name());
         else {
-            var candidate = candidates(caseId, personId, type).stream().filter(file -> file.id().equals(candidateId)).findFirst()
+            var registeredIds = registeredCandidateIds();
+            var candidate = indexedFiles().stream().filter(file -> matches(file, name, type))
+                    .filter(file -> candidateId.equals(indexedCandidateId(file)) || candidateId.equals(registeredIds.get(file.path())))
+                    .findFirst()
                     .orElseThrow(() -> new IllegalArgumentException("현재 인력과 서류 유형에 맞는 후보를 선택하세요."));
+            var ref = references.register(origin(), properties.getCompany(), candidate);
             jdbc.update("UPDATE submission_person_document SET drive_file_id=?,uploaded_file_id=NULL,filename=? WHERE person_id=? AND document_type=?",
-                    candidate.id(), candidate.filename(), personId, type.name());
+                    ref.id(), candidate.name(), personId, type.name());
         }
         touch(caseId); return list(caseId);
     }

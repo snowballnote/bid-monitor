@@ -55,6 +55,90 @@ class SubmissionPersonnelTests {
     void indexPath(String filename, String path, String modified) {
         jdbc.update("INSERT INTO drive_file_index(source,company,root,name,path,ext,size,last_modified,indexed_at) VALUES('http://fms.test','CNH','/컴앤휴먼_컨설팅_인력',?,?,'pdf',10,?,CURRENT_TIMESTAMP)", filename, path, java.sql.Timestamp.valueOf(modified));
     }
+    @Test void candidatesGetDoesNotInsertOrRefreshReferencesOrChangeSelections() throws Exception {
+        index("프로필_김대원_20260723.pdf", "2026-07-23 00:00:00");
+        index("프로필_김대원_20260314.pdf", "2026-03-14 00:00:00");
+        var before = jdbc.queryForList("SELECT * FROM performance_drive_file ORDER BY id");
+        var initial = service.candidates(caseId, personId, Type.PROFILE);
+        mvc.perform(get("/api/submission-cases/{id}/people/{person}/documents/PROFILE/candidates", caseId, personId))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].filename").value("프로필_김대원_20260723.pdf"))
+                .andExpect(jsonPath("$[0].recommended").value(true))
+                .andExpect(jsonPath("$[1].recommended").value(false));
+        assertThat(jdbc.queryForList("SELECT * FROM performance_drive_file ORDER BY id")).isEqualTo(before);
+        assertThat(service.candidates(caseId, personId, Type.PROFILE)).isEqualTo(initial);
+
+        service.select(caseId, personId, Type.PROFILE, initial.getLast().id());
+        String storedId = jdbc.queryForObject("SELECT drive_file_id FROM submission_person_document WHERE person_id=? AND document_type='PROFILE'", String.class, personId);
+        // Existing metadata must not be refreshed merely by viewing candidates.
+        jdbc.update("UPDATE performance_drive_file SET filename='stale.pdf',file_size=1 WHERE id=?", storedId);
+        var references = jdbc.queryForList("SELECT * FROM performance_drive_file ORDER BY id");
+        var documents = jdbc.queryForList("SELECT * FROM submission_person_document ORDER BY person_id,document_type");
+        var projects = jdbc.queryForList("SELECT * FROM submission_case ORDER BY id");
+        var index = jdbc.queryForList("SELECT * FROM drive_file_index ORDER BY path");
+        var roots = jdbc.queryForList("SELECT * FROM drive_index_root_state ORDER BY root");
+        var connected = service.list(caseId);
+        for (int repeat = 0; repeat < 2; repeat++) {
+            mvc.perform(get("/api/submission-cases/{id}/people/{person}/documents/PROFILE/candidates", caseId, personId))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2))
+                    .andExpect(jsonPath("$[0].id").value(initial.getFirst().id()))
+                    .andExpect(jsonPath("$[1].id").value(storedId))
+                    .andExpect(jsonPath("$[1].filename").value("프로필_김대원_20260314.pdf"));
+        }
+        assertThat(jdbc.queryForList("SELECT * FROM performance_drive_file ORDER BY id")).isEqualTo(references);
+        assertThat(jdbc.queryForList("SELECT * FROM submission_person_document ORDER BY person_id,document_type")).isEqualTo(documents);
+        assertThat(jdbc.queryForList("SELECT * FROM submission_case ORDER BY id")).isEqualTo(projects);
+        assertThat(jdbc.queryForList("SELECT * FROM drive_file_index ORDER BY path")).isEqualTo(index);
+        assertThat(jdbc.queryForList("SELECT * FROM drive_index_root_state ORDER BY root")).isEqualTo(roots);
+        assertThat(service.list(caseId)).isEqualTo(connected);
+        verifyNoInteractions(drive);
+    }
+
+    @Test void selectionPutRegistersOnlySelectedCandidateAndAcceptsExistingAndPreviouslyIssuedIds() throws Exception {
+        index("프로필_김대원_20260723.pdf", "2026-07-23 00:00:00");
+        index("프로필_김대원_20260314.pdf", "2026-03-14 00:00:00");
+        int before = jdbc.queryForObject("SELECT COUNT(*) FROM performance_drive_file", Integer.class);
+        var candidate = service.candidates(caseId, personId, Type.PROFILE).getFirst();
+        mvc.perform(put("/api/submission-cases/{id}/people/{person}/documents/PROFILE/selection", caseId, personId)
+                .contentType("application/json").content("{\"candidateId\":\"" + candidate.id() + "\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].documents[?(@.type=='PROFILE')].filename").value(candidate.filename()));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM performance_drive_file", Integer.class)).isEqualTo(before + 1);
+        String storedId = service.candidates(caseId, personId, Type.PROFILE).getFirst().id();
+        assertThat(storedId).isNotEqualTo(candidate.id());
+        assertThat(jdbc.queryForObject("SELECT drive_file_id FROM submission_person_document WHERE person_id=? AND document_type='PROFILE'", String.class, personId)).isEqualTo(storedId);
+        jdbc.update("UPDATE drive_file_index SET size=99 WHERE name=?", candidate.filename());
+        for (String id : List.of(candidate.id(), storedId)) {
+            mvc.perform(put("/api/submission-cases/{id}/people/{person}/documents/PROFILE/selection", caseId, personId)
+                    .contentType("application/json").content("{\"candidateId\":\"" + id + "\"}"))
+                    .andExpect(status().isOk());
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM performance_drive_file", Integer.class)).isEqualTo(before + 1);
+        assertThat(jdbc.queryForObject("SELECT file_size FROM performance_drive_file WHERE id=?", Long.class, storedId)).isEqualTo(99L);
+        mvc.perform(put("/api/submission-cases/{id}/people/{person}/documents/PROFILE/selection", caseId, personId)
+                .contentType("application/json").content("{\"candidateId\":null}"))
+                .andExpect(status().isOk());
+        assertThat(service.list(caseId).getFirst().documents()).allMatch(doc -> doc.filename() == null);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM performance_drive_file", Integer.class)).isEqualTo(before + 1);
+        verifyNoInteractions(drive);
+    }
+
+    @Test void invalidOrNoLongerIndexedCandidateCannotRegisterAReference() throws Exception {
+        index("프로필_김대원_20260723.pdf", "2026-07-23 00:00:00");
+        var candidate = service.candidates(caseId, personId, Type.PROFILE).getFirst();
+        var before = jdbc.queryForList("SELECT * FROM performance_drive_file ORDER BY id");
+        mvc.perform(put("/api/submission-cases/{id}/people/{person}/documents/KOSA/selection", caseId, personId)
+                .contentType("application/json").content("{\"candidateId\":\"" + candidate.id() + "\"}"))
+                .andExpect(status().isBadRequest());
+        jdbc.update("DELETE FROM drive_file_index");
+        mvc.perform(put("/api/submission-cases/{id}/people/{person}/documents/PROFILE/selection", caseId, personId)
+                .contentType("application/json").content("{\"candidateId\":\"" + candidate.id() + "\"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/submission-cases/{id}/people/{person}/documents/PROFILE/candidates", caseId, personId))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+        assertThat(jdbc.queryForList("SELECT * FROM performance_drive_file ORDER BY id")).isEqualTo(before);
+        assertThat(service.list(caseId).getFirst().documents()).allMatch(doc -> doc.filename() == null);
+        verifyNoInteractions(drive);
+    }
     @Test void personnelSearchUsesFilesRecursivelyIndexedFromSharedBusinessRoot() {
         var previousRoots = driveProperties.getIndexRoots();
         try {
