@@ -29,11 +29,15 @@ async function setup(page, options = {}) {
       } else if (req.method() === 'DELETE') state.people = state.people.filter(row => row.id !== path.split('/').at(-1));
       else if (req.method() === 'PUT' && path.endsWith('/selection')) {
         const parts = path.split('/'), id = parts.at(-4), type = parts.at(-2);
-        const chosen = state.candidates[`${id}/${type}`].find(row => row.id === req.postDataJSON().candidateId);
-        if (!chosen) return route.fulfill({ status: 400, json: { message: '후보를 다시 확인하세요.' } });
         const doc = state.people.find(person => person.id === id).documents.find(doc => doc.type === type);
-        if (chosen.id.startsWith('index-')) chosen.id = 'ref-' + chosen.id;
-        Object.assign(doc, { filename: chosen.filename, source: 'FMS', fmsReferenceId: chosen.id, reference: chosen.id });
+        if (req.postDataJSON().candidateId === null) {
+          Object.assign(doc, { filename: null, source: null, fmsReferenceId: null, reference: null });
+        } else {
+          const chosen = state.candidates[`${id}/${type}`].find(row => row.id === req.postDataJSON().candidateId);
+          if (!chosen) return route.fulfill({ status: 400, json: { message: '후보를 다시 확인하세요.' } });
+          if (chosen.id.startsWith('index-')) chosen.id = 'ref-' + chosen.id;
+          Object.assign(doc, { filename: chosen.filename, source: 'FMS', fmsReferenceId: chosen.id, reference: chosen.id });
+        }
       }
       else if (req.method() === 'PUT' && /\/documents\/[^/]+$/.test(path)) {
         const parts = path.split('/');
@@ -307,7 +311,7 @@ test('personnel candidates: current file, server order and recommendations; clos
   await expect(dialog.locator('.personnel-candidate-list li').last()).toContainText('최신 후보');
   await expect(dialog.getByRole('radio')).toHaveCount(0);
   await expect(dialog.locator('input[type=file]')).toHaveCount(0);
-  await expect(dialog.getByRole('button')).toHaveText(['선택', '선택', '닫기']);
+  await expect(dialog.getByRole('button')).toHaveText(['연결 해제', '선택', '선택', '닫기']);
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(candidateButton(page, 'one', '프로필')).toBeFocused();
@@ -487,4 +491,88 @@ test('personnel selection: duplicate clicks and close are locked during save, th
   await expect(dialog.getByRole('region', { name: '현재 연결 파일' })).toContainText('파일 미등록');
   await expect(candidateRows(page).first().getByRole('button')).toHaveText('선택');
   expect(state.writes).toHaveLength(1);
+});
+
+test('personnel clear: FMS disconnect preserves needed, updates all totals and selected marker without file deletion or confirmation', async ({ page }) => {
+  const state = await setup(page);
+  const other = structuredClone(state.people[1]);
+  const needed = state.people.map(person => person.documents.map(doc => doc.needed));
+  const common = await page.locator('#common-documents').innerText();
+  const performance = await page.getByRole('region', { name: '실적증빙', exact: true }).innerText();
+  state.candidates['one/PROFILE'] = [candidate('snapshot-one-PROFILE', '최효재_PROFILE.pdf', true)];
+  const dialogs = [];
+  page.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.dismiss(); });
+  await candidateButton(page, 'one', '프로필').click();
+  await expect(candidateRows(page).first().getByRole('button')).toHaveText('선택됨');
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: '연결 해제', exact: true }).click();
+  await expect(dialog.getByRole('region', { name: '현재 연결 파일' })).toContainText('파일 미등록');
+  await expect(dialog.getByRole('button', { name: '연결 해제', exact: true })).toHaveCount(0);
+  await expect(candidateRows(page).first().getByRole('button')).toHaveText('선택');
+  await expect(page.getByLabel('최효재 준비율')).toHaveText('2 / 4');
+  await expect(page.getByRole('region', { name: '인력·자격', exact: true })).toContainText('3 / 7');
+  await expect(page.locator('#react-personnel-title')).toContainText('3 / 7');
+  await expect(page.locator('.case-progress')).toContainText('5 / 9');
+  await dialog.getByRole('button', { name: '닫기' }).click();
+  await expect(entry(page, 'one').locator('tbody tr').first()).toContainText('미준비');
+  await expect(neededCheckbox(page, 'one', '프로필')).toBeChecked();
+  expect(state.people.map(person => person.documents.map(doc => doc.needed))).toEqual(needed);
+  expect(state.people[1]).toEqual(other);
+  expect(await page.locator('#common-documents').innerText()).toBe(common);
+  expect(await page.getByRole('region', { name: '실적증빙', exact: true }).innerText()).toBe(performance);
+  expect(dialogs).toEqual([]);
+  expect(state.writes).toEqual([{ method: 'PUT', path: '/api/submission-cases/71/people/one/documents/PROFILE/selection', body: { candidateId: null } }]);
+  expect(state.reads.some(path => /refresh|delete/.test(path))).toBe(false);
+});
+
+test('personnel clear: directly uploaded file can disconnect on mobile, duplicate save and closing are blocked', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await setup(page);
+  Object.assign(state.people[0].documents[0], { source: 'PC', fmsReferenceId: null, needed: false });
+  await page.reload();
+  state.hold = true;
+  await candidateButton(page, 'one', '프로필').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('region', { name: '현재 연결 파일' })).toContainText('직접 업로드');
+  await dialog.getByRole('button', { name: '연결 해제', exact: true }).evaluate(button => { button.click(); button.click(); });
+  await expect.poll(() => !!state.release).toBe(true);
+  await expect(dialog.getByRole('button', { name: '연결 해제', exact: true })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: '닫기' })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
+  expect(state.writes).toHaveLength(1);
+  await page.screenshot({ path: 'test-results/personnel-clear-mobile.png', fullPage: true });
+  state.release();
+  await expect(dialog.getByRole('region', { name: '현재 연결 파일' })).toContainText('파일 미등록');
+  expect(state.people[0].documents[0].needed).toBe(false);
+  expect(state.writes).toHaveLength(1);
+  expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await dialog.getByRole('button', { name: '닫기' }).click();
+  await expect(neededCheckbox(page, 'one', '프로필')).not.toBeChecked();
+});
+
+test('personnel clear: failure preserves existing connection; uncertain state locks then reconciles', async ({ page }) => {
+  const state = await setup(page);
+  state.candidates['one/PROFILE'] = [candidate('snapshot-one-PROFILE', '최효재_PROFILE.pdf')];
+  const original = structuredClone(state.people);
+  state.fail = true;
+  await candidateButton(page, 'one', '프로필').click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: '연결 해제', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('인력 저장 실패');
+  await expect(dialog.getByRole('region', { name: '현재 연결 파일' })).toContainText('최효재_PROFILE.pdf');
+  await expect(candidateRows(page).first().getByRole('button')).toHaveText('선택됨');
+  expect(state.people).toEqual(original);
+  state.failRead = true; state.commitFailure = true;
+  await dialog.getByRole('button', { name: '연결 해제', exact: true }).click();
+  await expect(dialog).toContainText('마지막으로 확인한 연결 상태');
+  await expect(dialog.getByRole('button', { name: '연결 해제', exact: true })).toBeDisabled();
+  await expect(candidateRows(page).first().getByRole('button')).toBeDisabled();
+  await expect(dialog.getByRole('region', { name: '현재 연결 파일' })).toContainText('최효재_PROFILE.pdf');
+  state.failRead = false;
+  await dialog.getByRole('button', { name: '인력 다시 조회' }).click();
+  await expect(dialog.getByRole('region', { name: '현재 연결 파일' })).toContainText('파일 미등록');
+  await expect(candidateRows(page).first().getByRole('button')).toHaveText('선택');
+  await expect(candidateRows(page).first().getByRole('button')).toBeEnabled();
+  expect(state.people[0].documents[0].needed).toBe(true);
 });

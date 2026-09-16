@@ -41,3 +41,8 @@ export const selectDocumentCandidate = async (id, personId, type, candidateId) =
     method: 'PUT', body: JSON.stringify({ candidateId }),
   }));
 };
+
+export const clearDocumentConnection = async (id, personId, type) => people(await request(id,
+  '/' + encodeURIComponent(personId) + '/documents/' + encodeURIComponent(type) + '/selection', {
+    method: 'PUT', body: JSON.stringify({ candidateId: null }),
+  }));

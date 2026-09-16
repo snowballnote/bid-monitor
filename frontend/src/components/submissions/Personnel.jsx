@@ -124,6 +124,7 @@ export default function Personnel({ projectId, people, onSaved, onBusy }) {
     {candidateDocument && <PersonnelCandidates key={JSON.stringify([projectId, candidatePerson.id, candidateDocument.type])}
       projectId={projectId} person={candidatePerson} document={candidateDocument} busy={busy} uncertain={uncertain} error={error}
       onSelect={candidateId => mutate(() => api.selectDocumentCandidate(projectId, candidatePerson.id, candidateDocument.type, candidateId), '파일을 연결했습니다.')}
+      onClear={() => mutate(() => api.clearDocumentConnection(projectId, candidatePerson.id, candidateDocument.type), '파일 연결을 해제했습니다.')}
       onRetry={retry} onClose={() => setCandidateTarget(null)} />}
     {searchOpen && <dialog ref={dialog} className="common-document-dialog react-personnel-search" aria-labelledby="personnel-search-title" onCancel={event => { event.preventDefault(); if (!busy) closeSearch(); }}>
       <form onSubmit={search}><header><h2 id="personnel-search-title">인력 추가</h2></header>

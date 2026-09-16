@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import Button from '../Button';
 import { getDocumentCandidates } from '../../api/submissions/personnel';
 
-export default function PersonnelCandidates({ projectId, person, document, onClose, onSelect, onRetry, busy, uncertain, error }) {
+export default function PersonnelCandidates({ projectId, person, document, onClose, onSelect, onClear, onRetry, busy, uncertain, error }) {
   const dialog = useRef(null);
   const selecting = useRef(false);
   const mounted = useRef(false);
@@ -20,16 +20,22 @@ export default function PersonnelCandidates({ projectId, person, document, onClo
     });
     return () => controller.abort();
   }, [projectId, person.id, document.type, revision]);
-  async function select(candidate) {
-    if (selecting.current || busy || uncertain || document.fmsReferenceId === candidate.id) return;
+  async function saveConnection(action) {
+    if (selecting.current || busy || uncertain) return;
     selecting.current = true; setSaving(true);
     try {
-      await onSelect(candidate.id);
+      await action();
       if (mounted.current) { setState({ status: 'loading' }); setRevision(value => value + 1); }
     } finally {
       selecting.current = false;
       if (mounted.current) setSaving(false);
     }
+  }
+  function select(candidate) {
+    if (document.fmsReferenceId !== candidate.id) return saveConnection(() => onSelect(candidate.id));
+  }
+  function clear() {
+    if (document.filename) return saveConnection(onClear);
   }
   function close() { if (selecting.current || busy) return; dialog.current.close(); onClose(); }
   return <dialog ref={dialog} className="common-document-dialog personnel-candidates" aria-labelledby="personnel-candidates-title"
@@ -38,6 +44,7 @@ export default function PersonnelCandidates({ projectId, person, document, onClo
     <section aria-label="현재 연결 파일" className="personnel-current-file">
       <h3>현재 연결 파일</h3><p>{document.filename || '파일 미등록'}</p>
       {document.filename && <small>{document.source === 'PC' ? '직접 업로드 · ' : document.source === 'FMS' ? 'FMS · ' : ''}{document.filenameDate || '파일명 날짜 없음'}{document.latestStatus ? ' · ' + document.latestStatus : ''}</small>}
+      {document.filename && <Button className="ui-button ui-button-secondary personnel-disconnect" disabled={saving || busy || uncertain} onClick={clear}>연결 해제</Button>}
     </section>
     {(saving || busy) && <p role="status">파일 연결 상태 저장 중…</p>}
     {error && <p role="alert">{error}</p>}
