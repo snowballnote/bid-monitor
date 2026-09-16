@@ -72,7 +72,7 @@ test('detail: empty state and direct refresh never create linked projects', asyn
 
 test('detail: failed auxiliary read shows error instead of incomplete totals and retry recovers', async ({ page }) => {
   const { state } = await setup(page, { fail: '/people' });
-  await expect(page.getByRole('alert')).toContainText('회사 DB');
+  await expect(page.getByRole('alert')).toContainText('인력 서류를 처리하지 못했습니다.');
   await expect(page.getByRole('progressbar')).toHaveCount(0);
   state.fail = '';
   await page.getByRole('button', { name: '새로고침' }).click();

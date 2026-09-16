@@ -1,11 +1,12 @@
 import { getCaseResource } from './index';
 import { fetchList } from '../client';
+import { getPeople } from './personnel';
 
 export async function getDetail(caseId, signal) {
   if (!/^[1-9]\d*$/.test(caseId)) throw new Error('프로젝트 번호를 확인해 주세요.');
   const [project, requirements, packageData, people, masters] = await Promise.all([
     getCaseResource(caseId, '', signal), getCaseResource(caseId, '/requirements', signal),
-    getCaseResource(caseId, '/package', signal), getCaseResource(caseId, '/people', signal),
+    getCaseResource(caseId, '/package', signal), getPeople(caseId, signal),
     fetchList('/api/submission-document-masters', signal),
   ]);
   if (!project || String(project.id) !== caseId || !Array.isArray(requirements)

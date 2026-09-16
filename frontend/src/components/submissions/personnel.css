@@ -1,0 +1,18 @@
+﻿.react-personnel { box-shadow: none; min-width: 0; }
+.react-personnel .panel-header, .react-personnel-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.react-personnel .panel-header h2 { font-size: 16px; }
+.react-personnel-person { border-top: 1px solid var(--border); }
+.react-personnel-heading { padding: 12px 18px; }
+.react-personnel-heading > div { flex: 1; min-width: 100px; overflow-wrap: anywhere; }
+.react-personnel small { display: block; font-size: 11px; color: var(--muted); }
+.react-personnel .ui-button { min-height: 32px; font-size: 12px; padding: 6px 10px; }
+.react-personnel-scroll { max-width: 100%; overflow-x: auto; }
+.react-personnel table { min-width: 540px; table-layout: fixed; }
+.react-personnel table th:nth-child(1) { width: 85px; }
+.react-personnel table th:nth-child(2) { width: 55px; }
+.react-personnel table th:nth-child(3) { width: 185px; }
+.react-personnel table td, .react-personnel table th { font-size: 12px; overflow-wrap: anywhere; }
+.react-personnel-results { list-style: none; padding: 0; }
+.react-personnel-results li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.react-personnel-results li > span { flex: 1; overflow-wrap: anywhere; }
+.react-personnel-search { max-height: 85vh; overflow-y: auto; }
