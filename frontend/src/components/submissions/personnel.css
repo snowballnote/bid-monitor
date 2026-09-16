@@ -27,3 +27,5 @@
 .personnel-candidate-list li { padding: 10px 0; border-bottom: 1px solid var(--border); }
 .personnel-candidate-list .requirement-state { display: inline-block; margin-top: 6px; }
 .react-personnel .personnel-candidates footer { display: flex; justify-content: flex-end; margin-top: 16px; }
+.personnel-candidate-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.personnel-candidate-actions .requirement-state { margin-top: 0; margin-right: auto; }

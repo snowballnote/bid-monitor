@@ -52,12 +52,13 @@ export default function Personnel({ projectId, people, onSaved, onBusy }) {
     } finally { if (mounted.current && !controller.signal.aborted) setSearching(false); }
   }
   function mutate(action, success, close = false) {
-    if (task.current || uncertain) return;
+    if (task.current || uncertain) return Promise.resolve(false);
     setBusy(true); callbacks.current.onBusy(true); setError(''); setMessage('');
     task.current = (async () => {
       try {
         const rows = await action();
         if (mounted.current) { callbacks.current.onSaved(rows); setMessage(success); if (close) closeSearch(); }
+        return true;
       } catch (failure) {
         let recovered = false;
         try {
@@ -65,11 +66,13 @@ export default function Personnel({ projectId, people, onSaved, onBusy }) {
           if (mounted.current) { callbacks.current.onSaved(rows); recovered = true; }
         } catch { /* Keep the last confirmed state until retry succeeds. */ }
         if (mounted.current) { setError(failure.message); setUncertain(!recovered); }
+        return false;
       } finally {
         task.current = null;
         if (mounted.current) { setBusy(false); callbacks.current.onBusy(false); }
       }
     })();
+    return task.current;
   }
   async function retry() {
     if (task.current) return;
@@ -81,13 +84,16 @@ export default function Personnel({ projectId, people, onSaved, onBusy }) {
       } catch (failure) { if (mounted.current) setError(failure.message); }
       finally { task.current = null; if (mounted.current) { setBusy(false); callbacks.current.onBusy(false); } }
     })();
+    return task.current;
   }
+  const candidatePerson = people.find(person => person.id === candidateTarget?.personId);
+  const candidateDocument = candidatePerson?.documents.find(doc => doc.type === candidateTarget?.type);
   const documents = people.flatMap(person => person.documents).filter(doc => doc.needed);
   return <section id="react-personnel" className="surface-card react-personnel" aria-labelledby="react-personnel-title" aria-busy={busy}>
     <header className="panel-header"><h2 id="react-personnel-title">인력·자격 <span className="count-badge">{documents.filter(doc => doc.filename).length} / {documents.length}</span></h2>
       <Button className="ui-button ui-button-primary" disabled={busy || uncertain} onClick={() => { setResults(null); setSearchError(''); setSearchOpen(true); }}>+ 인력 추가</Button></header>
     <p className="detail-help">필요 서류를 체크하면 즉시 저장됩니다. 파일 변경은 파일 관리에서 진행하세요.</p>
-    {!searchOpen && error && <p className="detail-help" role="alert">{error}</p>}
+    {!searchOpen && !candidateTarget && error && <p className="detail-help" role="alert">{error}</p>}
     {message && <p className="detail-help" role="status">{message}</p>}
     {busy && <p className="detail-help" role="status">인력 상태 확인 중…</p>}
     {uncertain && <p className="detail-help" role="alert">최신 상태를 확인하지 못했습니다. 마지막으로 확인한 상태입니다. <Button onClick={retry} disabled={busy}>인력 다시 조회</Button></p>}
@@ -110,13 +116,15 @@ export default function Personnel({ projectId, people, onSaved, onBusy }) {
               }} aria-label={`${person.name} ${doc.label || doc.type} 필요`} /></td>
               <th scope="row">{doc.label || doc.type}</th><td>{doc.filename || '—'}
                 <Button className="ui-button ui-button-secondary personnel-candidates-open" disabled={busy || uncertain}
-                  onClick={() => setCandidateTarget({ person, document: doc })}>후보 조회</Button></td>
+                  onClick={() => setCandidateTarget({ personId: person.id, type: doc.type })}>후보 조회</Button></td>
             </tr>)}</tbody></table>
         </div>
       </div>;
     })}
-    {candidateTarget && <PersonnelCandidates key={JSON.stringify([projectId, candidateTarget.person.id, candidateTarget.document.type])}
-      projectId={projectId} {...candidateTarget} onClose={() => setCandidateTarget(null)} />}
+    {candidateDocument && <PersonnelCandidates key={JSON.stringify([projectId, candidatePerson.id, candidateDocument.type])}
+      projectId={projectId} person={candidatePerson} document={candidateDocument} busy={busy} uncertain={uncertain} error={error}
+      onSelect={candidateId => mutate(() => api.selectDocumentCandidate(projectId, candidatePerson.id, candidateDocument.type, candidateId), '파일을 연결했습니다.')}
+      onRetry={retry} onClose={() => setCandidateTarget(null)} />}
     {searchOpen && <dialog ref={dialog} className="common-document-dialog react-personnel-search" aria-labelledby="personnel-search-title" onCancel={event => { event.preventDefault(); if (!busy) closeSearch(); }}>
       <form onSubmit={search}><header><h2 id="personnel-search-title">인력 추가</h2></header>
         <label>이름 검색 <input name="query" maxLength={100} required autoFocus disabled={busy} /></label>

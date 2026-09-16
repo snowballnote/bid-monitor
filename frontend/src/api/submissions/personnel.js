@@ -34,3 +34,10 @@ export async function getDocumentCandidates(id, personId, type, signal) {
       || typeof row.recommended !== 'boolean')) throw new Error('FMS 후보 목록을 확인할 수 없습니다.');
   return rows;
 }
+
+export const selectDocumentCandidate = async (id, personId, type, candidateId) => {
+  if (typeof candidateId !== 'string' || !candidateId) throw new Error('연결할 후보를 선택하세요.');
+  return people(await request(id, '/' + encodeURIComponent(personId) + '/documents/' + encodeURIComponent(type) + '/selection', {
+    method: 'PUT', body: JSON.stringify({ candidateId }),
+  }));
+};
