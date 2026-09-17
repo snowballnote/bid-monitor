@@ -4,6 +4,7 @@ const defaultGroup = category => ['PERSONNEL', 'PERFORMANCE', 'OTHER'].includes(
 
 // 저장된 응답의 표시용 집계만 수행한다. 파일 선택·수집·연결 상태는 변경하지 않는다.
 export function detailView({ requirements, selections, people, masters, entries }) {
+  entries = Array.isArray(entries) ? entries : [];
   const files = new Map(selections.map(file => [file.requirementId, file]));
   const evidencePrepared = entries.filter(({ info }) => info?.selectedFileId != null
     || info?.selectedDriveFileId != null || info?.selectedUploadedFileId != null).length;
@@ -23,8 +24,11 @@ export function detailView({ requirements, selections, people, masters, entries 
   });
   const personnel = people.flatMap(person => person.documents.filter(doc => doc.needed)
     .map(doc => ({ ...doc, personName: person.name })));
+  const hasPerformance = rows.some(row => row.group === 'PERFORMANCE');
   const summary = Object.keys(groups).map(group => {
     const items = rows.filter(row => row.group === group);
+    if (group === 'PERFORMANCE') return { group, total: hasPerformance ? entries.length : 0,
+      prepared: hasPerformance ? evidencePrepared : 0 };
     return { group, total: items.length + (group === 'PERSONNEL' ? personnel.length : 0),
       prepared: items.filter(row => row.ready).length + (group === 'PERSONNEL' ? personnel.filter(doc => doc.filename).length : 0) };
   });

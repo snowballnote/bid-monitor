@@ -8,6 +8,7 @@ import CommonDocuments from '../../components/submissions/CommonDocuments';
 import Button from '../../components/Button';
 import Personnel from '../../components/submissions/Personnel';
 import OtherDocuments from '../../components/submissions/OtherDocuments';
+import PerformanceDocuments from '../../components/submissions/PerformanceDocuments';
 import styles from '../../../../src/main/resources/static/submissions/submissions.css?inline';
 import './submissions.css';
 
@@ -52,6 +53,12 @@ export default function SubmissionDetail() {
           const data = { ...previous.data, people };
           return { ...previous, data, view: detailView(data) };
         })} />
+        <PerformanceDocuments key={`performance-${caseId}`} project={current.data.project}
+          required={current.data.requirements.some(row => row.performanceSelectionRequired)} onLoaded={entries => setState(previous => {
+            if (previous.id !== caseId || previous.status !== 'success') return previous;
+            const data = { ...previous.data, entries };
+            return { ...previous, data, view: detailView(data) };
+          })} />
         <OtherDocuments key={`other-${caseId}`} data={current.data} view={current.view} onBusy={setSavingOther} onSaved={result => setState(previous => {
           if (previous.id !== caseId || previous.status !== 'success') return previous;
           const data = { ...previous.data, ...result };

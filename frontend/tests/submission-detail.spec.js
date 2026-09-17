@@ -26,7 +26,7 @@ async function setup(page, { empty = false, fail = '', malformed = false, hold =
       { type: 'LICENSE', label: '자격증', needed: true, filename: null },
       { type: 'IGNORED', label: '미선택 서류', needed: false, filename: 'ignored.pdf' },
     ] }] });
-    if (path.endsWith('/entries')) return route.fulfill({ json: [{ info: { selectedUploadedFileId: 'proof' } }, { info: { selectedDriveFileId: 'drive' } }] });
+    if (path.endsWith('/entries')) return route.fulfill({ json: [{ id: 'proof-one', info: { selectedUploadedFileId: 'proof' } }, { id: 'proof-two', info: { selectedDriveFileId: 'drive' } }] });
     if (path === '/api/submission-document-masters') return route.fulfill({ json: [] });
     if (path.endsWith('/download')) return route.fulfill({ contentType: 'application/zip', headers: { 'Content-Disposition': 'attachment; filename=submission-files.zip' }, body: Buffer.from('PK') });
     return route.fulfill({ status: 404, json: {} });
@@ -40,10 +40,10 @@ test('detail: saved state, category totals, documents, management links and ZIP'
   const { requests } = await setup(page);
   await expect(page.locator('#case-project-name')).toHaveText('상세 프로젝트 71');
   await expect(page.locator('.case-identity')).toContainText('D-5');
-  await expect(page.locator('.case-progress')).toContainText('4 / 6 · 67%');
-  await expect(page.getByRole('progressbar', { name: '전체 준비율', exact: true })).toHaveAttribute('aria-valuenow', '67');
-  for (const [group, text] of [['회사 공통', '1 / 1'], ['인력·자격', '2 / 3'], ['실적증빙', '1 / 1'], ['기타', '0 / 1']]) {
-    await expect(page.getByRole('region', { name: group, exact: true })).toContainText(text);
+  await expect(page.locator('.case-progress')).toContainText('5 / 7 · 71%');
+  await expect(page.getByRole('progressbar', { name: '전체 준비율', exact: true })).toHaveAttribute('aria-valuenow', '71');
+  for (const [group, text] of [['회사 공통', '1 / 1'], ['인력·자격', '2 / 3'], ['실적증빙', '2 / 2'], ['기타', '0 / 1']]) {
+    await expect(page.locator(`.category-progress-card[aria-label="${group}"]`)).toContainText(text);
   }
   await expect(page.locator('.requirement-table')).toContainText('사업자등록증.pdf');
   await expect(page.locator('.requirement-table')).toContainText('경력.pdf');
@@ -76,7 +76,7 @@ test('detail: failed auxiliary read shows error instead of incomplete totals and
   await expect(page.getByRole('progressbar')).toHaveCount(0);
   state.fail = '';
   await page.getByRole('button', { name: '새로고침' }).click();
-  await expect(page.locator('.case-progress')).toContainText('4 / 6');
+  await expect(page.locator('.case-progress')).toContainText('5 / 7');
 });
 
 test('detail: malformed response and invalid route ID show errors', async ({ page }) => {

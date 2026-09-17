@@ -26,7 +26,7 @@ export default function DetailDocuments({ project, view }) {
         <table className="submission-project-table requirement-table"><thead><tr>{['서류명', '구분', '상태', '연결 파일', '작업'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
           <tbody>{view.rows.map(row => <tr key={row.id}><th scope="row">{row.documentName}</th><td>{groups[row.group]}</td>
             <td><span className={`requirement-state${row.ready ? ' complete' : ' attention'}`}>{row.status}</span></td><td>{row.file?.originalFilename || '—'}</td>
-            <td><Button href={row.group === 'COMPANY_COMMON' ? '#/documents' : row.group === 'OTHER' ? '#other-documents' : legacyDetailUrl(project.id, 'requirement-title')} className="ui-button ui-button-secondary">상세 관리</Button></td></tr>)}
+            <td><Button href={row.group === 'COMPANY_COMMON' ? '#/documents' : row.group === 'OTHER' ? '#other-documents' : row.group === 'PERFORMANCE' ? '#performance-documents' : legacyDetailUrl(project.id, 'requirement-title')} className="ui-button ui-button-secondary">상세 관리</Button></td></tr>)}
             {view.personnel.map((doc, index) => <tr key={`person-${index}`}><th scope="row">{doc.personName} · {doc.label || doc.type}</th><td>인력·자격</td>
               <td><span className={`requirement-state${doc.filename ? ' complete' : ' attention'}`}>{doc.filename ? '준비 완료' : '파일 미등록'}</span></td><td>{doc.filename || '—'}</td>
               <td><Button href={legacyDetailUrl(project.id, 'personnel-panel')} className="ui-button ui-button-secondary">상세 관리</Button></td></tr>)}</tbody>

@@ -43,6 +43,16 @@
 .other-candidate-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .other-candidate-actions .match-badge { margin-right: auto; }
 .other-candidates footer { display: flex; justify-content: flex-end; margin-top: 16px; }
+.performance-documents { min-width: 0; box-shadow: none; }
+.performance-documents .panel-header { flex-wrap: wrap; }
+.performance-documents-scroll { max-width: 100%; overflow-x: auto; }
+.performance-documents table { min-width: 720px; table-layout: fixed; }
+.performance-documents th, .performance-documents td { font-size: 12px; overflow-wrap: anywhere; }
+.performance-documents th:nth-child(1) { width: 80px; }
+.performance-documents th:nth-child(2) { width: 25%; }
+.performance-documents th:nth-child(3) { width: 18%; }
+.performance-documents th:nth-child(4) { width: 18%; }
+.performance-filename { overflow-wrap: anywhere; }
 @media (max-width: 520px) {
   .react-submissions .document-picker-heading { flex-wrap: wrap; }
   .react-submissions .project-controls { gap: 8px; }

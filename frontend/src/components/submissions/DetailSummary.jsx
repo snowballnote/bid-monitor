@@ -19,7 +19,7 @@ export default function DetailSummary({ project, view }) {
     <div className="category-progress" aria-label="카테고리별 준비율">
       {view.summary.map(row => <section key={row.group} className="surface-card category-progress-card" aria-label={groups[row.group]}>
         <h3>{groups[row.group]}</h3><Progress {...row} label={`${groups[row.group]} 준비율`} />
-        <a href={row.group === 'OTHER' ? '#other-documents' : legacyDetailUrl(project.id, row.group === 'PERSONNEL' ? 'personnel-panel' : row.group === 'PERFORMANCE' ? 'requirement-title' : 'document-picker')}>상세 관리 →</a>
+        <a href={row.group === 'OTHER' ? '#other-documents' : row.group === 'PERFORMANCE' ? '#performance-documents' : legacyDetailUrl(project.id, row.group === 'PERSONNEL' ? 'personnel-panel' : 'document-picker')}>상세 관리 →</a>
       </section>)}
     </div>
   </>;

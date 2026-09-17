@@ -15,9 +15,7 @@ export async function getDetail(caseId, signal) {
       || !Array.isArray(people) || people.some(person => !Array.isArray(person?.documents))) {
     throw new Error('프로젝트 상세 응답을 확인할 수 없습니다.');
   }
-  const entries = project.performanceProjectId && requirements.some(row => row.performanceSelectionRequired)
-    ? await fetchList(`/api/performance-projects/${encodeURIComponent(project.performanceProjectId)}/entries`, signal) : [];
-  return { project, requirements, selections: packageData.selections, people, masters, entries };
+  return { project, requirements, selections: packageData.selections, people, masters, entries: [] };
 }
 
 export const downloadUrl = caseId => `/api/submission-cases/${encodeURIComponent(caseId)}/download`;
