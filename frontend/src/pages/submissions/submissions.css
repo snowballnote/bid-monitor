@@ -19,9 +19,35 @@
 .common-documents input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); }
 .common-documents th, .common-documents td { overflow-wrap: anywhere; }
 .common-snapshot-label { display: block; color: var(--muted); font-size: 11px; font-weight: normal; }
+.other-documents { min-width: 0; box-shadow: none; }
+.other-documents .panel-header { flex-wrap: wrap; }
+.other-document-add { display: flex; align-items: end; gap: 8px; padding: 0 20px 14px; }
+.other-document-add label { display: grid; flex: 1; gap: 5px; min-width: 0; font-size: 12px; }
+.other-document-add input { min-width: 0; width: 100%; box-sizing: border-box; }
+.other-documents-scroll { max-width: 100%; overflow-x: auto; }
+.other-documents table { min-width: 590px; table-layout: fixed; }
+.other-documents th, .other-documents td { font-size: 12px; overflow-wrap: anywhere; }
+.other-documents th:first-child { width: 26%; }
+.other-documents input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); }
+.other-documents small { display: block; color: var(--muted); font-weight: normal; font-size: 11px; }
+.other-filename { overflow-wrap: anywhere; }
+.other-candidates { width: min(620px, calc(100vw - 24px)); max-height: 85vh; overflow-y: auto; padding: 18px; box-sizing: border-box; }
+.other-candidates h2 { margin: 0 0 16px; font-size: 16px; overflow-wrap: anywhere; }
+.other-candidates h3 { margin: 0 0 8px; font-size: 13px; }
+.other-candidates p, .other-candidates small { overflow-wrap: anywhere; white-space: normal; }
+.other-current-file { margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.other-candidate-list { list-style: none; margin: 0; padding: 0; }
+.other-candidate-list li { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.other-candidate-list li > p { margin: 0 0 5px; }
+.other-candidate-list small { display: block; color: var(--muted); font-size: 11px; }
+.other-candidate-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.other-candidate-actions .match-badge { margin-right: auto; }
+.other-candidates footer { display: flex; justify-content: flex-end; margin-top: 16px; }
 @media (max-width: 520px) {
   .react-submissions .document-picker-heading { flex-wrap: wrap; }
   .react-submissions .project-controls { gap: 8px; }
   .react-submissions .project-name-form { align-items: stretch; flex-direction: column; }
   .react-submissions .project-name-form label { display: grid; gap: 6px; }
+  .other-document-add { align-items: stretch; flex-direction: column; }
+  .other-document-add .ui-button { width: 100%; }
 }

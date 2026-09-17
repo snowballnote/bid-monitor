@@ -46,3 +46,6 @@ export const getCaseResource = (id, suffix, signal) => request('/' + encodeURICo
 export const collectCommonDocuments = (id, requirements) => request('/' + encodeURIComponent(id) + '/collect?preserveExistingSelections=true', {
   method: 'POST', body: JSON.stringify(requirements),
 });
+export const replaceSubmissionSelections = (id, selections) => request('/' + encodeURIComponent(id) + '/selections', {
+  method: 'PUT', body: JSON.stringify({ selections }),
+});
