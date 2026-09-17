@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getPerformanceEntries } from '../../api/submissions/performanceDocuments';
+import Button from '../Button';
+import PerformanceCandidates from './PerformanceCandidates';
 
 export const performanceEntryReady = entry => entry?.info?.selectedFileId != null
   || entry?.info?.selectedDriveFileId != null || entry?.info?.selectedUploadedFileId != null;
@@ -8,6 +10,7 @@ export default function PerformanceDocuments({ project, required, onLoaded }) {
   const callback = useRef(onLoaded); callback.current = onLoaded;
   const [state, setState] = useState(() => required && project.performanceProjectId
     ? { status: 'loading' } : { status: 'empty' });
+  const [active, setActive] = useState(null);
   useEffect(() => {
     if (!required || !project.performanceProjectId) {
       setState({ status: 'empty' }); callback.current([]); return undefined;
@@ -31,7 +34,7 @@ export default function PerformanceDocuments({ project, required, onLoaded }) {
     {state.status === 'empty' && <p className="panel-state">{required ? '연결된 실적 프로젝트가 없습니다.' : '필요한 실적증빙이 없습니다.'}</p>}
     {state.status === 'success' && (!entries.length ? <p className="panel-state">등록된 실적이 없습니다.</p>
       : <div className="performance-documents-scroll" tabIndex={0} aria-label="실적증빙 준비 현황 표">
-        <table className="submission-project-table"><thead><tr>{['상태', '실적명', '발주기관', '수행기간', '현재 파일'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
+        <table className="submission-project-table"><thead><tr>{['상태', '실적명', '발주기관', '수행기간', '현재 파일', '관리'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
           <tbody>{entries.map((entry, index) => {
             const ready = performanceEntryReady(entry); const info = entry.info;
             return <tr key={entry.id ?? index}>
@@ -39,8 +42,10 @@ export default function PerformanceDocuments({ project, required, onLoaded }) {
               <th scope="row">{info.businessName || '실적명 미등록'}</th>
               <td>{info.client || '—'}</td><td>{info.businessPeriod || '—'}</td>
               <td className="performance-filename" title={entry.selectedFilename || ''}>{entry.selectedFilename || (ready ? '파일명 미확인' : '—')}</td>
+              <td><Button className="ui-button ui-button-secondary" onClick={() => setActive(entry)}>파일 관리</Button></td>
             </tr>;
           })}</tbody></table>
       </div>)}
+    {active && <PerformanceCandidates projectId={project.performanceProjectId} entry={active} onClose={() => setActive(null)} />}
   </section>;
 }

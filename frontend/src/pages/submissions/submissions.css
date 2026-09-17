@@ -53,6 +53,20 @@
 .performance-documents th:nth-child(3) { width: 18%; }
 .performance-documents th:nth-child(4) { width: 18%; }
 .performance-filename { overflow-wrap: anywhere; }
+.performance-documents .ui-button { min-height: 32px; padding: 6px 10px; font-size: 12px; }
+.performance-candidates { width: min(620px, calc(100vw - 24px)); max-height: 85vh; overflow-y: auto; padding: 18px; box-sizing: border-box; }
+.performance-candidates h2 { margin: 0 0 16px; font-size: 16px; overflow-wrap: anywhere; }
+.performance-candidates h3 { margin: 0 0 8px; font-size: 13px; }
+.performance-candidates p, .performance-candidates small, .performance-candidates span { overflow-wrap: anywhere; white-space: normal; }
+.performance-current-file { margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.performance-candidate-guidance { color: var(--muted); font-size: 12px; }
+.performance-candidate-list { list-style: none; margin: 0; padding: 0; }
+.performance-candidate-list li { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.performance-candidate-list li > p { margin: 0 0 5px; font-size: 13px; }
+.performance-candidate-list small { display: block; color: var(--muted); font-size: 11px; }
+.performance-candidate-meta { display: flex; align-items: flex-start; gap: 8px; margin-top: 7px; font-size: 12px; }
+.performance-candidate-meta .match-badge { flex: 0 0 auto; }
+.performance-candidates footer { display: flex; justify-content: flex-end; margin-top: 16px; }
 @media (max-width: 520px) {
   .react-submissions .document-picker-heading { flex-wrap: wrap; }
   .react-submissions .project-controls { gap: 8px; }

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 async function setup(page, options = {}) {
-  const state = { requests: [], releaseEntries: null };
+  const state = { requests: [], releaseEntries: null, releaseCandidate: null };
   const entries = options.empty ? [] : [
     { id: 'one', projectId: 'perf-1', selectedFilename: '완료된-실적증명서.pdf', info: {
       businessName: '공공정보시스템 구축', client: '한국기관', businessPeriod: '2024.01 ~ 2024.12', selectedFileId: 11,
@@ -26,6 +26,26 @@ async function setup(page, options = {}) {
     if (path.endsWith('/package')) return route.fulfill({ json: { selections: [] } });
     if (path.endsWith('/people')) return route.fulfill({ json: [] });
     if (path === '/api/submission-document-masters') return route.fulfill({ json: [] });
+    if (path.endsWith('/candidates')) {
+      const entryId = path.split('/').at(-2);
+      if (options.holdCandidateEntry === entryId) await new Promise(resolve => { state.releaseCandidate = resolve; });
+      if (options.candidateErrorEntry === entryId) return route.fulfill({ status: 503, json: {} });
+      const candidates = options.emptyCandidateEntry === entryId ? [] : [{
+        file: {
+          driveFileId: 'opaque-recommended-id', originalFilename: '공공정보시스템_실적증명서_2026.pdf',
+          fileExt: 'pdf', size: 1200, lastModified: '2026-08-17T03:00:00Z',
+        },
+        evidenceType: 'PERFORMANCE_CERTIFICATE', reason: '사업명과 발주기관이 일치하는 최신 후보',
+      }, {
+        file: {
+          driveFileId: 'opaque-second-id',
+          originalFilename: '동일한-파일명이지만-다른-경로의-아주-긴-실적증빙-후보-파일명.pdf',
+          fileExt: 'pdf', size: 1400, lastModified: '2025-07-03T03:00:00Z',
+        },
+        evidenceType: 'PERFORMANCE_CERTIFICATE', reason: '서버가 두 번째로 반환한 후보',
+      }];
+      return route.fulfill({ json: { candidates, nextAction: '추천 순서로 후보를 확인하세요.' } });
+    }
     if (path.endsWith('/entries')) {
       if (options.hold) await new Promise(resolve => { state.releaseEntries = resolve; });
       if (options.error) return route.fulfill({ status: 503, json: {} });
@@ -92,4 +112,62 @@ test('performance documents: long filenames remain usable on mobile and other se
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(state.requests.every(request => request.method === 'GET')).toBe(true);
   await page.screenshot({ path: 'test-results/performance-documents-mobile.png', fullPage: true });
+});
+
+test('performance candidates: current file and server ordered recommendations are read only', async ({ page }) => {
+  const state = await setup(page, { holdCandidateEntry: 'one' });
+  const section = page.locator('#performance-documents');
+  await expect(page.locator('.case-progress')).toContainText('2 / 3');
+  const progress = await page.locator('.case-progress').textContent();
+  await section.locator('tbody tr').filter({ hasText: '공공정보시스템 구축' }).getByRole('button', { name: '파일 관리' }).click();
+
+  const dialog = page.getByRole('dialog', { name: '공공정보시스템 구축 파일 관리' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel('현재 연결 파일')).toContainText('완료된-실적증명서.pdf');
+  await expect(dialog.getByRole('status')).toHaveText('FMS 후보 조회 중…');
+  await expect.poll(() => typeof state.releaseCandidate).toBe('function');
+  state.releaseCandidate();
+  await expect(dialog.locator('.performance-candidate-list li')).toHaveCount(2);
+  await expect(dialog.locator('.performance-candidate-list li').nth(0)).toContainText('공공정보시스템_실적증명서_2026.pdf');
+  await expect(dialog.locator('.performance-candidate-list li').nth(0)).toContainText('사업명과 발주기관이 일치하는 최신 후보');
+  await expect(dialog.locator('.performance-candidate-list li').nth(1)).toContainText('서버가 두 번째로 반환한 후보');
+  await expect(dialog.getByText('추천', { exact: true })).toHaveCount(2);
+  await expect(page.locator('.case-progress')).toHaveText(progress);
+  expect(state.requests.filter(request => request.path.endsWith('/candidates'))).toEqual([{
+    method: 'GET', path: '/api/performance-projects/perf-1/entries/one/candidates',
+  }]);
+  expect(state.requests.every(request => request.method === 'GET')).toBe(true);
+});
+
+test('performance candidates: empty and error states remain separated by entry', async ({ page }) => {
+  const options = { emptyCandidateEntry: 'two', candidateErrorEntry: 'one' };
+  const state = await setup(page, options);
+  const section = page.locator('#performance-documents');
+
+  await section.locator('tbody tr').filter({ hasText: '운영 사업' }).getByRole('button', { name: '파일 관리' }).click();
+  let dialog = page.getByRole('dialog', { name: '운영 사업 파일 관리' });
+  await expect(dialog.getByRole('status')).toHaveText('FMS 후보가 없습니다.');
+  await dialog.getByRole('button', { name: '닫기' }).click();
+
+  await section.locator('tbody tr').filter({ hasText: '공공정보시스템 구축' }).getByRole('button', { name: '파일 관리' }).click();
+  dialog = page.getByRole('dialog', { name: '공공정보시스템 구축 파일 관리' });
+  await expect(dialog.getByRole('alert')).toHaveText('FMS 후보를 조회하지 못했습니다.');
+  expect(state.requests.filter(request => request.path.endsWith('/candidates')).map(request => request.path)).toEqual([
+    '/api/performance-projects/perf-1/entries/two/candidates',
+    '/api/performance-projects/perf-1/entries/one/candidates',
+  ]);
+  expect(state.requests.every(request => request.method === 'GET')).toBe(true);
+});
+
+test('performance candidates: long names fit the mobile modal without writes', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await setup(page);
+  await page.locator('#performance-documents tbody tr').filter({ hasText: '개인정보 영향평가' })
+    .getByRole('button', { name: '파일 관리' }).click();
+  const dialog = page.getByRole('dialog', { name: '개인정보 영향평가 파일 관리' });
+  await expect(dialog.locator('.performance-candidate-list li')).toHaveCount(2);
+  await expect(dialog).toContainText('동일한-파일명이지만-다른-경로의-아주-긴-실적증빙');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(state.requests.every(request => request.method === 'GET')).toBe(true);
+  await page.screenshot({ path: 'test-results/performance-candidates-mobile.png', fullPage: true });
 });
