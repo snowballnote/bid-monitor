@@ -46,3 +46,28 @@ export const clearDocumentConnection = async (id, personId, type) => people(awai
   '/' + encodeURIComponent(personId) + '/documents/' + encodeURIComponent(type) + '/selection', {
     method: 'PUT', body: JSON.stringify({ candidateId: null }),
   }));
+
+export function validatePersonnelUpload(file) {
+  return !file || file.size === 0 || file.size > 20 * 1024 * 1024
+    ? '비어 있지 않은 20MB 이하 파일을 선택하세요.' : '';
+}
+export async function uploadPersonnelDocument(id, personId, type, file) {
+  const validation = validatePersonnelUpload(file);
+  if (validation) throw new Error(validation);
+  const form = new FormData(); form.append('file', file);
+  let response;
+  try {
+    response = await fetch(base(id) + '/' + encodeURIComponent(personId) + '/documents/' + encodeURIComponent(type) + '/upload', {
+      method: 'POST', headers: { Accept: 'application/json' }, body: form,
+    });
+  } catch { throw new Error('파일 업로드에 실패했습니다. 다시 시도해 주세요.'); }
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const safeMessages = ['비어 있지 않은 20MB 이하 파일을 선택하세요.', '파일명을 확인하세요.'];
+    throw new Error(response.status === 413 ? '20MB 이하 파일을 선택하세요.'
+      : response.status === 400 && safeMessages.includes(body?.message) ? body.message
+        : '파일 업로드에 실패했습니다. 다시 시도해 주세요.');
+  }
+  if (!Array.isArray(body)) throw new Error('업로드 결과를 확인할 수 없습니다.');
+  return people(body);
+}

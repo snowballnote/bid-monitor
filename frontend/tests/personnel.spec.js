@@ -4,12 +4,12 @@ const person = (id, name, ready = 0) => ({ id, name, department: '감리팀', do
 const panel = page => page.locator('#react-personnel');
 const entry = (page, id) => panel(page).locator(`[data-person-id="${id}"]`);
 async function setup(page, options = {}) {
-  const state = { people: options.empty ? [] : [person('one', '최효재', 3), person('two', '김대원', 1)], writes: [], reads: [], candidates: {}, candidateError: false, holdCandidates: false, releaseCandidates: null, fail: false, failRead: false, commitFailure: false, hold: false, release: null, searchFail: false, searchEmpty: false };
+  const state = { people: options.empty ? [] : [person('one', '최효재', 3), person('two', '김대원', 1)], writes: [], reads: [], uploads: [], uploadStatus: 0, uploadMessage: '', candidates: {}, candidateError: false, holdCandidates: false, releaseCandidates: null, fail: false, failRead: false, commitFailure: false, hold: false, release: null, searchFail: false, searchEmpty: false };
   if (!options.empty) state.people[1].documents[3].needed = false;
   const prefix = '/api/submission-cases/71/people';
   await page.route('**/api/**', async route => {
     const req = route.request(), url = new URL(req.url()), path = url.pathname;
-    if (req.method() !== 'GET') state.writes.push({ path, method: req.method(), body: req.postData() ? req.postDataJSON() : null });
+    if (req.method() !== 'GET') state.writes.push({ path, method: req.method(), body: req.headers()['content-type']?.includes('application/json') ? req.postDataJSON() : null });
     else state.reads.push(path + url.search);
     if (path.startsWith(prefix)) {
       if (path.endsWith('/candidates')) {
@@ -22,7 +22,14 @@ async function setup(page, options = {}) {
       if (req.method() === 'GET') return route.fulfill(state.failRead ? { status: 500, json: { message: '인력 조회 실패' } } : { json: state.people });
       if (state.hold) await new Promise(resolve => { state.release = resolve; });
       if (state.fail && !state.commitFailure) return route.fulfill({ status: 400, json: { message: '인력 저장 실패' } });
-      if (req.method() === 'POST') {
+      if (req.method() === 'POST' && path.endsWith('/upload')) {
+        const content = req.postDataBuffer().toString('utf8');
+        state.uploads.push({ contentType: req.headers()['content-type'], content });
+        if (state.uploadStatus && !state.commitFailure) return route.fulfill({ status: state.uploadStatus, json: { message: state.uploadMessage } });
+        const parts = path.split('/');
+        const doc = state.people.find(person => person.id === parts.at(-4)).documents.find(doc => doc.type === parts.at(-2));
+        Object.assign(doc, { filename: content.match(/filename="([^"]+)"/)[1], source: 'PC', fmsReferenceId: null, reference: 'upload-' + state.uploads.length });
+      } else if (req.method() === 'POST') {
         const input = req.postDataJSON();
         if (state.people.some(row => row.name === input.name)) return route.fulfill({ status: 400, json: { message: '이미 추가한 인력입니다.' } });
         const added = person('new', input.name); added.documents.forEach(doc => { doc.needed = false; }); state.people.push(added);
@@ -310,8 +317,8 @@ test('personnel candidates: current file, server order and recommendations; clos
   await expect(dialog.locator('.personnel-candidate-list li').first()).toContainText('파일명 날짜 없음');
   await expect(dialog.locator('.personnel-candidate-list li').last()).toContainText('최신 후보');
   await expect(dialog.getByRole('radio')).toHaveCount(0);
-  await expect(dialog.locator('input[type=file]')).toHaveCount(0);
-  await expect(dialog.getByRole('button')).toHaveText(['연결 해제', '선택', '선택', '닫기']);
+  await expect(dialog.locator('input[type=file]')).toHaveCount(1);
+  await expect(dialog.locator('button')).toHaveText(['연결 해제', '선택', '선택', '업로드', '닫기']);
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(candidateButton(page, 'one', '프로필')).toBeFocused();
@@ -575,4 +582,118 @@ test('personnel clear: failure preserves existing connection; uncertain state lo
   await expect(candidateRows(page).first().getByRole('button')).toHaveText('선택');
   await expect(candidateRows(page).first().getByRole('button')).toBeEnabled();
   expect(state.people[0].documents[0].needed).toBe(true);
+});
+
+const uploadFile = (page, name = '직접파일.pdf', size = 4) => page.getByRole('dialog').getByLabel('업로드 파일').setInputFiles({ name, mimeType: 'application/octet-stream', buffer: Buffer.alloc(size, 65) });
+const submitUpload = page => page.getByRole('dialog').getByRole('button', { name: '업로드', exact: true }).click();
+
+test('personnel upload: new upload, PC replacement, FMS replacement preserve needed and other areas', async ({ page }) => {
+  const state = await setup(page);
+  const other = structuredClone(state.people[1]);
+  const common = await page.locator('#common-documents').innerText();
+  const performance = await page.getByRole('region', { name: '실적증빙', exact: true }).innerText();
+  await candidateButton(page, 'one', '개인정보 영향평가 전문인력 인증서').click();
+  await uploadFile(page, '인증서.pdf');
+  await expect(page.getByRole('dialog').getByRole('region', { name: 'PC에서 직접 업로드' })).toContainText('인증서.pdf');
+  await submitUpload(page);
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('region', { name: '현재 연결 파일' })).toContainText('인증서.pdf');
+  await expect(dialog.getByRole('region', { name: '현재 연결 파일' })).toContainText('직접 업로드');
+  await expect(dialog.getByLabel('업로드 파일')).toHaveValue('');
+  await expect(page.getByLabel('최효재 준비율')).toHaveText('4 / 4');
+  await expect(page.locator('#react-personnel-title')).toContainText('5 / 7');
+  await expect(page.getByRole('region', { name: '인력·자격', exact: true })).toContainText('5 / 7');
+  await expect(page.locator('.case-progress')).toContainText('7 / 9');
+  await uploadFile(page, '교체인증서.hwp'); await submitUpload(page);
+  await expect(dialog.getByRole('region', { name: '현재 연결 파일' })).toContainText('교체인증서.hwp');
+  expect(state.people[0].documents[3].fmsReferenceId).toBeNull();
+  await dialog.getByRole('button', { name: '닫기' }).click();
+  state.candidates['one/PROFILE'] = [candidate('snapshot-one-PROFILE', '최효재_PROFILE.pdf')];
+  await candidateButton(page, 'one', '프로필').click();
+  await expect(candidateRows(page).first().getByRole('button')).toHaveText('선택됨');
+  await uploadFile(page, '최효재_PROFILE.pdf'); await submitUpload(page);
+  await expect(dialog.getByRole('region', { name: '현재 연결 파일' })).toContainText('직접 업로드');
+  await expect(candidateRows(page).first().getByRole('button')).toHaveText('선택');
+  expect(state.people[0].documents.every(doc => doc.needed)).toBe(true);
+  expect(state.people[1]).toEqual(other);
+  expect(state.people[0].documents[0].fmsReferenceId).toBeNull();
+  expect(await page.locator('#common-documents').innerText()).toBe(common);
+  expect(await page.getByRole('region', { name: '실적증빙', exact: true }).innerText()).toBe(performance);
+  expect(state.writes.map(write => write.method)).toEqual(['POST', 'POST', 'POST']);
+  expect(state.writes.every(write => write.path.endsWith('/upload'))).toBe(true);
+  expect(state.uploads.every(upload => upload.contentType.includes('multipart/form-data; boundary=') && upload.content.includes('name="file"'))).toBe(true);
+});
+
+test('personnel upload: no file, empty file and over 20MB rejected before request', async ({ page }) => {
+  const state = await setup(page);
+  await candidateButton(page, 'one', '프로필').click();
+  const dialog = page.getByRole('dialog');
+  await submitUpload(page);
+  await expect(dialog.getByRole('alert')).toContainText('비어 있지 않은 20MB 이하');
+  await uploadFile(page, '빈파일.pdf', 0); await submitUpload(page);
+  await expect(dialog.getByRole('alert')).toContainText('비어 있지 않은 20MB 이하');
+  await uploadFile(page, '큰파일.pdf', 20 * 1024 * 1024 + 1); await submitUpload(page);
+  await expect(dialog.getByRole('alert')).toContainText('비어 있지 않은 20MB 이하');
+  expect(state.writes).toEqual([]);
+  await expect(dialog.getByRole('region', { name: '현재 연결 파일' })).toContainText('최효재_PROFILE.pdf');
+});
+
+test('personnel upload: server validation shown safely, failed upload preserves connection and failed read locks', async ({ page }) => {
+  const state = await setup(page);
+  const original = structuredClone(state.people);
+  await candidateButton(page, 'one', '프로필').click();
+  const dialog = page.getByRole('dialog');
+  await uploadFile(page);
+  for (const [status, message, shown] of [[400, '파일명을 확인하세요.', '파일명을 확인하세요.'], [413, '', '20MB 이하 파일을 선택하세요.'], [500, 'C:/private/storage/secret.pdf token=secret', '파일 업로드에 실패했습니다. 다시 시도해 주세요.']]) {
+    state.uploadStatus = status; state.uploadMessage = message;
+    await submitUpload(page);
+    await expect(dialog.getByRole('alert')).toHaveText(shown);
+    await expect(dialog.getByRole('button', { name: '업로드', exact: true })).toBeEnabled();
+    await expect(dialog).not.toContainText('private/storage');
+    await expect(dialog).not.toContainText('token=secret');
+    await expect(dialog.getByRole('region', { name: '현재 연결 파일' })).toContainText('최효재_PROFILE.pdf');
+    expect(state.people).toEqual(original);
+  }
+  state.failRead = true;
+  await submitUpload(page);
+  await expect(dialog).toContainText('마지막으로 확인한 연결 상태');
+  await expect(dialog.getByRole('button', { name: '업로드', exact: true })).toBeDisabled();
+  await expect(dialog.getByLabel('업로드 파일')).toBeDisabled();
+  state.failRead = false; state.uploadStatus = 0;
+  await dialog.getByRole('button', { name: '인력 다시 조회' }).click();
+  await submitUpload(page);
+  await expect(dialog.getByRole('region', { name: '현재 연결 파일' })).toContainText('직접파일.pdf');
+});
+
+test('personnel upload: no overlapping upload/select/clear; index error still allows upload and mobile long filenames', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await setup(page); state.hold = true;
+  state.people[0].documents[0].needed = false;
+  await page.reload();
+  state.candidates['one/PROFILE'] = [candidate('other', '다른후보.pdf')];
+  await candidateButton(page, 'one', '프로필').click();
+  const dialog = page.getByRole('dialog');
+  const filename = '긴이름'.repeat(25) + '.pdf';
+  await uploadFile(page, filename);
+  await dialog.getByRole('button', { name: '업로드', exact: true }).evaluate(button => { button.click(); button.click(); });
+  await expect.poll(() => !!state.release).toBe(true);
+  await expect(dialog.getByRole('status')).toContainText('파일 업로드 중');
+  await expect(dialog.getByLabel('업로드 파일')).toBeDisabled();
+  await expect(candidateRows(page).first().getByRole('button')).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: '연결 해제' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: '닫기' })).toBeDisabled();
+  await page.keyboard.press('Escape'); await expect(dialog).toBeVisible();
+  expect(state.writes).toHaveLength(1);
+  state.release(); state.hold = false;
+  await expect(dialog.getByRole('region', { name: '현재 연결 파일' })).toContainText(filename);
+  expect(state.people[0].documents[0].needed).toBe(false);
+  expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await dialog.getByRole('button', { name: '업로드', exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/personnel-upload-mobile.png', fullPage: true });
+  await dialog.getByRole('button', { name: '닫기' }).click();
+  state.candidateError = true;
+  await candidateButton(page, 'one', '프로필').click();
+  await expect(dialog.getByRole('alert')).toContainText('후보 인덱스 조회 실패');
+  await uploadFile(page, '후보없어도업로드.pdf'); await submitUpload(page);
+  await expect(dialog.getByRole('region', { name: '현재 연결 파일' })).toContainText('후보없어도업로드.pdf');
 });
