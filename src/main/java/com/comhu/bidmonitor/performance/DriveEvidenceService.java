@@ -2,6 +2,7 @@ package com.comhu.bidmonitor.performance;
 
 import org.springframework.stereotype.Service;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.util.*;
 import static com.comhu.bidmonitor.performance.PerformanceModels.*;
@@ -17,17 +18,24 @@ public class DriveEvidenceService {
     }
 
     private record Match(FmsDrivePort.Item item, double score, String reason) { }
+    private record Recommended(EvidenceType type, List<Match> matches, String nextAction) { }
 
     public Recommendations recommend(Entry entry) {
-        if (entry.resolvedStatus() == BusinessStatus.COMPLETED) {
-            var certificates = search(entry, EvidenceType.CERTIFICATE, properties.getCertificateFolders());
-            if (!certificates.isEmpty()) return new Recommendations(certificates, "실적증명서 후보 확인 후 직접 선택");
-        }
-        var contracts = search(entry, EvidenceType.CONTRACT, properties.getContractFolders());
-        return new Recommendations(contracts, contracts.isEmpty() ? "KITC 요청 필요" : "계약서 후보 확인 후 직접 선택");
+        var recommended = recommended(entry);
+        return new Recommendations(recommended.matches().stream().map(match -> candidate(recommended.type(), match)).toList(),
+                recommended.nextAction());
     }
 
-    private List<Candidate> search(Entry entry, EvidenceType type, List<String> roots) {
+    private Recommended recommended(Entry entry) {
+        if (entry.resolvedStatus() == BusinessStatus.COMPLETED) {
+            var certificates = matches(entry, EvidenceType.CERTIFICATE, properties.getCertificateFolders());
+            if (!certificates.isEmpty()) return new Recommended(EvidenceType.CERTIFICATE, certificates, "실적증명서 후보 확인 후 직접 선택");
+        }
+        var contracts = matches(entry, EvidenceType.CONTRACT, properties.getContractFolders());
+        return new Recommended(EvidenceType.CONTRACT, contracts, contracts.isEmpty() ? "KITC 요청 필요" : "계약서 후보 확인 후 직접 선택");
+    }
+
+    private List<Match> matches(Entry entry, EvidenceType type, List<String> roots) {
         if (roots == null || roots.isEmpty() || roots.stream().allMatch(String::isBlank)) {
             throw new FmsDriveException(type.label + " 검색 폴더를 설정하세요.");
         }
@@ -44,11 +52,21 @@ public class DriveEvidenceService {
         return matches.stream().sorted(Comparator.comparingDouble(Match::score).reversed()
                 .thenComparing(match -> match.item().lastModified(), Comparator.nullsLast(Comparator.reverseOrder()))
                 .thenComparing(match -> match.item().path()))
-                .limit(30).map(match -> {
-                    var ref = references.register(origin(), properties.getCompany(), match.item());
-                    return new Candidate(new EvidenceFile(null, ref.id(), ref.filename(), ref.ext(), ref.size(), ref.modified()),
-                            type, match.reason());
-                }).toList();
+                .limit(30).toList();
+    }
+
+    private Candidate candidate(EvidenceType type, Match match) {
+        var item = match.item();
+        String id = references.findByLocation(origin(), properties.getCompany(), item.path())
+                .map(PerformanceDriveFileRepository.Reference::id).orElseGet(() -> candidateId(item.path()));
+        int dot = item.name().lastIndexOf('.');
+        String ext = dot < 0 ? "" : item.name().substring(dot + 1);
+        return new Candidate(new EvidenceFile(null, id, item.name(), ext, item.size(), item.lastModified()), type, match.reason());
+    }
+
+    private String candidateId(String path) {
+        String identity = origin() + "\0" + properties.getCompany() + "\0" + path;
+        return UUID.nameUUIDFromBytes(identity.getBytes(StandardCharsets.UTF_8)).toString();
     }
 
     static EvidenceType evidenceType(String name) {
@@ -79,12 +97,33 @@ public class DriveEvidenceService {
 
     public PerformanceDriveFileRepository.Reference selectable(String id, EvidenceType type) {
         var ref = checkedReference(id);
+        return selectable(ref, type);
+    }
+
+    public PerformanceDriveFileRepository.Reference selectable(Entry entry, String id, EvidenceType type) {
+        var recommended = recommended(entry);
+        if (type == null || recommended.type() != type) throw new IllegalArgumentException("현재 실적에 추천된 증빙 후보를 선택하세요.");
+        Match match = recommended.matches().stream().filter(candidate -> {
+            String resolvedId = references.findByLocation(origin(), properties.getCompany(), candidate.item().path())
+                    .map(PerformanceDriveFileRepository.Reference::id).orElseGet(() -> candidateId(candidate.item().path()));
+            return resolvedId.equals(id) || candidateId(candidate.item().path()).equals(id);
+        }).findFirst().orElseThrow(() -> new IllegalArgumentException("현재 실적에 추천된 증빙 후보를 선택하세요."));
+        var item = verifiedItem(match.item(), type);
+        return references.register(origin(), properties.getCompany(), item, id);
+    }
+
+    private PerformanceDriveFileRepository.Reference selectable(PerformanceDriveFileRepository.Reference ref, EvidenceType type) {
+        var item = verifiedItem(new FmsDrivePort.Item(ref.filename(), ref.path(), false, ref.size(), ref.modified()), type);
+        return references.register(origin(), properties.getCompany(), item);
+    }
+
+    private FmsDrivePort.Item verifiedItem(FmsDrivePort.Item candidate, EvidenceType type) {
         // Re-list the parent to reject stale/missing references; never accept a path from an API client.
-        var item = drive.list(FmsDriveHttpAdapter.parentOf(ref.path())).stream()
-                .filter(file -> !file.directory() && file.path().equals(ref.path())).findFirst()
+        var item = drive.list(FmsDriveHttpAdapter.parentOf(candidate.path())).stream()
+                .filter(file -> !file.directory() && file.path().equals(candidate.path())).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Drive 파일을 찾을 수 없습니다. 후보를 다시 조회하세요."));
         if (evidenceType(item.name()) != type) throw new IllegalArgumentException("Drive 파일과 증빙유형이 일치하지 않습니다.");
-        return references.register(origin(), properties.getCompany(), item);
+        return item;
     }
 
     public InputStream open(String id) {

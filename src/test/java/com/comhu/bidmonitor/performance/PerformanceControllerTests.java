@@ -86,7 +86,7 @@ class PerformanceControllerTests {
                 new EntryInput(i.pptNumber(), i.businessName(), i.businessPeriod(), i.contractAmount(), i.client(), null,
                         null, EvidenceType.CERTIFICATE, KitcStatus.NEEDED, null, null, null, uploaded.info().selectedUploadedFileId())));
         var ref = registry.register("test-origin", "CNH", new FmsDrivePort.Item("fms.pdf", "/test/fms.pdf", false, 1, null));
-        when(drive.selectable(ref.id(), EvidenceType.CERTIFICATE)).thenReturn(ref);
+        when(drive.selectable(org.mockito.Mockito.any(Entry.class), eq(ref.id()), eq(EvidenceType.CERTIFICATE))).thenReturn(ref);
         service.update(second.projectId(), second.id(), new EntryInput(i.pptNumber(), i.businessName(), i.businessPeriod(),
                 i.contractAmount(), i.client(), null, null, EvidenceType.CERTIFICATE, KitcStatus.NEEDED, null, null, ref.id()));
         when(drive.open(ref.id())).thenReturn(new java.io.ByteArrayInputStream(new byte[]{8}));
@@ -201,7 +201,7 @@ class PerformanceControllerTests {
         // Persist the referenced ID only into this test's primary H2 through the real registry.
         var item = new FmsDrivePort.Item("실적증명원.pdf", "/private/실적증명원.pdf", false, 10, null);
         var ref = registry.register("internal-origin", "CNH", item);
-        when(drive.selectable(eq(ref.id()), eq(EvidenceType.CERTIFICATE))).thenReturn(ref);
+        when(drive.selectable(org.mockito.Mockito.any(Entry.class), eq(ref.id()), eq(EvidenceType.CERTIFICATE))).thenReturn(ref);
         var info = entry.info();
         service.update(entry.projectId(), entry.id(), new EntryInput(info.pptNumber(), info.businessName(),
                 info.businessPeriod(), info.contractAmount(), info.client(), null, null,

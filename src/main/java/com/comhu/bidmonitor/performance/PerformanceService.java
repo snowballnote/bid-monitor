@@ -77,8 +77,12 @@ public class PerformanceService {
                     && input.evidenceType() == old.info().evidenceType()) {
                 filename = old.selectedFilename(); ext = old.selectedExt();
             } else {
-                var selected = drive.selectable(input.selectedDriveFileId(), input.evidenceType());
+                var selected = drive.selectable(old, input.selectedDriveFileId(), input.evidenceType());
                 filename = selected.filename(); ext = selected.ext();
+                input = new EntryInput(input.pptNumber(), input.businessName(), input.businessPeriod(),
+                        input.contractAmount(), input.client(), input.businessStatus(), input.selectedFileId(),
+                        input.evidenceType(), input.kitcStatus(), input.requestedAt(), input.repliedAt(),
+                        selected.id(), input.selectedUploadedFileId());
             }
         } else if (input.selectedFileId() != null) {
             if (input.selectedFileId().equals(old.info().selectedFileId())) {

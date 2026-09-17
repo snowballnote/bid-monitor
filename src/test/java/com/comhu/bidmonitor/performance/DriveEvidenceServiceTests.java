@@ -7,6 +7,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import java.io.ByteArrayInputStream;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -17,6 +18,7 @@ import static org.mockito.Mockito.*;
 
 class DriveEvidenceServiceTests {
     private SingleConnectionDataSource ds;
+    private JdbcTemplate jdbc;
     private FmsDrivePort port;
     private FmsDriveProperties config;
     private PerformanceDriveFileRepository registry;
@@ -33,7 +35,7 @@ class DriveEvidenceServiceTests {
     void setup() {
         ds = new SingleConnectionDataSource("jdbc:h2:mem:" + UUID.randomUUID(), "sa", "", true);
         new ResourceDatabasePopulator(new ClassPathResource("schema.sql")).execute(ds);
-        var jdbc = new JdbcTemplate(ds);
+        jdbc = new JdbcTemplate(ds);
         registry = new PerformanceDriveFileRepository(jdbc);
         repository = new PerformanceRepository(jdbc);
         config = new FmsDriveProperties();
@@ -95,6 +97,76 @@ class DriveEvidenceServiceTests {
         assertThat(repository.entry(project, entry.id()).info().selectedDriveFileId()).isNull();
         verify(port, never()).list("/contracts");
         verifyNoInteractions(company);
+    }
+
+    @Test
+    void candidateGetIsReadOnlyStableAndDistinguishesEqualNamesByPath() throws Exception {
+        String name = BUSINESS + " 실적증명서.pdf";
+        when(port.list("/cert")).thenReturn(List.of(
+                new FmsDrivePort.Item("a", "/cert/a", true, 0, null),
+                new FmsDrivePort.Item("b", "/cert/b", true, 0, null)));
+        when(port.list("/cert/a")).thenReturn(List.of(item("/cert/a", name)));
+        when(port.list("/cert/b")).thenReturn(List.of(item("/cert/b", name)));
+        refresh.refresh();
+        clearInvocations(port);
+        var entry = entry("1", false);
+        var before = jdbc.queryForList("SELECT * FROM performance_drive_file ORDER BY id");
+
+        var first = service.candidates(project, entry.id());
+        var second = service.candidates(project, entry.id());
+
+        assertThat(first.candidates()).hasSize(2);
+        assertThat(first.candidates()).extracting(candidate -> candidate.file().originalFilename())
+                .containsExactly(name, name);
+        assertThat(first.candidates()).extracting(candidate -> candidate.file().driveFileId())
+                .doesNotHaveDuplicates().containsExactlyElementsOf(second.candidates().stream()
+                        .map(candidate -> candidate.file().driveFileId()).toList());
+        assertThat(first.candidates()).extracting(Candidate::reason)
+                .containsExactlyElementsOf(second.candidates().stream().map(Candidate::reason).toList());
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+                new PerformanceController(service, mock(PerformanceZipService.class))).build();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                        "/api/performance-projects/{projectId}/entries/{entryId}/candidates", project, entry.id()))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.candidates.length()").value(2));
+        assertThat(jdbc.queryForList("SELECT * FROM performance_drive_file ORDER BY id")).isEqualTo(before);
+        verifyNoInteractions(port);
+
+        String candidateId = first.candidates().getFirst().file().driveFileId();
+        var selected = service.update(project, entry.id(), selected(entry, candidateId));
+        assertThat(selected.info().selectedDriveFileId()).isEqualTo(candidateId);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM performance_drive_file", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void candidateGetReusesRegisteredIdWithoutRefreshingMetadataAndSelectionAloneRegistersThenClears() {
+        String name = BUSINESS + " 실적증명서.pdf";
+        String path = "/cert/" + name;
+        var old = new FmsDrivePort.Item(name, path, false, 1, Instant.parse("2026-01-01T00:00:00Z"));
+        var existing = registry.register("http://fms.test", "CNH", old);
+        var indexed = new FmsDrivePort.Item(name, path, false, 99, Instant.parse("2026-02-01T00:00:00Z"));
+        when(port.list("/cert")).thenReturn(List.of(indexed));
+        refresh.refresh();
+        var entry = entry("1", false);
+        var before = jdbc.queryForMap("SELECT * FROM performance_drive_file WHERE id = ?", existing.id());
+
+        var candidate = service.candidates(project, entry.id()).candidates().getFirst();
+
+        assertThat(candidate.file().driveFileId()).isEqualTo(existing.id());
+        assertThat(candidate.file().size()).isEqualTo(99);
+        assertThat(jdbc.queryForMap("SELECT * FROM performance_drive_file WHERE id = ?", existing.id())).isEqualTo(before);
+        clearInvocations(port);
+        var selected = service.update(project, entry.id(), selected(entry, candidate.file().driveFileId()));
+        assertThat(selected.info().selectedDriveFileId()).isEqualTo(existing.id());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM performance_drive_file", Integer.class)).isEqualTo(1);
+
+        var info = selected.info();
+        var cleared = service.update(project, entry.id(), new EntryInput(info.pptNumber(), info.businessName(),
+                info.businessPeriod(), info.contractAmount(), info.client(), info.businessStatus(), null, null,
+                info.kitcStatus(), info.requestedAt(), info.repliedAt(), null, null));
+        assertThat(cleared.info().selectedDriveFileId()).isNull();
+        assertThat(cleared.selectedFilename()).isNull();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM performance_drive_file", Integer.class)).isEqualTo(1);
     }
 
     @Test
@@ -184,6 +256,9 @@ class DriveEvidenceServiceTests {
     @Test
     void selectionRejectsUnknownOrMissingFilesAndNeverAcceptsBothSources() {
         var entry = entry("1", false);
+        when(port.list("/cert")).thenReturn(List.of());
+        when(port.list("/contracts")).thenReturn(List.of());
+        refresh.refresh();
         assertThatThrownBy(() -> service.update(project, entry.id(), selected(entry, UUID.randomUUID().toString())))
                 .isInstanceOf(IllegalArgumentException.class);
         var file = item("/cert", BUSINESS + " 실적증명서.pdf");
