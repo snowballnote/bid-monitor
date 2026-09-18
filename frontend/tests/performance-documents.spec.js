@@ -21,6 +21,7 @@ async function setup(page, options = {}) {
   ];
   const state = {
     requests: [], writes: [], entries, releaseEntries: null, releaseCandidate: null, releaseSelection: null,
+    uploads: [], releaseUpload: null, holdUpload: false, uploadStatus: 0, uploadMessage: '',
     holdSelection: false, failSelection: false, selectedCandidate: { one: 0 },
   };
   const candidateIds = [
@@ -60,6 +61,23 @@ async function setup(page, options = {}) {
     if (path.endsWith('/package')) return route.fulfill({ json: { selections: [] } });
     if (path.endsWith('/people')) return route.fulfill({ json: [] });
     if (path === '/api/submission-document-masters') return route.fulfill({ json: [] });
+    const uploadMatch = path.match(/^\/api\/performance-projects\/perf-1\/entries\/([^/]+)\/upload$/);
+    if (uploadMatch && request.method() === 'POST') {
+      const entryId = uploadMatch[1]; const body = request.postData() || '';
+      state.uploads.push({ method: request.method(), path, body });
+      if (state.holdUpload) await new Promise(resolve => { state.releaseUpload = resolve; });
+      if (state.uploadStatus) return route.fulfill({ status: state.uploadStatus, json: { message: state.uploadMessage } });
+      const filename = body.match(/filename="([^"]+)"/)?.[1] || '직접업로드.bin';
+      const evidenceType = body.match(/name="evidenceType"[\s\S]*?\r?\n\r?\n([A-Z_]+)/)?.[1] || 'CERTIFICATE';
+      const index = entries.findIndex(entry => entry.id === entryId);
+      delete state.selectedCandidate[entryId];
+      entries[index] = {
+        ...entries[index], selectedFilename: filename, selectedExt: filename.includes('.') ? filename.split('.').at(-1) : '',
+        info: { ...entries[index].info, selectedFileId: null, selectedDriveFileId: null,
+          selectedUploadedFileId: `upload-${state.uploads.length}`, evidenceType },
+      };
+      return route.fulfill({ json: entries[index] });
+    }
     const entryMatch = path.match(/^\/api\/performance-projects\/perf-1\/entries\/([^/]+)$/);
     if (entryMatch && request.method() === 'PUT') {
       const entryId = entryMatch[1]; const body = request.postDataJSON();
@@ -340,6 +358,105 @@ test('performance disconnect: failure preserves current file, evidence type and 
   await expect(dialog.getByRole('alert')).toHaveText('연결 해제 실패');
   await expect(dialog.getByLabel('현재 연결 파일')).toContainText('완료된-실적증명서.pdf');
   await expect(dialog.getByLabel('현재 연결 파일')).toContainText('실적증명서');
+  await expect(dialog.locator('.performance-candidate-list li').nth(0).getByRole('button')).toHaveText('선택됨');
+  expect(state.entries[0].info.selectedDriveFileId).toBe('11111111-1111-4111-8111-111111111111');
+  expect(state.entries[0].info.evidenceType).toBe('CERTIFICATE');
+});
+
+test('performance upload: new PC file updates source, evidence type and all progress', async ({ page }) => {
+  const state = await setup(page);
+  const untouched = await page.locator('.category-progress-card:not([aria-label="실적증빙"])').allTextContents();
+  await page.locator('#performance-documents tbody tr').filter({ hasText: '운영 사업' })
+    .getByRole('button', { name: '파일 관리' }).click();
+  const dialog = page.getByRole('dialog', { name: '운영 사업 파일 관리' });
+  await dialog.getByLabel('증빙유형').selectOption('CONTRACT');
+  await dialog.getByLabel('업로드 파일').setInputFiles({ name: 'local-contract.pdf', mimeType: 'application/pdf', buffer: Buffer.from('contract') });
+  await expect(dialog.getByText('local-contract.pdf', { exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: '업로드', exact: true }).click();
+
+  await expect(dialog.getByLabel('현재 연결 파일')).toContainText('local-contract.pdf');
+  await expect(dialog.getByLabel('현재 연결 파일')).toContainText('PC 직접 업로드 · 계약서');
+  await expect(page.locator('#performance-documents tbody tr').filter({ hasText: '운영 사업' })).toContainText('준비됨');
+  await expect(page.locator('#performance-documents .panel-header')).toContainText('3 / 3');
+  await expect(page.locator('.category-progress-card[aria-label="실적증빙"]')).toContainText('3 / 3');
+  await expect(page.locator('.case-progress')).toContainText('3 / 3 · 100%');
+  expect(await page.locator('.category-progress-card:not([aria-label="실적증빙"])').allTextContents()).toEqual(untouched);
+  expect(state.entries[1].info).toMatchObject({
+    selectedFileId: null, selectedDriveFileId: null, selectedUploadedFileId: 'upload-1',
+    evidenceType: 'CONTRACT', kitcStatus: 'NEEDED', requestedAt: null, repliedAt: null,
+  });
+  expect(state.uploads).toHaveLength(1);
+  expect(state.uploads[0].body).toContain('name="evidenceType"');
+  expect(state.uploads[0].body).toContain('CONTRACT');
+});
+
+test('performance upload: replaces direct upload and FMS connection while blocking conflicting actions', async ({ page }) => {
+  const state = await setup(page);
+  const section = page.locator('#performance-documents');
+
+  await section.locator('tbody tr').filter({ hasText: '개인정보 영향평가' }).getByRole('button', { name: '파일 관리' }).click();
+  let dialog = page.getByRole('dialog', { name: '개인정보 영향평가 파일 관리' });
+  const previousUploadId = state.entries[2].info.selectedUploadedFileId;
+  await dialog.getByLabel('업로드 파일').setInputFiles({ name: 'replacement.pdf', mimeType: 'application/pdf', buffer: Buffer.from('replacement') });
+  await dialog.getByRole('button', { name: '업로드', exact: true }).click();
+  await expect(dialog.getByLabel('현재 연결 파일')).toContainText('replacement.pdf');
+  expect(state.entries[2].info.selectedUploadedFileId).not.toBe(previousUploadId);
+  await dialog.getByRole('button', { name: '닫기' }).click();
+
+  await section.locator('tbody tr').filter({ hasText: '공공정보시스템 구축' }).getByRole('button', { name: '파일 관리' }).click();
+  dialog = page.getByRole('dialog', { name: '공공정보시스템 구축 파일 관리' });
+  await dialog.getByLabel('업로드 파일').setInputFiles({ name: 'from-fms-to-pc.pdf', mimeType: 'application/pdf', buffer: Buffer.from('pc') });
+  state.holdUpload = true;
+  await dialog.getByRole('button', { name: '업로드', exact: true }).click();
+  await expect.poll(() => state.uploads.length).toBe(2);
+  await expect(dialog.getByRole('status')).toHaveText('파일 업로드 중…');
+  await expect(dialog.getByRole('button', { name: '연결 해제' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: '닫기' })).toBeDisabled();
+  await expect(dialog.locator('.performance-candidate-list').getByRole('button', { name: '선택' }).first()).toBeDisabled();
+  await dialog.locator('.performance-upload form').evaluate(form => form.requestSubmit());
+  expect(state.uploads).toHaveLength(2);
+  state.holdUpload = false; state.releaseUpload();
+
+  await expect(dialog.getByLabel('현재 연결 파일')).toContainText('from-fms-to-pc.pdf');
+  await expect(dialog.getByLabel('현재 연결 파일')).toContainText('PC 직접 업로드');
+  await expect(dialog.locator('.performance-candidate-list').getByRole('button', { name: '선택됨' })).toHaveCount(0);
+  expect(state.entries[0].info.selectedDriveFileId).toBeNull();
+  expect(state.entries[0].info.selectedUploadedFileId).toBe('upload-2');
+  expect(state.entries[0].info.kitcStatus).toBe('NEEDED');
+});
+
+test('performance upload: empty and oversized files are rejected before POST', async ({ page }) => {
+  const state = await setup(page);
+  await page.locator('#performance-documents tbody tr').filter({ hasText: '운영 사업' })
+    .getByRole('button', { name: '파일 관리' }).click();
+  const dialog = page.getByRole('dialog', { name: '운영 사업 파일 관리' });
+  await dialog.getByRole('button', { name: '업로드', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('비어 있지 않은 20MB 이하 파일을 선택하세요.');
+  await dialog.getByLabel('업로드 파일').setInputFiles({ name: 'empty.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(0) });
+  await dialog.getByRole('button', { name: '업로드', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('비어 있지 않은 20MB 이하 파일을 선택하세요.');
+  await dialog.getByLabel('업로드 파일').setInputFiles({ name: 'large.bin', mimeType: 'application/octet-stream', buffer: Buffer.alloc(20 * 1024 * 1024 + 1) });
+  await dialog.getByRole('button', { name: '업로드', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('비어 있지 않은 20MB 이하 파일을 선택하세요.');
+  expect(state.uploads).toHaveLength(0);
+});
+
+test('performance upload: safe server validation is shown and internal details stay hidden without replacing FMS', async ({ page }) => {
+  const state = await setup(page);
+  await page.locator('#performance-documents tbody tr').filter({ hasText: '공공정보시스템 구축' })
+    .getByRole('button', { name: '파일 관리' }).click();
+  const dialog = page.getByRole('dialog', { name: '공공정보시스템 구축 파일 관리' });
+  const input = dialog.getByLabel('업로드 파일');
+  state.uploadStatus = 400; state.uploadMessage = '파일명을 확인하세요.';
+  await input.setInputFiles({ name: 'invalid.pdf', mimeType: 'application/pdf', buffer: Buffer.from('invalid') });
+  await dialog.getByRole('button', { name: '업로드', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('파일명을 확인하세요.');
+  await expect(dialog.getByLabel('현재 연결 파일')).toContainText('완료된-실적증명서.pdf');
+
+  state.uploadStatus = 500; state.uploadMessage = 'C:\\secret\\performance-uploads\\uuid.bin';
+  await dialog.getByRole('button', { name: '업로드', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('파일 업로드에 실패했습니다. 다시 시도해 주세요.');
+  await expect(dialog).not.toContainText('C:\\secret');
   await expect(dialog.locator('.performance-candidate-list li').nth(0).getByRole('button')).toHaveText('선택됨');
   expect(state.entries[0].info.selectedDriveFileId).toBe('11111111-1111-4111-8111-111111111111');
   expect(state.entries[0].info.evidenceType).toBe('CERTIFICATE');

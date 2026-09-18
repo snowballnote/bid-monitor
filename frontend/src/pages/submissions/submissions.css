@@ -70,6 +70,13 @@
 .performance-candidate-meta { display: flex; align-items: flex-start; gap: 8px; margin-top: 7px; font-size: 12px; }
 .performance-candidate-meta .match-badge { flex: 0 0 auto; }
 .performance-candidate-meta .ui-button { margin-left: auto; flex: 0 0 auto; }
+.performance-upload { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.performance-upload form { display: grid; gap: 8px; }
+.performance-upload label { display: grid; gap: 4px; font-size: 12px; }
+.performance-upload input, .performance-upload select { min-width: 0; max-width: 100%; }
+.performance-upload-filename { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.performance-upload form > small { color: var(--muted); }
+.performance-upload form > .ui-button { justify-self: end; }
 .performance-candidates footer { display: flex; justify-content: flex-end; margin-top: 16px; }
 @media (max-width: 520px) {
   .react-submissions .document-picker-heading { flex-wrap: wrap; }
