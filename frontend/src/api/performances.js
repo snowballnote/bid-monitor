@@ -51,6 +51,30 @@ async function save(path, method, values) {
 export const createPerformanceProject = values => save('', 'POST', values);
 export const updatePerformanceProject = (id, values) => save('/' + encodeURIComponent(id), 'PUT', values);
 
+function validDriveIndexRoot(root) {
+  const state = root?.state;
+  return typeof root?.label === 'string' && state && typeof state.status === 'string'
+    && (state.lastSuccessAt == null || typeof state.lastSuccessAt === 'string')
+    && typeof state.fileCount === 'number';
+}
+
+async function driveIndexRequest(path = '', options = {}) {
+  let response;
+  try { response = await fetch('/api/drive-index' + path, { ...options, headers: { Accept: 'application/json' } }); }
+  catch { throw new Error(options.method === 'POST' ? 'Drive index 갱신에 실패했습니다.' : 'Drive index 상태를 불러오지 못했습니다.'); }
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    const safe = ['Drive 인덱스를 이미 갱신하고 있습니다.', 'Drive 검색 폴더를 설정하세요.'];
+    throw new Error(safe.includes(data?.message) ? data.message
+      : options.method === 'POST' ? 'Drive index 갱신에 실패했습니다.' : 'Drive index 상태를 불러오지 못했습니다.');
+  }
+  if (!Array.isArray(data) || data.some(root => !validDriveIndexRoot(root))) throw new Error('Drive index 상태 응답을 확인할 수 없습니다.');
+  return data;
+}
+
+export const getDriveIndexStatus = signal => driveIndexRequest('', { signal });
+export const refreshDriveIndex = () => driveIndexRequest('/refresh', { method: 'POST' });
+
 function downloadFilename(disposition) {
   if (typeof disposition !== 'string') return 'performance-evidence.zip';
   const encoded = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i)?.[1];

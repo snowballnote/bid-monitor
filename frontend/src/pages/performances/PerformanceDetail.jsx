@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import * as api from '../../api/performances';
 import Button from '../../components/Button';
 import PerformanceProjectDialog from '../../components/performances/PerformanceProjectDialog';
+import DriveIndexStatus from '../../components/performances/DriveIndexStatus';
 import PerformanceDocuments, { performanceEntryReady } from '../../components/submissions/PerformanceDocuments';
 import { performanceDday, performanceStatus } from './performanceView';
 import sharedStyles from '../../../../src/main/resources/static/submissions/submissions.css?inline';
@@ -75,6 +76,7 @@ export default function PerformanceDetail() {
             <Button className="ui-button ui-button-secondary" disabled={downloading || entries === null || selectedFiles === 0}
               onClick={download}>{downloading ? 'ZIP 생성 중…' : 'ZIP 다운로드'}</Button>
             <Button className="ui-button ui-button-primary" disabled={busy} onClick={() => { setFormError(''); setEditing(true); }}>프로젝트 수정</Button></div></section>
+        <DriveIndexStatus />
         <PerformanceDocuments project={{ performanceProjectId: project.id }} required onLoaded={syncAfterEntryChange} />
       </>}
     </div>

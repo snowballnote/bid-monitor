@@ -15,6 +15,7 @@ async function setup(page, options = {}) {
   const state = { projects, entries, writes: [], failSave: false, failList: false };
   await page.route('**/api/**', async route => {
     const request = route.request(); const path = new URL(request.url()).pathname; const method = request.method();
+    if (path === '/api/drive-index') return route.fulfill({ json: [] });
     if (path === '/api/performance-projects' && method === 'GET') {
       if (state.failList) return route.fulfill({ status: 503, json: { message: '내부 목록 경로' } });
       return route.fulfill({ json: state.projects });

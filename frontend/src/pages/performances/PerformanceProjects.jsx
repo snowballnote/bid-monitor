@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import * as api from '../../api/performances';
 import Button from '../../components/Button';
 import PerformanceProjectDialog from '../../components/performances/PerformanceProjectDialog';
+import DriveIndexStatus from '../../components/performances/DriveIndexStatus';
 import { performanceDday, performanceStatus } from './performanceView';
 import sharedStyles from '../../../../src/main/resources/static/submissions/submissions.css?inline';
 import './performances.css';
@@ -43,6 +44,7 @@ export default function PerformanceProjects() {
         <p>실적과 증빙 파일을 프로젝트별로 관리합니다.</p></div>
         <Button className="ui-button ui-button-primary" disabled={state.status !== 'success' || busy}
           onClick={() => { setFormError(''); setEditor({}); }}>+ 새 프로젝트</Button></header>
+      <DriveIndexStatus />
       <section className="surface-card performance-project-list" aria-label="실적 프로젝트 목록">
         {state.status === 'loading' && <p className="performance-project-state" role="status">프로젝트 목록을 불러오는 중입니다.</p>}
         {state.status === 'error' && <div className="performance-project-state"><p role="alert">{state.message}</p>

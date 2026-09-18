@@ -14,6 +14,7 @@ async function setup(page, entries = [entry('1', 'fms', 'FMS.pdf')]) {
   await page.route('**/api/**', async route => {
     const request = route.request(); const path = new URL(request.url()).pathname;
     if (request.method() !== 'GET') state.writes.push({ method: request.method(), path });
+    if (path === '/api/drive-index') return route.fulfill({ json: [] });
     if (path === '/api/performance-projects/p1') return route.fulfill({ json: project });
     if (path === '/api/performance-projects/p1/entries') return route.fulfill({ json: entries });
     if (path === '/api/performance-projects/p1/download') {

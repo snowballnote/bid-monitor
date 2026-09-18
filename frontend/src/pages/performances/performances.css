@@ -9,6 +9,15 @@
 .performance-project-list a:hover { text-decoration: underline; }
 .performance-project-state { margin: 0; padding: 22px 20px; color: var(--muted); }
 .performance-project-state p { margin-top: 0; }
+.drive-index-panel { margin-bottom: 16px; overflow: hidden; }
+.drive-index-panel .document-picker-heading { flex-wrap: wrap; }
+.drive-index-state { margin: 0; padding: 16px 20px; color: var(--muted); }
+.drive-index-state.error { color: var(--danger); }
+.drive-index-scroll { max-width: 100%; overflow-x: auto; }
+.drive-index-panel table { min-width: 620px; }
+.drive-index-panel th:first-child { width: 30%; }
+.drive-index-panel th, .drive-index-panel td { font-size: 12px; overflow-wrap: anywhere; }
+.drive-index-panel td small { display: block; margin-top: 5px; color: var(--muted); }
 .performance-project-dialog { width: min(500px, calc(100vw - 24px)); padding: 18px; box-sizing: border-box; }
 .performance-project-dialog h2 { margin: 0 0 14px; font-size: 17px; }
 .performance-project-dialog form { display: grid; gap: 12px; }

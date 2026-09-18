@@ -68,6 +68,15 @@ test('performance projects: vanilla create and edit flow remains available', asy
     expect(writes.filter(item => item.path === '/api/performance-projects/p1').at(-1).body)
         .toEqual({ name: '수정 실적 프로젝트', deadline: '2026-12-15' });
 });
+
+test('performance drive index: vanilla status and refresh remain available', async ({ page }) => {
+    const writes = await setup(page);
+    await expect(page.locator('#drive-index-status')).toHaveText('검색 폴더 설정이 필요합니다.');
+    await page.getByRole('button', { name: 'Drive 인덱스 갱신' }).click();
+    await expect.poll(() => writes.filter(item => item.path === '/api/drive-index/refresh').length).toBe(1);
+    await expect(page.getByRole('button', { name: 'Drive 인덱스 갱신' })).toBeEnabled();
+    await expect(page.locator('#drive-index-status')).toHaveText('검색 폴더 설정이 필요합니다.');
+});
 async function paste(page, plain = '', rich = '') {
     await page.locator('#paste-table').evaluate((textarea, data) => {
         const clipboard = new DataTransfer();
