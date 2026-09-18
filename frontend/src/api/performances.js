@@ -50,3 +50,33 @@ async function save(path, method, values) {
 
 export const createPerformanceProject = values => save('', 'POST', values);
 export const updatePerformanceProject = (id, values) => save('/' + encodeURIComponent(id), 'PUT', values);
+
+function downloadFilename(disposition) {
+  if (typeof disposition !== 'string') return 'performance-evidence.zip';
+  const encoded = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i)?.[1];
+  const plain = disposition.match(/filename\s*=\s*(?:"([^"]+)"|([^;]+))/i);
+  let value = encoded ? (() => { try { return decodeURIComponent(encoded); } catch { return ''; } })()
+    : plain?.[1] || plain?.[2]?.trim() || '';
+  value = value.split(/[\\/]/).at(-1)?.replace(/[\u0000-\u001f\u007f]/g, '').trim() || '';
+  return value || 'performance-evidence.zip';
+}
+
+export async function downloadPerformanceEvidence(projectId) {
+  let response;
+  try {
+    response = await fetch(`${BASE}/${encodeURIComponent(projectId)}/download`, { headers: { Accept: 'application/zip, application/json' } });
+  } catch { throw new Error('ZIP 다운로드에 실패했습니다. 다시 시도해 주세요.'); }
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    const safeMessages = [
+      '먼저 증빙파일을 선택하세요.', 'ZIP 파일명이 중복됩니다. PPT 번호나 사업명을 수정하세요.',
+      '선택한 FMS 파일의 다운로드 권한이 없습니다.',
+      'ZIP을 만들 수 없습니다. 파일 상태·NAS 연결·원본 합계 100MB 제한을 확인하세요.',
+    ];
+    throw new Error(safeMessages.includes(data?.message) ? data.message : 'ZIP 다운로드에 실패했습니다. 다시 시도해 주세요.');
+  }
+  if (!response.headers.get('content-type')?.toLowerCase().includes('application/zip')) {
+    throw new Error('ZIP 다운로드 응답을 확인할 수 없습니다.');
+  }
+  return { blob: await response.blob(), filename: downloadFilename(response.headers.get('content-disposition')) };
+}

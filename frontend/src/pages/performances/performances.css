@@ -22,12 +22,15 @@
 .performance-project-overview dl div { display: grid; gap: 3px; }
 .performance-project-overview dt { color: var(--muted); font-size: 11px; }
 .performance-project-overview dd { margin: 0; font-size: 13px; font-weight: 700; }
+.performance-download-state { display: grid; gap: 3px; color: var(--muted); font-size: 12px; }
+.performance-download-state small { max-width: 360px; color: var(--danger); overflow-wrap: anywhere; }
 .performance-overview-actions { display: flex; gap: 8px; margin-left: auto; }
 @media (max-width: 600px) {
   .performance-page-heading { align-items: stretch; flex-direction: column; }
   .performance-page-heading .ui-button { width: 100%; }
   .performance-project-overview { align-items: stretch; flex-direction: column; }
   .performance-project-overview dl { justify-content: space-between; }
+  .performance-download-state { width: 100%; }
   .performance-overview-actions { width: 100%; margin-left: 0; }
   .performance-overview-actions > * { flex: 1; justify-content: center; }
 }
