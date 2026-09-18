@@ -6,7 +6,7 @@ async function setup(page, options = {}) {
       pptNumber: '1', businessName: '공공정보시스템 구축', client: '한국기관', businessPeriod: '2024.01 ~ 2024.12',
       contractAmount: '10억', businessStatus: 'COMPLETED', selectedFileId: null,
       selectedDriveFileId: '11111111-1111-4111-8111-111111111111', selectedUploadedFileId: null,
-      evidenceType: 'CERTIFICATE', kitcStatus: 'NEEDED', requestedAt: null, repliedAt: null,
+      evidenceType: 'CERTIFICATE', kitcStatus: 'REQUESTED', requestedAt: '2026-08-01', repliedAt: null,
     } },
     { id: 'two', projectId: 'perf-1', selectedFilename: null, info: {
       pptNumber: '2', businessName: '운영 사업', client: '서울기관', businessPeriod: '2025.01 ~ 2025.12',
@@ -22,7 +22,7 @@ async function setup(page, options = {}) {
   const state = {
     requests: [], writes: [], entries, releaseEntries: null, releaseCandidate: null, releaseSelection: null,
     uploads: [], releaseUpload: null, holdUpload: false, uploadStatus: 0, uploadMessage: '',
-    holdSelection: false, failSelection: false, selectedCandidate: { one: 0 },
+    imports: [], failEntrySave: false, holdSelection: false, failSelection: false, selectedCandidate: { one: 0 },
   };
   const candidateIds = [
     '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333',
@@ -61,6 +61,23 @@ async function setup(page, options = {}) {
     if (path.endsWith('/package')) return route.fulfill({ json: { selections: [] } });
     if (path.endsWith('/people')) return route.fulfill({ json: [] });
     if (path === '/api/submission-document-masters') return route.fulfill({ json: [] });
+    if (path === '/api/performance-projects/perf-1/import' && request.method() === 'POST') {
+      const payload = request.postDataJSON(); state.imports.push(payload);
+      const cells = (payload.text || '').split('\t').map(value => value.replace(/^"|"$/g, '').replaceAll('""', '"'));
+      const message = !cells[0]?.trim() ? 'PPT 번호을(를) 확인하세요.'
+        : entries.some(entry => entry.info.pptNumber === cells[0].trim()) ? '이미 저장된 PPT 번호입니다. 기존 실적을 수정하세요.'
+          : !cells[2]?.match(/수행\s*중|진행\s*중|현재|계속|\d{4}[.\/-]\d{1,2}.*\d{4}[.\/-]\d{1,2}/)
+            ? '사업기간은 시작~종료 날짜로 입력하거나 상세 수정에서 사업 상태를 지정하세요.' : '';
+      if (message) return route.fulfill({ json: { saved: [], errors: [{ row: 1, cells, message }] } });
+      const entry = { id: `new-${state.imports.length}`, projectId: 'perf-1', selectedFilename: null, selectedExt: null,
+        resolvedStatus: /수행\s*중|진행\s*중|현재|계속/.test(cells[2]) ? 'IN_PROGRESS' : 'COMPLETED', info: {
+          pptNumber: cells[0].trim(), businessName: cells[1].trim(), businessPeriod: cells[2].trim(),
+          contractAmount: cells[3].trim(), client: cells[4].trim(), businessStatus: null,
+          selectedFileId: null, selectedDriveFileId: null, selectedUploadedFileId: null, evidenceType: null,
+          kitcStatus: 'NEEDED', requestedAt: null, repliedAt: null,
+        } };
+      entries.push(entry); return route.fulfill({ json: { saved: [entry], errors: [] } });
+    }
     const uploadMatch = path.match(/^\/api\/performance-projects\/perf-1\/entries\/([^/]+)\/upload$/);
     if (uploadMatch && request.method() === 'POST') {
       const entryId = uploadMatch[1]; const body = request.postData() || '';
@@ -87,6 +104,23 @@ async function setup(page, options = {}) {
         && body.selectedUploadedFileId == null && body.evidenceType == null;
       if (state.failSelection) return route.fulfill({ status: 503, json: { message: disconnecting ? '연결 해제 실패' : '후보 연결 실패' } });
       const index = entries.findIndex(entry => entry.id === entryId);
+      const current = entries[index];
+      const metadataUpdate = body.selectedFileId === current.info.selectedFileId
+        && body.selectedDriveFileId === current.info.selectedDriveFileId
+        && body.selectedUploadedFileId === current.info.selectedUploadedFileId
+        && body.evidenceType === current.info.evidenceType;
+      if (metadataUpdate) {
+        if (state.failEntrySave) return route.fulfill({ status: 503, json: { message: 'C:\\internal\\entry.sql' } });
+        if (entries.some((entry, position) => position !== index && entry.info.pptNumber === body.pptNumber)) {
+          return route.fulfill({ status: 409, json: { message: '이미 저장된 PPT 번호입니다.' } });
+        }
+        if (!body.businessPeriod.match(/수행\s*중|진행\s*중|현재|계속|\d{4}[.\/-]\d{1,2}.*\d{4}[.\/-]\d{1,2}/)) {
+          return route.fulfill({ status: 400, json: { message: '사업기간은 시작~종료 날짜로 입력하거나 상세 수정에서 사업 상태를 지정하세요.' } });
+        }
+        entries[index] = { ...current, info: { ...body }, resolvedStatus: body.businessStatus
+          || (/수행\s*중|진행\s*중|현재|계속/.test(body.businessPeriod) ? 'IN_PROGRESS' : 'COMPLETED') };
+        return route.fulfill({ json: entries[index] });
+      }
       if (disconnecting) {
         delete state.selectedCandidate[entryId];
         entries[index] = { ...entries[index], selectedFilename: null, selectedExt: null, info: { ...entries[index].info, ...body } };
@@ -422,7 +456,7 @@ test('performance upload: replaces direct upload and FMS connection while blocki
   await expect(dialog.locator('.performance-candidate-list').getByRole('button', { name: '선택됨' })).toHaveCount(0);
   expect(state.entries[0].info.selectedDriveFileId).toBeNull();
   expect(state.entries[0].info.selectedUploadedFileId).toBe('upload-2');
-  expect(state.entries[0].info.kitcStatus).toBe('NEEDED');
+  expect(state.entries[0].info.kitcStatus).toBe('REQUESTED');
 });
 
 test('performance upload: empty and oversized files are rejected before POST', async ({ page }) => {
@@ -460,4 +494,103 @@ test('performance upload: safe server validation is shown and internal details s
   await expect(dialog.locator('.performance-candidate-list li').nth(0).getByRole('button')).toHaveText('선택됨');
   expect(state.entries[0].info.selectedDriveFileId).toBe('11111111-1111-4111-8111-111111111111');
   expect(state.entries[0].info.evidenceType).toBe('CERTIFICATE');
+});
+
+test('performance entry: required validation and single-row import add an ongoing entry with free-form amount', async ({ page }) => {
+  const state = await setup(page);
+  const untouched = await page.locator('.category-progress-card:not([aria-label="실적증빙"])').allTextContents();
+  await page.locator('#performance-documents').getByRole('button', { name: '실적 추가' }).click();
+  const dialog = page.getByRole('dialog', { name: '실적 추가' });
+  await dialog.getByRole('button', { name: '저장' }).click();
+  await expect(dialog.locator('.field-error')).toHaveCount(5);
+  expect(state.imports).toHaveLength(0);
+
+  await dialog.getByLabel('PPT 번호').fill('4');
+  await dialog.getByLabel('사업명').fill('신규 운영 사업');
+  await dialog.getByLabel('사업기간').fill('2026.01 ~ 수행중');
+  await dialog.getByLabel('계약금액').fill('금액 협의');
+  await dialog.getByLabel('발주처').fill('신규기관');
+  await dialog.getByRole('button', { name: '저장' }).click();
+
+  await expect(dialog).toHaveCount(0);
+  const row = page.locator('#performance-documents tbody tr').filter({ hasText: '신규 운영 사업' });
+  await expect(row).toContainText('미준비');
+  await expect(page.locator('#performance-documents .panel-header')).toContainText('2 / 4');
+  await expect(page.locator('.category-progress-card[aria-label="실적증빙"]')).toContainText('2 / 4');
+  await expect(page.locator('.case-progress')).toContainText('2 / 4 · 50%');
+  expect(await page.locator('.category-progress-card:not([aria-label="실적증빙"])').allTextContents()).toEqual(untouched);
+  expect(state.entries.at(-1)).toMatchObject({ resolvedStatus: 'IN_PROGRESS', info: {
+    pptNumber: '4', businessPeriod: '2026.01 ~ 수행중', contractAmount: '금액 협의', businessStatus: null,
+    kitcStatus: 'NEEDED', selectedDriveFileId: null, evidenceType: null,
+  } });
+  expect(state.imports).toHaveLength(1);
+  expect(state.imports[0].html).toBeNull();
+
+  await row.getByRole('button', { name: '파일 관리' }).click();
+  await expect(page.getByRole('dialog', { name: '신규 운영 사업 파일 관리' }).getByLabel('증빙유형').locator('option')).toHaveCount(1);
+});
+
+test('performance entry: duplicate PPT number and invalid period errors stay by their fields', async ({ page }) => {
+  const state = await setup(page);
+  await page.locator('#performance-documents').getByRole('button', { name: '실적 추가' }).click();
+  const dialog = page.getByRole('dialog', { name: '실적 추가' });
+  await dialog.getByLabel('PPT 번호').fill('1');
+  await dialog.getByLabel('사업명').fill('중복 사업');
+  await dialog.getByLabel('사업기간').fill('2024.01 ~ 2025.12');
+  await dialog.getByLabel('계약금액').fill('100');
+  await dialog.getByLabel('발주처').fill('기관');
+  await dialog.getByRole('button', { name: '저장' }).click();
+  await expect(dialog.locator('#performance-pptNumber-error')).toHaveText('이미 저장된 PPT 번호입니다. 기존 실적을 수정하세요.');
+
+  await dialog.getByLabel('PPT 번호').fill('9');
+  await dialog.getByLabel('사업기간').fill('날짜 오류');
+  await dialog.getByRole('button', { name: '저장' }).click();
+  await expect(dialog.locator('#performance-businessPeriod-error')).toContainText('사업기간은 시작~종료 날짜');
+  await expect(page.locator('#performance-documents tbody tr')).toHaveCount(3);
+  expect(state.imports).toHaveLength(2);
+});
+
+test('performance entry: edit preserves file, evidence, manual status and KITC data; failure leaves confirmed data', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await setup(page);
+  const before = structuredClone(state.entries[0].info);
+  const row = page.locator('#performance-documents tbody tr').filter({ hasText: '공공정보시스템 구축' });
+  await row.getByRole('button', { name: '수정' }).click();
+  let dialog = page.getByRole('dialog', { name: '실적 수정' });
+  await expect(dialog.getByLabel('PPT 번호')).toHaveValue('1');
+  await dialog.getByLabel('PPT 번호').fill('01');
+  await dialog.getByLabel('사업명').fill('수정된 구축 사업');
+  await dialog.getByLabel('사업기간').fill('2026.01 ~ 수행중');
+  await dialog.getByLabel('계약금액').fill('200억원');
+  await dialog.getByLabel('발주처').fill('수정기관');
+  await dialog.getByRole('button', { name: '저장' }).click();
+
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('#performance-documents')).toContainText('수정된 구축 사업');
+  expect(state.entries[0].info).toMatchObject({
+    selectedFileId: before.selectedFileId, selectedDriveFileId: before.selectedDriveFileId,
+    selectedUploadedFileId: before.selectedUploadedFileId, evidenceType: before.evidenceType,
+    businessStatus: before.businessStatus, kitcStatus: before.kitcStatus,
+    requestedAt: before.requestedAt, repliedAt: before.repliedAt,
+  });
+  expect(state.entries[0].resolvedStatus).toBe('COMPLETED');
+  await expect(page.locator('#performance-documents .panel-header')).toContainText('2 / 3');
+  await page.locator('#performance-documents tbody tr').filter({ hasText: '수정된 구축 사업' })
+    .getByRole('button', { name: '파일 관리' }).click();
+  let fileDialog = page.getByRole('dialog', { name: '수정된 구축 사업 파일 관리' });
+  await expect(fileDialog.getByLabel('현재 연결 파일')).toContainText('완료된-실적증명서.pdf');
+  await expect(fileDialog.locator('.performance-candidate-list li').nth(0).getByRole('button')).toHaveText('선택됨');
+  await fileDialog.getByRole('button', { name: '닫기' }).click();
+
+  state.failEntrySave = true;
+  await page.locator('#performance-documents tbody tr').filter({ hasText: '수정된 구축 사업' })
+    .getByRole('button', { name: '수정' }).click();
+  dialog = page.getByRole('dialog', { name: '실적 수정' });
+  await dialog.getByLabel('사업명').fill('저장되면 안 되는 이름');
+  await dialog.getByRole('button', { name: '저장' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('실적 저장에 실패했습니다.');
+  await expect(dialog).not.toContainText('C:\\internal');
+  await expect(page.locator('#performance-documents')).toContainText('수정된 구축 사업');
+  await expect(page.locator('#performance-documents')).not.toContainText('저장되면 안 되는 이름');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

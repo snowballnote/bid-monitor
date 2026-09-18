@@ -107,3 +107,58 @@ export async function uploadPerformanceFile(projectId, entry, file, evidenceType
   }
   return data;
 }
+
+const entryFields = [
+  ['pptNumber', 'PPT 번호', 100], ['businessName', '사업명', 1000], ['businessPeriod', '사업기간', 500],
+  ['contractAmount', '계약금액', 200], ['client', '발주처', 500],
+];
+
+export function validatePerformanceEntry(values) {
+  const errors = {};
+  for (const [name, label, max] of entryFields) {
+    const value = values?.[name];
+    if (typeof value !== 'string' || !value.trim() || value.length > max) errors[name] = `${label}을(를) 확인하세요.`;
+  }
+  return errors;
+}
+
+const fieldFor = message => entryFields.find(([, label]) => message?.includes(label))?.[0] || '_form';
+const safeEntryMessage = (message, fallback) => typeof message === 'string' && (
+  /^(PPT 번호|사업명|사업기간|계약금액|발주처)을\(를\) 확인하세요\.$/.test(message)
+  || message === '사업기간 날짜를 확인하세요.'
+  || message === '사업기간은 시작~종료 날짜로 입력하거나 상세 수정에서 사업 상태를 지정하세요.'
+  || message === '이미 저장된 PPT 번호입니다.'
+  || message === '이미 저장된 PPT 번호입니다. 기존 실적을 수정하세요.'
+  || message === 'KITC 상태에 맞는 요청일·회신일을 직접 입력하세요. 회신일은 요청일 이후여야 합니다.'
+  || message === '수행중 사업은 계약서를 연결하세요.'
+) ? message : fallback;
+
+function entryError(message) {
+  const error = new Error(message); error.field = fieldFor(message); return error;
+}
+
+export async function createPerformanceEntry(projectId, values) {
+  const quote = value => /[\t\r\n"]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+  const text = entryFields.map(([name]) => quote(values[name].trim())).join('\t');
+  const response = await fetch(`/api/performance-projects/${encodeURIComponent(projectId)}/import`, {
+    method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, html: null }),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw entryError(safeEntryMessage(data?.message, '실적 저장에 실패했습니다.'));
+  if (!data || !Array.isArray(data.saved) || !Array.isArray(data.errors)) throw entryError('실적 저장 응답을 확인할 수 없습니다.');
+  if (data.errors.length) throw entryError(safeEntryMessage(data.errors[0]?.message, '실적 입력값을 확인하세요.'));
+  if (data.saved.length !== 1 || !data.saved[0]?.info) throw entryError('실적 저장 응답을 확인할 수 없습니다.');
+  return data.saved[0];
+}
+
+export async function updatePerformanceEntry(projectId, entry, values) {
+  const response = await fetch(`/api/performance-projects/${encodeURIComponent(projectId)}/entries/${encodeURIComponent(entry.id)}`, {
+    method: 'PUT', headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...entry.info, ...Object.fromEntries(entryFields.map(([name]) => [name, values[name].trim()])) }),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw entryError(safeEntryMessage(data?.message, '실적 저장에 실패했습니다.'));
+  if (!data || data.id !== entry.id || !data.info) throw entryError('실적 저장 응답을 확인할 수 없습니다.');
+  return data;
+}

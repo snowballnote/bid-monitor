@@ -77,6 +77,15 @@
 .performance-upload-filename { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
 .performance-upload form > small { color: var(--muted); }
 .performance-upload form > .ui-button { justify-self: end; }
+.performance-row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.performance-entry-dialog { width: min(560px, calc(100vw - 24px)); padding: 18px; box-sizing: border-box; }
+.performance-entry-dialog h2 { margin: 0 0 14px; font-size: 16px; }
+.performance-entry-dialog form { display: grid; gap: 10px; }
+.performance-entry-dialog label { display: grid; gap: 4px; font-size: 12px; }
+.performance-entry-dialog input { min-width: 0; }
+.performance-entry-dialog .field-error, .performance-entry-dialog [role="alert"] { color: var(--danger, #b42318); }
+.performance-entry-dialog .performance-period-help, .performance-entry-dialog form > small { color: var(--muted); }
+.performance-entry-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 .performance-candidates footer { display: flex; justify-content: flex-end; margin-top: 16px; }
 @media (max-width: 520px) {
   .react-submissions .document-picker-heading { flex-wrap: wrap; }

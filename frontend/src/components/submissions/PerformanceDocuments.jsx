@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { disconnectPerformanceFile, getPerformanceEntries, selectPerformanceCandidate, uploadPerformanceFile } from '../../api/submissions/performanceDocuments';
+import { createPerformanceEntry, disconnectPerformanceFile, getPerformanceEntries, selectPerformanceCandidate,
+  updatePerformanceEntry, uploadPerformanceFile } from '../../api/submissions/performanceDocuments';
 import Button from '../Button';
 import PerformanceCandidates from './PerformanceCandidates';
+import PerformanceEntryDialog from './PerformanceEntryDialog';
 
 export const performanceEntryReady = entry => entry?.info?.selectedFileId != null
   || entry?.info?.selectedDriveFileId != null || entry?.info?.selectedUploadedFileId != null;
@@ -11,6 +13,7 @@ export default function PerformanceDocuments({ project, required, onLoaded }) {
   const [state, setState] = useState(() => required && project.performanceProjectId
     ? { status: 'loading' } : { status: 'empty' });
   const [active, setActive] = useState(null);
+  const [editor, setEditor] = useState(null);
   useEffect(() => {
     if (!required || !project.performanceProjectId) {
       setState({ status: 'empty' }); callback.current([]); return undefined;
@@ -50,9 +53,17 @@ export default function PerformanceDocuments({ project, required, onLoaded }) {
     callback.current(next);
     return updated;
   }
+  async function saveEntry(values) {
+    const updated = editor?.entry
+      ? await updatePerformanceEntry(project.performanceProjectId, editor.entry, values)
+      : await createPerformanceEntry(project.performanceProjectId, values);
+    const next = editor?.entry ? entries.map(row => row.id === updated.id ? updated : row) : [...entries, updated];
+    setState({ status: 'success', entries: next }); callback.current(next); return updated;
+  }
   return <section id="performance-documents" className="surface-card performance-documents" aria-label="실적증빙 목록">
     <header className="panel-header"><h2 id="performance-documents-title">실적증빙</h2>
-      {state.status === 'success' && <strong>{prepared} / {entries.length}</strong>}</header>
+      {state.status === 'success' && <><strong>{prepared} / {entries.length}</strong>
+        <Button className="ui-button ui-button-secondary" onClick={() => setEditor({ entry: null })}>실적 추가</Button></>}</header>
     {state.status === 'loading' && <p className="panel-state" role="status">실적증빙 목록을 불러오는 중입니다.</p>}
     {state.status === 'error' && <p className="panel-state error" role="alert">{state.message}</p>}
     {state.status === 'empty' && <p className="panel-state">{required ? '연결된 실적 프로젝트가 없습니다.' : '필요한 실적증빙이 없습니다.'}</p>}
@@ -66,7 +77,8 @@ export default function PerformanceDocuments({ project, required, onLoaded }) {
               <th scope="row">{info.businessName || '실적명 미등록'}</th>
               <td>{info.client || '—'}</td><td>{info.businessPeriod || '—'}</td>
               <td className="performance-filename" title={entry.selectedFilename || ''}>{entry.selectedFilename || (ready ? '파일명 미확인' : '—')}</td>
-              <td><Button className="ui-button ui-button-secondary" onClick={() => setActive(entry)}>파일 관리</Button></td>
+              <td><div className="performance-row-actions"><Button className="ui-button ui-button-secondary" onClick={() => setActive(entry)}>파일 관리</Button>
+                <Button className="ui-button ui-button-secondary" onClick={() => setEditor({ entry })}>수정</Button></div></td>
             </tr>;
           })}</tbody></table>
       </div>)}
@@ -74,5 +86,6 @@ export default function PerformanceDocuments({ project, required, onLoaded }) {
       onSelect={candidate => selectCandidate(active, candidate)} onClear={() => disconnectFile(active)}
       onUpload={(file, evidenceType) => uploadFile(active, file, evidenceType)}
       onClose={() => setActive(null)} />}
+    {editor && <PerformanceEntryDialog entry={editor.entry} onSave={saveEntry} onClose={() => setEditor(null)} />}
   </section>;
 }
