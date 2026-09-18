@@ -7,7 +7,9 @@ const date = value => {
   return parsed && !Number.isNaN(parsed.getTime()) ? new Intl.DateTimeFormat('ko-KR').format(parsed) : '수정일 미확인';
 };
 
-export default function PerformanceCandidates({ projectId, entry, onSelect, onClose }) {
+const evidenceLabel = { CERTIFICATE: '실적증명서', CONTRACT: '계약서', TAX_INVOICE: '세금계산서' };
+
+export default function PerformanceCandidates({ projectId, entry, onSelect, onClear, onClose }) {
   const dialog = useRef(null);
   const mounted = useRef(false);
   const selecting = useRef(false);
@@ -39,14 +41,32 @@ export default function PerformanceCandidates({ projectId, entry, onSelect, onCl
       if (mounted.current) setSavingId(null);
     }
   }
+  async function clear() {
+    if (selecting.current || !connected) return;
+    selecting.current = true; setSavingId('disconnect'); setSaveError('');
+    try {
+      await onClear();
+      if (mounted.current) setRevision(value => value + 1);
+    } catch (error) {
+      if (mounted.current) setSaveError(error.message);
+    } finally {
+      selecting.current = false;
+      if (mounted.current) setSavingId(null);
+    }
+  }
   function close() { if (selecting.current) return; dialog.current.close(); onClose(); }
+  const connected = entry.info.selectedFileId != null || entry.info.selectedDriveFileId != null
+    || entry.info.selectedUploadedFileId != null;
   return <dialog ref={dialog} className="common-document-dialog performance-candidates" aria-labelledby="performance-candidates-title"
     onCancel={event => { event.preventDefault(); close(); }}>
     <header><h2 id="performance-candidates-title">{entry.info.businessName || '실적명 미등록'} 파일 관리</h2></header>
     <section className="performance-current-file" aria-label="현재 연결 파일">
       <h3>현재 연결 파일</h3><p>{entry.selectedFilename || '파일 미등록'}</p>
+      {connected && <small>{evidenceLabel[entry.info.evidenceType] || entry.info.evidenceType}</small>}
+      {connected && <Button className="ui-button ui-button-secondary performance-disconnect"
+        disabled={Boolean(savingId)} onClick={clear}>연결 해제</Button>}
     </section>
-    {savingId && <p role="status">FMS 후보 연결 중…</p>}
+    {savingId && <p role="status">{savingId === 'disconnect' ? '파일 연결 해제 중…' : 'FMS 후보 연결 중…'}</p>}
     {saveError && <p role="alert">{saveError}</p>}
     <section aria-label="FMS 후보 목록" aria-busy={state.status === 'loading'}>
       <h3>FMS 후보 목록</h3>
@@ -62,7 +82,7 @@ export default function PerformanceCandidates({ projectId, entry, onSelect, onCl
             <small>FMS · {candidate.file.fileExt?.toUpperCase() || '파일'} · {date(candidate.file.lastModified)}</small>
             <div className="performance-candidate-meta"><span className="match-badge recommended">추천</span>
               <span>{candidate.reason || '추천 사유 없음'}</span>
-              <Button className="ui-button ui-button-secondary" disabled={selecting.current || selected}
+              <Button className="ui-button ui-button-secondary" disabled={Boolean(savingId) || selected}
                 aria-current={selected ? 'true' : undefined} onClick={() => select(candidate)}>
                 {selected ? '선택됨' : savingId === candidate.file.driveFileId ? '연결 중…' : '선택'}
               </Button></div>

@@ -51,3 +51,27 @@ export async function selectPerformanceCandidate(projectId, entry, candidate) {
   }
   return data;
 }
+
+export async function disconnectPerformanceFile(projectId, entry) {
+  const response = await fetch(`/api/performance-projects/${encodeURIComponent(projectId)}/entries/${encodeURIComponent(entry.id)}`, {
+    method: 'PUT',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...entry.info,
+      selectedFileId: null,
+      selectedDriveFileId: null,
+      selectedUploadedFileId: null,
+      evidenceType: null,
+    }),
+  });
+  const text = await response.text();
+  let data;
+  try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+  if (!response.ok) {
+    throw new Error(typeof data?.message === 'string' ? data.message : '파일 연결 해제에 실패했습니다.');
+  }
+  if (!data || data.id !== entry.id || !data.info || typeof data.info !== 'object') {
+    throw new Error('실적증빙 저장 응답을 확인할 수 없습니다.');
+  }
+  return data;
+}

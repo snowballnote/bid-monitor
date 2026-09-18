@@ -59,6 +59,8 @@
 .performance-candidates h3 { margin: 0 0 8px; font-size: 13px; }
 .performance-candidates p, .performance-candidates small, .performance-candidates span { overflow-wrap: anywhere; white-space: normal; }
 .performance-current-file { margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.performance-current-file small { display: block; margin-bottom: 8px; color: var(--muted); }
+.performance-disconnect { color: var(--danger, #b42318); }
 .performance-candidate-guidance { color: var(--muted); font-size: 12px; }
 .performance-candidate-list { list-style: none; margin: 0; padding: 0; }
 .performance-candidate-list li { padding: 10px 0; border-bottom: 1px solid var(--border); }

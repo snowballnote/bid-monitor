@@ -65,11 +65,18 @@ async function setup(page, options = {}) {
       const entryId = entryMatch[1]; const body = request.postDataJSON();
       state.writes.push({ method: request.method(), path, body });
       if (state.holdSelection) await new Promise(resolve => { state.releaseSelection = resolve; });
-      if (state.failSelection) return route.fulfill({ status: 503, json: { message: '후보 연결 실패' } });
+      const disconnecting = body.selectedFileId == null && body.selectedDriveFileId == null
+        && body.selectedUploadedFileId == null && body.evidenceType == null;
+      if (state.failSelection) return route.fulfill({ status: 503, json: { message: disconnecting ? '연결 해제 실패' : '후보 연결 실패' } });
+      const index = entries.findIndex(entry => entry.id === entryId);
+      if (disconnecting) {
+        delete state.selectedCandidate[entryId];
+        entries[index] = { ...entries[index], selectedFilename: null, selectedExt: null, info: { ...entries[index].info, ...body } };
+        return route.fulfill({ json: entries[index] });
+      }
       const rows = candidatesFor(entryId);
       const selected = rows.findIndex(candidate => candidate.file.driveFileId === body.selectedDriveFileId);
       if (selected < 0) return route.fulfill({ status: 400, json: { message: '후보를 다시 확인하세요.' } });
-      const index = entries.findIndex(entry => entry.id === entryId);
       state.selectedCandidate[entryId] = selected;
       entries[index] = {
         ...entries[index], selectedFilename: rows[selected].file.originalFilename, selectedExt: rows[selected].file.fileExt,
@@ -271,4 +278,69 @@ test('performance candidate selection: same-name paths replace by identifier and
   await expect(dialog.getByLabel('현재 연결 파일')).toContainText('동일파일명.pdf');
   expect(state.entries[0].info.selectedDriveFileId).toBe('55555555-5555-4555-8555-555555555555');
   expect(state.writes).toHaveLength(2);
+});
+
+test('performance disconnect: FMS connection clears linked fields once and updates all progress', async ({ page }) => {
+  const state = await setup(page);
+  const untouched = await page.locator('.category-progress-card:not([aria-label="실적증빙"])').allTextContents();
+  const before = { ...state.entries[0].info };
+  await page.locator('#performance-documents tbody tr').filter({ hasText: '공공정보시스템 구축' })
+    .getByRole('button', { name: '파일 관리' }).click();
+  const dialog = page.getByRole('dialog', { name: '공공정보시스템 구축 파일 관리' });
+  await expect(dialog.getByLabel('현재 연결 파일')).toContainText('실적증명서');
+  state.holdSelection = true;
+  await dialog.getByRole('button', { name: '연결 해제' }).click();
+  await expect.poll(() => state.writes.length).toBe(1);
+  await expect(dialog.getByRole('status')).toHaveText('파일 연결 해제 중…');
+  await expect(dialog.getByRole('button', { name: '닫기' })).toBeDisabled();
+  await dialog.getByRole('button', { name: '연결 해제' }).evaluate(button => button.click());
+  expect(state.writes).toHaveLength(1);
+  state.holdSelection = false; state.releaseSelection();
+
+  await expect(dialog.getByLabel('현재 연결 파일')).toHaveText(/현재 연결 파일파일 미등록/);
+  await expect(dialog.getByRole('button', { name: '연결 해제' })).toHaveCount(0);
+  await expect(dialog.locator('.performance-candidate-list').getByRole('button', { name: '선택됨' })).toHaveCount(0);
+  await expect(page.locator('#performance-documents tbody tr').filter({ hasText: '공공정보시스템 구축' })).toContainText('미준비');
+  await expect(page.locator('#performance-documents .panel-header')).toContainText('1 / 3');
+  await expect(page.locator('.category-progress-card[aria-label="실적증빙"]')).toContainText('1 / 3');
+  await expect(page.locator('.case-progress')).toContainText('1 / 3 · 33%');
+  expect(await page.locator('.category-progress-card:not([aria-label="실적증빙"])').allTextContents()).toEqual(untouched);
+  expect(state.writes[0].body).toMatchObject({
+    selectedFileId: null, selectedDriveFileId: null, selectedUploadedFileId: null, evidenceType: null,
+    kitcStatus: before.kitcStatus, requestedAt: before.requestedAt, repliedAt: before.repliedAt,
+    businessName: before.businessName, businessPeriod: before.businessPeriod,
+  });
+  expect(state.requests.filter(request => request.path.endsWith('/candidates'))).toHaveLength(2);
+  expect(state.requests.filter(request => ['DELETE', 'POST'].includes(request.method))).toHaveLength(0);
+});
+
+test('performance disconnect: direct upload connection uses the same unlink payload', async ({ page }) => {
+  const state = await setup(page);
+  await page.locator('#performance-documents tbody tr').filter({ hasText: '개인정보 영향평가' })
+    .getByRole('button', { name: '파일 관리' }).click();
+  const dialog = page.getByRole('dialog', { name: '개인정보 영향평가 파일 관리' });
+  await dialog.getByRole('button', { name: '연결 해제' }).click();
+  await expect(dialog.getByLabel('현재 연결 파일')).toContainText('파일 미등록');
+  await expect(page.locator('#performance-documents tbody tr').filter({ hasText: '개인정보 영향평가' })).toContainText('미준비');
+  expect(state.writes).toHaveLength(1);
+  expect(state.writes[0].body).toMatchObject({
+    selectedFileId: null, selectedDriveFileId: null, selectedUploadedFileId: null, evidenceType: null,
+    kitcStatus: 'NEEDED', requestedAt: null, repliedAt: null,
+  });
+});
+
+test('performance disconnect: failure preserves current file, evidence type and selected candidate', async ({ page }) => {
+  const state = await setup(page);
+  await page.locator('#performance-documents tbody tr').filter({ hasText: '공공정보시스템 구축' })
+    .getByRole('button', { name: '파일 관리' }).click();
+  const dialog = page.getByRole('dialog', { name: '공공정보시스템 구축 파일 관리' });
+  await expect(dialog.locator('.performance-candidate-list li').nth(0).getByRole('button')).toHaveText('선택됨');
+  state.failSelection = true;
+  await dialog.getByRole('button', { name: '연결 해제' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('연결 해제 실패');
+  await expect(dialog.getByLabel('현재 연결 파일')).toContainText('완료된-실적증명서.pdf');
+  await expect(dialog.getByLabel('현재 연결 파일')).toContainText('실적증명서');
+  await expect(dialog.locator('.performance-candidate-list li').nth(0).getByRole('button')).toHaveText('선택됨');
+  expect(state.entries[0].info.selectedDriveFileId).toBe('11111111-1111-4111-8111-111111111111');
+  expect(state.entries[0].info.evidenceType).toBe('CERTIFICATE');
 });
