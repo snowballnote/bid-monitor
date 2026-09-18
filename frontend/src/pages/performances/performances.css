@@ -1,0 +1,33 @@
+.react-performances { min-width: 0; }
+.performance-page-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
+.performance-project-list { overflow: hidden; }
+.performance-project-scroll { max-width: 100%; overflow-x: auto; }
+.performance-project-list table { min-width: 650px; }
+.performance-project-list th, .performance-project-list td { overflow-wrap: anywhere; }
+.performance-project-list th:first-child { width: 48%; }
+.performance-project-list a { color: var(--primary-hover); font-weight: 700; text-decoration: none; }
+.performance-project-list a:hover { text-decoration: underline; }
+.performance-project-state { margin: 0; padding: 22px 20px; color: var(--muted); }
+.performance-project-state p { margin-top: 0; }
+.performance-project-dialog { width: min(500px, calc(100vw - 24px)); padding: 18px; box-sizing: border-box; }
+.performance-project-dialog h2 { margin: 0 0 14px; font-size: 17px; }
+.performance-project-dialog form { display: grid; gap: 12px; }
+.performance-project-dialog label { display: grid; gap: 5px; font-size: 12px; }
+.performance-project-dialog input { min-width: 0; width: 100%; }
+.performance-project-dialog .field-error, .performance-project-dialog [role="alert"] { color: var(--danger); }
+.performance-project-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.performance-project-overview { display: flex; align-items: center; flex-wrap: wrap; gap: 20px; padding: 20px; margin-bottom: 16px; }
+.performance-project-overview h1 { margin: 4px 0 0; font-size: 21px; overflow-wrap: anywhere; }
+.performance-project-overview dl { display: flex; flex-wrap: wrap; gap: 18px; margin: 0; }
+.performance-project-overview dl div { display: grid; gap: 3px; }
+.performance-project-overview dt { color: var(--muted); font-size: 11px; }
+.performance-project-overview dd { margin: 0; font-size: 13px; font-weight: 700; }
+.performance-overview-actions { display: flex; gap: 8px; margin-left: auto; }
+@media (max-width: 600px) {
+  .performance-page-heading { align-items: stretch; flex-direction: column; }
+  .performance-page-heading .ui-button { width: 100%; }
+  .performance-project-overview { align-items: stretch; flex-direction: column; }
+  .performance-project-overview dl { justify-content: space-between; }
+  .performance-overview-actions { width: 100%; margin-left: 0; }
+  .performance-overview-actions > * { flex: 1; justify-content: center; }
+}

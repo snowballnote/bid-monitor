@@ -5,7 +5,7 @@ const html = '<table><tr><th>번호</th><th>사업명</th><th>사업기간</th><
 const text = '1\t통합시스템 구축\t2024.01 ~ 2025.12\t100,000,000원\t테스트기관';
 async function setup(page, fail = false, options = {}) {
     const writes = [];
-    const project = { id: 'p1', name: '실적 프로젝트', deadline: '2026-12-31', daysRemaining: 30, status: 'DRAFT' };
+    let project = { id: 'p1', name: '실적 프로젝트', deadline: '2026-12-31', daysRemaining: 30, status: 'DRAFT' };
     await page.route('**/*', async route => {
         const request = route.request(), pathname = new URL(request.url()).pathname;
         if (pathname.startsWith('/api/')) {
@@ -26,7 +26,17 @@ async function setup(page, fail = false, options = {}) {
                 return route.fulfill({json:{id:'entry1',projectId:'p1',resolvedStatus:'COMPLETED',info,selectedFilename:info.selectedDriveFileId?'선택한증빙.pdf':null}});
             }
             if (pathname.endsWith('/download')) return route.fulfill({contentType:'application/zip',body:Buffer.from('PK')});
-            if (pathname === '/api/performance-projects') return route.fulfill({ json: [project] });
+            if (pathname === '/api/performance-projects') {
+                if (request.method() === 'POST') {
+                    project = { id: 'p1', ...request.postDataJSON(), daysRemaining: 30, status: 'DRAFT' };
+                    return route.fulfill({ json: project });
+                }
+                return route.fulfill({ json: [project] });
+            }
+            if (pathname === '/api/performance-projects/p1') {
+                if (request.method() === 'PUT') project = { ...project, ...request.postDataJSON() };
+                return route.fulfill({ json: project });
+            }
             if (pathname === '/api/performance-projects/p1') return route.fulfill({ json: project });
             return route.fulfill({ json: [] });
         }
@@ -37,6 +47,27 @@ async function setup(page, fail = false, options = {}) {
     await expect(page.locator('#workspace')).toBeVisible();
     return writes;
 }
+
+test('performance projects: vanilla create and edit flow remains available', async ({ page }) => {
+    const writes = await setup(page);
+    await page.getByRole('button', { name: '← 프로젝트 목록' }).click();
+    await page.getByRole('button', { name: '새 프로젝트' }).click();
+    const create = page.locator('#create-project');
+    await create.getByLabel('프로젝트명').fill('새 실적 프로젝트');
+    await create.getByLabel('마감일').fill('2026-11-30');
+    await create.getByRole('button', { name: '만들고 실적표 붙여넣기' }).click();
+    await expect(page.locator('#project-title')).toHaveText('새 실적 프로젝트');
+    await page.locator('#project-settings').getByText('프로젝트 정보 수정').click();
+    const edit = page.locator('#edit-project');
+    await edit.getByLabel('프로젝트명').fill('수정 실적 프로젝트');
+    await edit.getByLabel('마감일').fill('2026-12-15');
+    await edit.getByRole('button', { name: '프로젝트 저장' }).click();
+    await expect(page.locator('#project-title')).toHaveText('수정 실적 프로젝트');
+    expect(writes.filter(item => item.path === '/api/performance-projects').at(-1).body)
+        .toEqual({ name: '새 실적 프로젝트', deadline: '2026-11-30' });
+    expect(writes.filter(item => item.path === '/api/performance-projects/p1').at(-1).body)
+        .toEqual({ name: '수정 실적 프로젝트', deadline: '2026-12-15' });
+});
 async function paste(page, plain = '', rich = '') {
     await page.locator('#paste-table').evaluate((textarea, data) => {
         const clipboard = new DataTransfer();
