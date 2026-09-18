@@ -62,10 +62,12 @@
 .performance-candidate-guidance { color: var(--muted); font-size: 12px; }
 .performance-candidate-list { list-style: none; margin: 0; padding: 0; }
 .performance-candidate-list li { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.performance-candidate-list li.is-selected { background: var(--surface-subtle, #f7f9fc); }
 .performance-candidate-list li > p { margin: 0 0 5px; font-size: 13px; }
 .performance-candidate-list small { display: block; color: var(--muted); font-size: 11px; }
 .performance-candidate-meta { display: flex; align-items: flex-start; gap: 8px; margin-top: 7px; font-size: 12px; }
 .performance-candidate-meta .match-badge { flex: 0 0 auto; }
+.performance-candidate-meta .ui-button { margin-left: auto; flex: 0 0 auto; }
 .performance-candidates footer { display: flex; justify-content: flex-end; margin-top: 16px; }
 @media (max-width: 520px) {
   .react-submissions .document-picker-heading { flex-wrap: wrap; }

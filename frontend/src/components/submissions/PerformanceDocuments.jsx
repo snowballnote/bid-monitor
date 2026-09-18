@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getPerformanceEntries } from '../../api/submissions/performanceDocuments';
+import { getPerformanceEntries, selectPerformanceCandidate } from '../../api/submissions/performanceDocuments';
 import Button from '../Button';
 import PerformanceCandidates from './PerformanceCandidates';
 
@@ -26,6 +26,14 @@ export default function PerformanceDocuments({ project, required, onLoaded }) {
   }, [project.performanceProjectId, required]);
   const entries = state.status === 'success' ? state.entries : [];
   const prepared = entries.filter(performanceEntryReady).length;
+  async function selectCandidate(entry, candidate) {
+    const updated = await selectPerformanceCandidate(project.performanceProjectId, entry, candidate);
+    const next = entries.map(row => row.id === updated.id ? updated : row);
+    setState({ status: 'success', entries: next });
+    setActive(current => current?.id === updated.id ? updated : current);
+    callback.current(next);
+    return updated;
+  }
   return <section id="performance-documents" className="surface-card performance-documents" aria-label="실적증빙 목록">
     <header className="panel-header"><h2 id="performance-documents-title">실적증빙</h2>
       {state.status === 'success' && <strong>{prepared} / {entries.length}</strong>}</header>
@@ -46,6 +54,7 @@ export default function PerformanceDocuments({ project, required, onLoaded }) {
             </tr>;
           })}</tbody></table>
       </div>)}
-    {active && <PerformanceCandidates projectId={project.performanceProjectId} entry={active} onClose={() => setActive(null)} />}
+    {active && <PerformanceCandidates projectId={project.performanceProjectId} entry={active}
+      onSelect={candidate => selectCandidate(active, candidate)} onClose={() => setActive(null)} />}
   </section>;
 }

@@ -1,19 +1,53 @@
 import { test, expect } from '@playwright/test';
 
 async function setup(page, options = {}) {
-  const state = { requests: [], releaseEntries: null, releaseCandidate: null };
   const entries = options.empty ? [] : [
     { id: 'one', projectId: 'perf-1', selectedFilename: '완료된-실적증명서.pdf', info: {
-      businessName: '공공정보시스템 구축', client: '한국기관', businessPeriod: '2024.01 ~ 2024.12', selectedFileId: 11,
+      pptNumber: '1', businessName: '공공정보시스템 구축', client: '한국기관', businessPeriod: '2024.01 ~ 2024.12',
+      contractAmount: '10억', businessStatus: 'COMPLETED', selectedFileId: null,
+      selectedDriveFileId: '11111111-1111-4111-8111-111111111111', selectedUploadedFileId: null,
+      evidenceType: 'CERTIFICATE', kitcStatus: 'NEEDED', requestedAt: null, repliedAt: null,
     } },
     { id: 'two', projectId: 'perf-1', selectedFilename: null, info: {
-      businessName: '운영 사업', client: '서울기관', businessPeriod: '2025.01 ~ 2025.12',
-      selectedFileId: null, selectedDriveFileId: null, selectedUploadedFileId: null,
+      pptNumber: '2', businessName: '운영 사업', client: '서울기관', businessPeriod: '2025.01 ~ 2025.12',
+      contractAmount: '5억', businessStatus: 'COMPLETED', selectedFileId: null, selectedDriveFileId: null,
+      selectedUploadedFileId: null, evidenceType: null, kitcStatus: 'NEEDED', requestedAt: null, repliedAt: null,
     } },
     { id: 'three', projectId: 'perf-1', selectedFilename: '아주-긴-직접업로드-실적증빙-파일명-모바일-레이아웃-확인용.pdf', info: {
-      businessName: '개인정보 영향평가', client: '긴 이름의 발주기관', businessPeriod: '2026.01 ~ 2026.08', selectedUploadedFileId: 'upload-3',
+      pptNumber: '3', businessName: '개인정보 영향평가', client: '긴 이름의 발주기관', businessPeriod: '2026.01 ~ 2026.08',
+      contractAmount: '7억', businessStatus: 'COMPLETED', selectedFileId: null, selectedDriveFileId: null,
+      selectedUploadedFileId: 'upload-3', evidenceType: 'CERTIFICATE', kitcStatus: 'NEEDED', requestedAt: null, repliedAt: null,
     } },
   ];
+  const state = {
+    requests: [], writes: [], entries, releaseEntries: null, releaseCandidate: null, releaseSelection: null,
+    holdSelection: false, failSelection: false, selectedCandidate: { one: 0 },
+  };
+  const candidateIds = [
+    '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333',
+  ];
+  const registeredIds = [
+    '44444444-4444-4444-8444-444444444444', '55555555-5555-4555-8555-555555555555',
+  ];
+  function candidatesFor(entryId) {
+    const entry = entries.find(row => row.id === entryId);
+    const long = entryId === 'three';
+    const names = long
+      ? ['동일한-파일명이지만-다른-경로의-아주-긴-실적증빙-후보-파일명.pdf', '동일한-파일명이지만-다른-경로의-아주-긴-실적증빙-후보-파일명.pdf']
+      : entryId === 'one' ? ['동일파일명.pdf', '동일파일명.pdf'] : ['운영사업_추천.pdf', '운영사업_이전.pdf'];
+    const rows = [{
+      file: { driveFileId: candidateIds[0], originalFilename: names[0], fileExt: 'pdf', size: 1200, lastModified: '2026-08-17T03:00:00Z' },
+      evidenceType: 'CERTIFICATE', reason: '사업명과 발주기관이 일치하는 최신 후보',
+    }, {
+      file: { driveFileId: candidateIds[1], originalFilename: names[1], fileExt: 'pdf', size: 1400, lastModified: '2025-07-03T03:00:00Z' },
+      evidenceType: 'CERTIFICATE', reason: '서버가 두 번째로 반환한 후보',
+    }];
+    const selected = state.selectedCandidate[entryId];
+    if (selected != null && entry?.info.selectedDriveFileId) {
+      rows[selected] = { ...rows[selected], file: { ...rows[selected].file, driveFileId: entry.info.selectedDriveFileId } };
+    }
+    return rows;
+  }
   await page.route('**/api/**', async route => {
     const request = route.request(); const path = new URL(request.url()).pathname;
     state.requests.push({ method: request.method(), path });
@@ -26,24 +60,28 @@ async function setup(page, options = {}) {
     if (path.endsWith('/package')) return route.fulfill({ json: { selections: [] } });
     if (path.endsWith('/people')) return route.fulfill({ json: [] });
     if (path === '/api/submission-document-masters') return route.fulfill({ json: [] });
+    const entryMatch = path.match(/^\/api\/performance-projects\/perf-1\/entries\/([^/]+)$/);
+    if (entryMatch && request.method() === 'PUT') {
+      const entryId = entryMatch[1]; const body = request.postDataJSON();
+      state.writes.push({ method: request.method(), path, body });
+      if (state.holdSelection) await new Promise(resolve => { state.releaseSelection = resolve; });
+      if (state.failSelection) return route.fulfill({ status: 503, json: { message: '후보 연결 실패' } });
+      const rows = candidatesFor(entryId);
+      const selected = rows.findIndex(candidate => candidate.file.driveFileId === body.selectedDriveFileId);
+      if (selected < 0) return route.fulfill({ status: 400, json: { message: '후보를 다시 확인하세요.' } });
+      const index = entries.findIndex(entry => entry.id === entryId);
+      state.selectedCandidate[entryId] = selected;
+      entries[index] = {
+        ...entries[index], selectedFilename: rows[selected].file.originalFilename, selectedExt: rows[selected].file.fileExt,
+        info: { ...entries[index].info, ...body, selectedDriveFileId: registeredIds[selected] },
+      };
+      return route.fulfill({ json: entries[index] });
+    }
     if (path.endsWith('/candidates')) {
       const entryId = path.split('/').at(-2);
       if (options.holdCandidateEntry === entryId) await new Promise(resolve => { state.releaseCandidate = resolve; });
       if (options.candidateErrorEntry === entryId) return route.fulfill({ status: 503, json: {} });
-      const candidates = options.emptyCandidateEntry === entryId ? [] : [{
-        file: {
-          driveFileId: 'opaque-recommended-id', originalFilename: '공공정보시스템_실적증명서_2026.pdf',
-          fileExt: 'pdf', size: 1200, lastModified: '2026-08-17T03:00:00Z',
-        },
-        evidenceType: 'PERFORMANCE_CERTIFICATE', reason: '사업명과 발주기관이 일치하는 최신 후보',
-      }, {
-        file: {
-          driveFileId: 'opaque-second-id',
-          originalFilename: '동일한-파일명이지만-다른-경로의-아주-긴-실적증빙-후보-파일명.pdf',
-          fileExt: 'pdf', size: 1400, lastModified: '2025-07-03T03:00:00Z',
-        },
-        evidenceType: 'PERFORMANCE_CERTIFICATE', reason: '서버가 두 번째로 반환한 후보',
-      }];
+      const candidates = options.emptyCandidateEntry === entryId ? [] : candidatesFor(entryId);
       return route.fulfill({ json: { candidates, nextAction: '추천 순서로 후보를 확인하세요.' } });
     }
     if (path.endsWith('/entries')) {
@@ -128,10 +166,12 @@ test('performance candidates: current file and server ordered recommendations ar
   await expect.poll(() => typeof state.releaseCandidate).toBe('function');
   state.releaseCandidate();
   await expect(dialog.locator('.performance-candidate-list li')).toHaveCount(2);
-  await expect(dialog.locator('.performance-candidate-list li').nth(0)).toContainText('공공정보시스템_실적증명서_2026.pdf');
+  await expect(dialog.locator('.performance-candidate-list li').nth(0)).toContainText('동일파일명.pdf');
   await expect(dialog.locator('.performance-candidate-list li').nth(0)).toContainText('사업명과 발주기관이 일치하는 최신 후보');
   await expect(dialog.locator('.performance-candidate-list li').nth(1)).toContainText('서버가 두 번째로 반환한 후보');
   await expect(dialog.getByText('추천', { exact: true })).toHaveCount(2);
+  await expect(dialog.locator('.performance-candidate-list li').nth(0).getByRole('button')).toHaveText('선택됨');
+  await expect(dialog.locator('.performance-candidate-list li').nth(1).getByRole('button')).toHaveText('선택');
   await expect(page.locator('.case-progress')).toHaveText(progress);
   expect(state.requests.filter(request => request.path.endsWith('/candidates'))).toEqual([{
     method: 'GET', path: '/api/performance-projects/perf-1/entries/one/candidates',
@@ -170,4 +210,65 @@ test('performance candidates: long names fit the mobile modal without writes', a
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(state.requests.every(request => request.method === 'GET')).toBe(true);
   await page.screenshot({ path: 'test-results/performance-candidates-mobile.png', fullPage: true });
+});
+
+test('performance candidate selection: recommended candidate updates current file and all performance progress once', async ({ page }) => {
+  const state = await setup(page);
+  const untouched = await page.locator('.category-progress-card:not([aria-label="실적증빙"])').allTextContents();
+  await expect(page.locator('.case-progress')).toContainText('2 / 3 · 67%');
+  await page.locator('#performance-documents tbody tr').filter({ hasText: '운영 사업' })
+    .getByRole('button', { name: '파일 관리' }).click();
+  const dialog = page.getByRole('dialog', { name: '운영 사업 파일 관리' });
+  const candidates = dialog.locator('.performance-candidate-list li');
+  await expect(candidates).toHaveCount(2);
+
+  state.holdSelection = true;
+  await candidates.nth(0).getByRole('button', { name: '선택' }).click();
+  await expect.poll(() => state.writes.length).toBe(1);
+  await expect(dialog.getByRole('status')).toHaveText('FMS 후보 연결 중…');
+  await expect(dialog.getByRole('button', { name: '닫기' })).toBeDisabled();
+  await candidates.nth(1).getByRole('button').evaluate(button => button.click());
+  expect(state.writes).toHaveLength(1);
+  state.holdSelection = false; state.releaseSelection();
+
+  await expect(dialog.getByLabel('현재 연결 파일')).toContainText('운영사업_추천.pdf');
+  await expect(dialog.locator('.performance-candidate-list li').nth(0).getByRole('button')).toHaveText('선택됨');
+  await expect(page.locator('#performance-documents tbody tr').filter({ hasText: '운영 사업' })).toContainText('준비됨');
+  await expect(page.locator('#performance-documents .panel-header')).toContainText('3 / 3');
+  await expect(page.locator('.category-progress-card[aria-label="실적증빙"]')).toContainText('3 / 3');
+  await expect(page.locator('.case-progress')).toContainText('3 / 3 · 100%');
+  expect(await page.locator('.category-progress-card:not([aria-label="실적증빙"])').allTextContents()).toEqual(untouched);
+  expect(state.writes).toHaveLength(1);
+  expect(state.writes[0]).toMatchObject({ method: 'PUT', path: '/api/performance-projects/perf-1/entries/two' });
+  expect(state.writes[0].body).toMatchObject({
+    selectedFileId: null, selectedDriveFileId: '22222222-2222-4222-8222-222222222222',
+    selectedUploadedFileId: null, evidenceType: 'CERTIFICATE',
+  });
+  expect(state.requests.filter(request => request.path.endsWith('/candidates'))).toHaveLength(2);
+  expect(state.requests.filter(request => request.method !== 'GET').map(request => request.method)).toEqual(['PUT']);
+});
+
+test('performance candidate selection: same-name paths replace by identifier and failure preserves the confirmed reference', async ({ page }) => {
+  const state = await setup(page);
+  await page.locator('#performance-documents tbody tr').filter({ hasText: '공공정보시스템 구축' })
+    .getByRole('button', { name: '파일 관리' }).click();
+  const dialog = page.getByRole('dialog', { name: '공공정보시스템 구축 파일 관리' });
+  let candidates = dialog.locator('.performance-candidate-list li');
+  await expect(candidates).toHaveCount(2);
+  await expect(candidates.nth(0)).toContainText('동일파일명.pdf');
+  await expect(candidates.nth(1)).toContainText('동일파일명.pdf');
+  await expect(candidates.nth(0).getByRole('button')).toHaveText('선택됨');
+
+  await candidates.nth(1).getByRole('button', { name: '선택' }).click();
+  candidates = dialog.locator('.performance-candidate-list li');
+  await expect(candidates.nth(1).getByRole('button')).toHaveText('선택됨');
+  expect(state.entries[0].info.selectedDriveFileId).toBe('55555555-5555-4555-8555-555555555555');
+
+  state.failSelection = true;
+  await candidates.nth(0).getByRole('button', { name: '선택' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('후보 연결 실패');
+  await expect(candidates.nth(1).getByRole('button')).toHaveText('선택됨');
+  await expect(dialog.getByLabel('현재 연결 파일')).toContainText('동일파일명.pdf');
+  expect(state.entries[0].info.selectedDriveFileId).toBe('55555555-5555-4555-8555-555555555555');
+  expect(state.writes).toHaveLength(2);
 });
