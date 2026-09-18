@@ -39,7 +39,7 @@ test('dashboard: counts, recent order, saved evidence types and existing links',
     page.on('pageerror', error => errors.push(error.message));
     const requests = await setup(page);
     await expect(page.getByRole('heading', { name: 'Biz Assist', exact: true })).toBeVisible();
-    await expect(page.locator('.app-nav-link')).toHaveCount(6);
+    await expect(page.locator('.app-nav-link')).toHaveCount(7);
     await expect(page.locator('#submission-count')).toHaveText('3건');
     await expect(page.locator('#performance-count')).toHaveText('12건');
     await expect(page.locator('#document-count')).toHaveText('1건');
@@ -56,7 +56,10 @@ test('dashboard: counts, recent order, saved evidence types and existing links',
     await expect(performance).toContainText('실적 사업 4');
     await expect(performance).toContainText('증빙 등록 3건');
     await expect(performance).toContainText('파일 미등록 1건');
-    await expect(performance.getByRole('link')).toHaveAttribute('href', '/performances/index.html?project=4');
+    await expect(performance.getByRole('link')).toHaveAttribute('href', '#/performances/4');
+    await expect(page.locator('#performance-count').locator('xpath=ancestor::a')).toHaveAttribute('href', '#/performances');
+    await expect(page.getByRole('link', { name: '전체보기 →', exact: true }).nth(1)).toHaveAttribute('href', '#/performances');
+    await expect(page.locator('.quick-grid a').filter({ hasText: '실적 붙여넣기' })).toHaveAttribute('href', '#/performances');
     await expect(page.locator('.quick-grid a')).toHaveCount(4);
     await expect(page.locator('#recent-notice-list a')).toHaveAttribute('href', '/notices/?noticeId=9');
     expect(requests.every(request => request.method === 'GET')).toBe(true);
@@ -111,8 +114,9 @@ test('React routes survive reload and retain legacy navigation URLs', async ({ p
     await page.goto('/react/index.html#/unknown');
     await expect(page).toHaveURL(/index\.html#\/$/);
     await expect(page.locator('#submission-count')).toHaveText('3건');
-    await expect(page.getByRole('navigation').getByRole('link', { name: '서류 관리' })).toHaveAttribute('href', '/documents/');
+    await expect(page.getByRole('navigation').getByRole('link', { name: '서류 관리' })).toHaveAttribute('href', '#/documents');
     await expect(page.getByRole('navigation').getByRole('link', { name: '서류 모으기' })).toHaveAttribute('href', '#/submissions');
+    await expect(page.getByRole('navigation').getByRole('link', { name: '실적 관리' })).toHaveAttribute('href', '#/performances');
     await page.getByRole('navigation').getByRole('link', { name: '서류 모으기' }).click();
     await expect(page).toHaveURL(/#\/submissions$/);
     await expect(page.locator('.submission-project-card')).toHaveCount(4);

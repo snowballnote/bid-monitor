@@ -78,7 +78,7 @@ function PerformanceWork({ resource }) {
           {row.total > row.prepared && <StatusBadge tone="attention">파일 미등록 {row.total - row.prepared}건</StatusBadge>}
         </>}</div>
       <div className="work-footer"><span className="work-meta">{row ? `전체 실적 ${row.total}건` : '파일 관리에서 확인하세요'}</span>
-        <Button href={`/performances/index.html?project=${encodeURIComponent(project.id)}`}>파일 관리</Button></div>
+        <Button href={`#/performances/${encodeURIComponent(project.id)}`}>파일 관리</Button></div>
     </article>;
   });
 }
@@ -130,7 +130,7 @@ export default function Dashboard() {
       <Summary id="submission" href="#/submissions" icon="▣" title="진행 중 서류 프로젝트" resource={submissions}
         count={cases.every(validProgress) ? cases.filter(row => !row.total || row.prepared < row.total).length : null}
         message={cases.length ? '서류 준비가 남은 프로젝트' : '등록된 프로젝트 없음'} />
-      <Summary id="performance" href="/performances/index.html" icon="✓" title="준비 완료 실적" resource={performances}
+      <Summary id="performance" href="#/performances" icon="✓" title="준비 완료 실적" resource={performances}
         count={complete ? evidence.reduce((sum, row) => sum + row.prepared, 0) : null}
         message={!complete ? '일부 증빙 조회 실패' : projects.length ? '증빙 파일이 연결된 실적' : '등록된 실적 없음'} />
       <Summary id="document" href="/documents/" icon="▤" title="파일 미등록 문서" resource={documents}
@@ -147,13 +147,13 @@ export default function Dashboard() {
           <div id="recent-submissions" aria-live="polite"><SubmissionWork resource={submissions} /></div>
         </section>
         <section className="dashboard-panel" aria-labelledby="performance-title">
-          <div className="dashboard-panel-header"><h2 id="performance-title">실적증빙 현황</h2><a href="/performances/index.html">전체보기 →</a></div>
+          <div className="dashboard-panel-header"><h2 id="performance-title">실적증빙 현황</h2><a href="#/performances">전체보기 →</a></div>
           <div id="recent-performances" aria-live="polite"><PerformanceWork resource={performances} /></div>
         </section>
       </div>
     </section>
     <section className="quick-section" aria-labelledby="quick-title"><h2 id="quick-title" className="section-title">빠른 작업</h2>
-      <div className="quick-grid">{[['#/submissions', '▣', '서류 프로젝트'], ['/performances/index.html', '▥', '실적 붙여넣기'],
+      <div className="quick-grid">{[['#/submissions', '▣', '서류 프로젝트'], ['#/performances', '▥', '실적 붙여넣기'],
         ['/documents/', '▤', '공통서류 등록'], ['/bids/', '⌕', '입찰공고 조회']].map(([href, icon, label]) =>
         <a href={href} key={href}><span aria-hidden="true">{icon}</span>{label}<span aria-hidden="true">→</span></a>)}</div>
     </section>
