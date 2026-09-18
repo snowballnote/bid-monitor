@@ -8,6 +8,8 @@ import PerformanceImport from './PerformanceImport';
 
 export const performanceEntryReady = entry => entry?.info?.selectedFileId != null
   || entry?.info?.selectedDriveFileId != null || entry?.info?.selectedUploadedFileId != null;
+const businessStatusLabel = entry => `${entry?.resolvedStatus === 'IN_PROGRESS' ? '수행중' : '수행완료'} · ${entry?.info?.businessStatus ? '수동' : '자동'}`;
+const kitcStatusLabel = { NEEDED: '요청 필요', REQUESTED: '요청함', RECEIVED: '회신 완료' };
 
 export default function PerformanceDocuments({ project, required, onLoaded }) {
   const callback = useRef(onLoaded); callback.current = onLoaded;
@@ -77,13 +79,15 @@ export default function PerformanceDocuments({ project, required, onLoaded }) {
     {state.status === 'success' && <PerformanceImport projectId={project.performanceProjectId} onImported={appendEntries} />}
     {state.status === 'success' && (!entries.length ? <p className="panel-state">등록된 실적이 없습니다.</p>
       : <div className="performance-documents-scroll" tabIndex={0} aria-label="실적증빙 준비 현황 표">
-        <table className="submission-project-table"><thead><tr>{['상태', '실적명', '발주기관', '수행기간', '현재 파일', '관리'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
+        <table className="submission-project-table"><thead><tr>{['상태', '실적명', '발주기관', '수행기간', '사업/KITC', '현재 파일', '관리'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
           <tbody>{entries.map((entry, index) => {
             const ready = performanceEntryReady(entry); const info = entry.info;
             return <tr key={entry.id ?? index}>
               <td><span className={`requirement-state${ready ? ' complete' : ' attention'}`}>{ready ? '준비됨' : '미준비'}</span></td>
               <th scope="row">{info.businessName || '실적명 미등록'}</th>
               <td>{info.client || '—'}</td><td>{info.businessPeriod || '—'}</td>
+              <td className="performance-entry-status"><span>{businessStatusLabel(entry)}</span><span>KITC {kitcStatusLabel[info.kitcStatus] || '확인 필요'}</span>
+                {(info.requestedAt || info.repliedAt) && <small>{info.requestedAt ? `요청 ${info.requestedAt}` : ''}{info.repliedAt ? ` · 회신 ${info.repliedAt}` : ''}</small>}</td>
               <td className="performance-filename" title={entry.selectedFilename || ''}>{entry.selectedFilename || (ready ? '파일명 미확인' : '—')}</td>
               <td><div className="performance-row-actions"><Button className="ui-button ui-button-secondary" onClick={() => setActive(entry)}>파일 관리</Button>
                 <Button className="ui-button ui-button-secondary" onClick={() => setEditor({ entry })}>수정</Button></div></td>

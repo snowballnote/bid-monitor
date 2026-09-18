@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { validatePerformanceEntry } from '../../api/submissions/performanceDocuments';
+import { validatePerformanceEntry, validatePerformanceEntryMetadata } from '../../api/submissions/performanceDocuments';
 import Button from '../Button';
 
 const fields = [
@@ -9,7 +9,11 @@ const fields = [
 
 export default function PerformanceEntryDialog({ entry, onSave, onClose }) {
   const dialog = useRef(null);
-  const [values, setValues] = useState(() => Object.fromEntries(fields.map(([name]) => [name, entry?.info?.[name] || ''])));
+  const [values, setValues] = useState(() => ({
+    ...Object.fromEntries(fields.map(([name]) => [name, entry?.info?.[name] || ''])),
+    businessStatus: entry?.info?.businessStatus || '', kitcStatus: entry?.info?.kitcStatus || 'NEEDED',
+    requestedAt: entry?.info?.requestedAt || '', repliedAt: entry?.info?.repliedAt || '',
+  }));
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -18,13 +22,22 @@ export default function PerformanceEntryDialog({ entry, onSave, onClose }) {
   async function submit(event) {
     event.preventDefault();
     if (savingRef.current) return;
-    const validation = validatePerformanceEntry(values);
+    const validation = { ...validatePerformanceEntry(values), ...(entry ? validatePerformanceEntryMetadata(values) : {}) };
     setErrors(validation);
     if (Object.keys(validation).length) return;
     savingRef.current = true; setSaving(true);
     try { await onSave(values); dialog.current.close(); onClose(); }
     catch (error) { setErrors({ [error.field || '_form']: error.message }); }
     finally { savingRef.current = false; setSaving(false); }
+  }
+  function change(name, value) {
+    setValues(current => {
+      if (name !== 'kitcStatus') return { ...current, [name]: value };
+      return { ...current, kitcStatus: value,
+        requestedAt: value === 'NEEDED' ? '' : current.requestedAt,
+        repliedAt: value === 'RECEIVED' ? current.repliedAt : '' };
+    });
+    setErrors(current => ({ ...current, [name]: undefined, requestedAt: undefined, repliedAt: undefined, _form: undefined }));
   }
   return <dialog ref={setDialog} className="common-document-dialog performance-entry-dialog"
     aria-labelledby="performance-entry-title" onCancel={event => { event.preventDefault(); close(); }}>
@@ -33,11 +46,28 @@ export default function PerformanceEntryDialog({ entry, onSave, onClose }) {
       {fields.map(([name, label, max]) => <label key={name}>{label}
         <input name={name} value={values[name]} maxLength={max} disabled={saving}
           aria-invalid={Boolean(errors[name])} aria-describedby={errors[name] ? `performance-${name}-error` : undefined}
-          onChange={event => { setValues(current => ({ ...current, [name]: event.target.value })); setErrors(current => ({ ...current, [name]: undefined, _form: undefined })); }} />
+          onChange={event => change(name, event.target.value)} />
         {errors[name] && <small id={`performance-${name}-error`} className="field-error">{errors[name]}</small>}
       </label>)}
       <small className="performance-period-help">사업기간 예: 2024.01 ~ 2025.12 또는 2024.01 ~ 수행중</small>
-      {entry && <small>파일 연결, 증빙유형, KITC 상태와 요청·회신일은 그대로 유지됩니다.</small>}
+      {entry && <fieldset className="performance-entry-metadata"><legend>사업상태·KITC</legend>
+        <label>사업상태
+          <select name="businessStatus" value={values.businessStatus} disabled={saving} onChange={event => change('businessStatus', event.target.value)}>
+            <option value="">자동 판정</option>
+            <option value="COMPLETED">수행완료 · 수동</option><option value="IN_PROGRESS">수행중 · 수동</option>
+          </select>{errors.businessStatus && <small className="field-error">{errors.businessStatus}</small>}
+        </label>
+        <label>KITC 상태
+          <select name="kitcStatus" value={values.kitcStatus} disabled={saving} onChange={event => change('kitcStatus', event.target.value)}>
+            <option value="NEEDED">요청 필요</option><option value="REQUESTED">요청함</option><option value="RECEIVED">회신 완료</option>
+          </select>{errors.kitcStatus && <small className="field-error">{errors.kitcStatus}</small>}
+        </label>
+        <label>요청일<input name="requestedAt" type="date" value={values.requestedAt} disabled={saving || values.kitcStatus === 'NEEDED'}
+          onChange={event => change('requestedAt', event.target.value)} /></label>
+        <label>회신일<input name="repliedAt" type="date" value={values.repliedAt} disabled={saving || values.kitcStatus !== 'RECEIVED'}
+          onChange={event => change('repliedAt', event.target.value)} /></label>
+        <small>파일 연결과 증빙유형은 변경하지 않습니다.</small>
+      </fieldset>}
       {errors._form && <p role="alert">{errors._form}</p>}
       {saving && <p role="status">실적 저장 중…</p>}
       <footer><Button className="ui-button ui-button-secondary" disabled={saving} onClick={close}>취소</Button>

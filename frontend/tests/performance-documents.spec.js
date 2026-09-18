@@ -2,18 +2,18 @@ import { test, expect } from '@playwright/test';
 
 async function setup(page, options = {}) {
   const entries = options.empty ? [] : [
-    { id: 'one', projectId: 'perf-1', selectedFilename: '완료된-실적증명서.pdf', info: {
+    { id: 'one', projectId: 'perf-1', selectedFilename: '완료된-실적증명서.pdf', resolvedStatus: 'COMPLETED', info: {
       pptNumber: '1', businessName: '공공정보시스템 구축', client: '한국기관', businessPeriod: '2024.01 ~ 2024.12',
       contractAmount: '10억', businessStatus: 'COMPLETED', selectedFileId: null,
       selectedDriveFileId: '11111111-1111-4111-8111-111111111111', selectedUploadedFileId: null,
       evidenceType: 'CERTIFICATE', kitcStatus: 'REQUESTED', requestedAt: '2026-08-01', repliedAt: null,
     } },
-    { id: 'two', projectId: 'perf-1', selectedFilename: null, info: {
+    { id: 'two', projectId: 'perf-1', selectedFilename: null, resolvedStatus: 'COMPLETED', info: {
       pptNumber: '2', businessName: '운영 사업', client: '서울기관', businessPeriod: '2025.01 ~ 2025.12',
-      contractAmount: '5억', businessStatus: 'COMPLETED', selectedFileId: null, selectedDriveFileId: null,
+      contractAmount: '5억', businessStatus: null, selectedFileId: null, selectedDriveFileId: null,
       selectedUploadedFileId: null, evidenceType: null, kitcStatus: 'NEEDED', requestedAt: null, repliedAt: null,
     } },
-    { id: 'three', projectId: 'perf-1', selectedFilename: '아주-긴-직접업로드-실적증빙-파일명-모바일-레이아웃-확인용.pdf', info: {
+    { id: 'three', projectId: 'perf-1', selectedFilename: '아주-긴-직접업로드-실적증빙-파일명-모바일-레이아웃-확인용.pdf', resolvedStatus: 'COMPLETED', info: {
       pptNumber: '3', businessName: '개인정보 영향평가', client: '긴 이름의 발주기관', businessPeriod: '2026.01 ~ 2026.08',
       contractAmount: '7억', businessStatus: 'COMPLETED', selectedFileId: null, selectedDriveFileId: null,
       selectedUploadedFileId: 'upload-3', evidenceType: 'CERTIFICATE', kitcStatus: 'NEEDED', requestedAt: null, repliedAt: null,
@@ -183,6 +183,74 @@ test('performance documents: connected entries show metadata, current files, sta
   await expect(page.locator('.case-progress')).toContainText('2 / 3 · 67%');
   expect(state.requests.every(request => request.method === 'GET')).toBe(true);
   expect(state.requests.filter(request => request.path.endsWith('/entries'))).toHaveLength(1);
+});
+
+test('performance entry status: automatic and manual business status with KITC dates are displayed', async ({ page }) => {
+  await setup(page);
+  const first = page.locator('#performance-documents tbody tr').filter({ hasText: '공공정보시스템 구축' });
+  const second = page.locator('#performance-documents tbody tr').filter({ hasText: '운영 사업' });
+  await expect(first).toContainText('수행완료 · 수동');
+  await expect(first).toContainText('KITC 요청함');
+  await expect(first).toContainText('요청 2026-08-01');
+  await expect(second).toContainText('수행완료 · 자동');
+  await expect(second).toContainText('KITC 요청 필요');
+});
+
+test('performance entry status: manual override, automatic return and KITC updates preserve entry data', async ({ page }) => {
+  const state = await setup(page);
+  const row = page.locator('#performance-documents tbody tr').filter({ hasText: '운영 사업' });
+  await row.getByRole('button', { name: '수정' }).click();
+  let dialog = page.getByRole('dialog', { name: '실적 수정' });
+  await expect(dialog.getByLabel('사업상태')).toHaveValue('');
+  await dialog.getByLabel('사업상태').selectOption('IN_PROGRESS');
+  await dialog.getByLabel('KITC 상태').selectOption('REQUESTED');
+  await dialog.getByLabel('요청일').fill('2026-09-18');
+  state.holdSelection = true;
+  await dialog.getByRole('button', { name: '저장' }).click();
+  await expect(dialog.getByText('실적 저장 중…')).toBeVisible();
+  await dialog.getByRole('button', { name: '저장' }).click({ force: true });
+  expect(state.writes.filter(write => write.path.endsWith('/entries/two'))).toHaveLength(1);
+  state.holdSelection = false; state.releaseSelection();
+  await expect(dialog).toHaveCount(0);
+  await expect(row).toContainText('수행중 · 수동'); await expect(row).toContainText('KITC 요청함');
+  let saved = state.writes.at(-1).body;
+  expect(saved).toMatchObject({ businessStatus: 'IN_PROGRESS', kitcStatus: 'REQUESTED', requestedAt: '2026-09-18', repliedAt: null,
+    pptNumber: '2', businessName: '운영 사업', businessPeriod: '2025.01 ~ 2025.12', contractAmount: '5억', client: '서울기관',
+    selectedFileId: null, selectedDriveFileId: null, selectedUploadedFileId: null, evidenceType: null });
+
+  await row.getByRole('button', { name: '수정' }).click();
+  dialog = page.getByRole('dialog', { name: '실적 수정' });
+  await dialog.getByLabel('사업상태').selectOption('');
+  await dialog.getByLabel('KITC 상태').selectOption('RECEIVED');
+  await dialog.getByLabel('회신일').fill('2026-09-19');
+  await dialog.getByRole('button', { name: '저장' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(row).toContainText('수행완료 · 자동'); await expect(row).toContainText('KITC 회신 완료');
+  saved = state.writes.at(-1).body;
+  expect(saved).toMatchObject({ businessStatus: null, kitcStatus: 'RECEIVED', requestedAt: '2026-09-18', repliedAt: '2026-09-19' });
+});
+
+test('performance entry status: KITC date validation and failed save retain the confirmed file and metadata', async ({ page }) => {
+  const state = await setup(page);
+  const before = structuredClone(state.entries[0]);
+  const row = page.locator('#performance-documents tbody tr').filter({ hasText: '공공정보시스템 구축' });
+  await row.getByRole('button', { name: '수정' }).click();
+  const dialog = page.getByRole('dialog', { name: '실적 수정' });
+  await dialog.getByLabel('KITC 상태').selectOption('RECEIVED');
+  await dialog.getByLabel('회신일').fill('2026-07-31');
+  await dialog.getByRole('button', { name: '저장' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('회신일은 요청일 이후');
+  expect(state.writes.filter(write => write.path.endsWith('/entries/one'))).toHaveLength(0);
+  await dialog.getByLabel('회신일').fill('2026-08-02');
+  state.failEntrySave = true;
+  await dialog.getByRole('button', { name: '저장' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('실적 저장에 실패했습니다.');
+  await expect(row).toContainText('KITC 요청함');
+  expect(state.entries[0]).toEqual(before);
+  const payload = state.writes.at(-1).body;
+  expect(payload).toMatchObject({ selectedFileId: before.info.selectedFileId, selectedDriveFileId: before.info.selectedDriveFileId,
+    selectedUploadedFileId: before.info.selectedUploadedFileId, evidenceType: before.info.evidenceType,
+    businessName: before.info.businessName, kitcStatus: 'RECEIVED', requestedAt: '2026-08-01', repliedAt: '2026-08-02' });
 });
 
 test('performance documents: loading, empty and error states stay inside the section', async ({ page }) => {

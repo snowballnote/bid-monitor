@@ -122,6 +122,20 @@ export function validatePerformanceEntry(values) {
   return errors;
 }
 
+export function validatePerformanceEntryMetadata(values) {
+  const errors = {};
+  if (!['', 'COMPLETED', 'IN_PROGRESS'].includes(values?.businessStatus ?? '')) errors.businessStatus = '사업상태를 확인하세요.';
+  if (!['NEEDED', 'REQUESTED', 'RECEIVED'].includes(values?.kitcStatus)) {
+    errors.kitcStatus = 'KITC 상태가 필요합니다.'; return errors;
+  }
+  const requested = values.requestedAt || null; const replied = values.repliedAt || null;
+  const valid = values.kitcStatus === 'NEEDED' ? requested == null && replied == null
+    : values.kitcStatus === 'REQUESTED' ? requested != null && replied == null
+      : requested != null && replied != null && replied >= requested;
+  if (!valid) errors._form = 'KITC 상태에 맞는 요청일·회신일을 직접 입력하세요. 회신일은 요청일 이후여야 합니다.';
+  return errors;
+}
+
 const fieldFor = message => entryFields.find(([, label]) => message?.includes(label))?.[0] || '_form';
 const safeEntryMessage = (message, fallback) => typeof message === 'string' && (
   /^(PPT 번호|사업명|사업기간|계약금액|발주처)을\(를\) 확인하세요\.$/.test(message)
@@ -130,6 +144,7 @@ const safeEntryMessage = (message, fallback) => typeof message === 'string' && (
   || message === '이미 저장된 PPT 번호입니다.'
   || message === '이미 저장된 PPT 번호입니다. 기존 실적을 수정하세요.'
   || message === 'KITC 상태에 맞는 요청일·회신일을 직접 입력하세요. 회신일은 요청일 이후여야 합니다.'
+  || message === '입력 형식과 날짜를 확인하세요.'
   || message === '수행중 사업은 계약서를 연결하세요.'
   || message === '붙여넣기는 200만 자 이내로 입력하세요.'
   || message === '붙여넣을 실적 행이 없습니다.'
@@ -167,7 +182,9 @@ export async function createPerformanceEntry(projectId, values) {
 export async function updatePerformanceEntry(projectId, entry, values) {
   const response = await fetch(`/api/performance-projects/${encodeURIComponent(projectId)}/entries/${encodeURIComponent(entry.id)}`, {
     method: 'PUT', headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...entry.info, ...Object.fromEntries(entryFields.map(([name]) => [name, values[name].trim()])) }),
+    body: JSON.stringify({ ...entry.info, ...Object.fromEntries(entryFields.map(([name]) => [name, values[name].trim()])),
+      businessStatus: values.businessStatus || null, kitcStatus: values.kitcStatus,
+      requestedAt: values.requestedAt || null, repliedAt: values.repliedAt || null }),
   });
   const data = await response.json().catch(() => null);
   if (!response.ok) throw entryError(safeEntryMessage(data?.message, '실적 저장에 실패했습니다.'));
