@@ -22,7 +22,8 @@ async function setup(page, options = {}) {
   const state = {
     requests: [], writes: [], entries, releaseEntries: null, releaseCandidate: null, releaseSelection: null,
     uploads: [], releaseUpload: null, holdUpload: false, uploadStatus: 0, uploadMessage: '',
-    imports: [], failEntrySave: false, holdSelection: false, failSelection: false, selectedCandidate: { one: 0 },
+    imports: [], importResponse: null, importFailure: false, failEntrySave: false,
+    holdSelection: false, failSelection: false, selectedCandidate: { one: 0 },
   };
   const candidateIds = [
     '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333',
@@ -63,6 +64,11 @@ async function setup(page, options = {}) {
     if (path === '/api/submission-document-masters') return route.fulfill({ json: [] });
     if (path === '/api/performance-projects/perf-1/import' && request.method() === 'POST') {
       const payload = request.postDataJSON(); state.imports.push(payload);
+      if (state.importFailure) return route.fulfill({ status: 503, json: { message: 'C:\\internal\\import.sql' } });
+      if (state.importResponse) {
+        const response = state.importResponse; state.importResponse = null;
+        entries.push(...response.saved); return route.fulfill({ json: response });
+      }
       const cells = (payload.text || '').split('\t').map(value => value.replace(/^"|"$/g, '').replaceAll('""', '"'));
       const message = !cells[0]?.trim() ? 'PPT 번호을(를) 확인하세요.'
         : entries.some(entry => entry.info.pptNumber === cells[0].trim()) ? '이미 저장된 PPT 번호입니다. 기존 실적을 수정하세요.'
@@ -153,6 +159,13 @@ async function setup(page, options = {}) {
   await page.goto('/react/index.html#/submissions/71');
   await expect(page.locator('#performance-documents')).toBeVisible();
   return state;
+}
+
+async function pastePerformance(page, plain = '', rich = '') {
+  await page.locator('#performance-paste').evaluate((textarea, data) => {
+    const clipboard = new DataTransfer(); clipboard.setData('text/plain', data.plain); clipboard.setData('text/html', data.rich);
+    textarea.dispatchEvent(new ClipboardEvent('paste', { clipboardData: clipboard, bubbles: true, cancelable: true }));
+  }, { plain, rich });
 }
 
 test('performance documents: connected entries show metadata, current files, states and entry-based progress', async ({ page }) => {
@@ -546,7 +559,7 @@ test('performance entry: duplicate PPT number and invalid period errors stay by 
   await dialog.getByLabel('사업기간').fill('날짜 오류');
   await dialog.getByRole('button', { name: '저장' }).click();
   await expect(dialog.locator('#performance-businessPeriod-error')).toContainText('사업기간은 시작~종료 날짜');
-  await expect(page.locator('#performance-documents tbody tr')).toHaveCount(3);
+  await expect(page.locator('#performance-documents .performance-documents-scroll tbody tr')).toHaveCount(3);
   expect(state.imports).toHaveLength(2);
 });
 
@@ -592,5 +605,80 @@ test('performance entry: edit preserves file, evidence, manual status and KITC d
   await expect(dialog).not.toContainText('C:\\internal');
   await expect(page.locator('#performance-documents')).toContainText('수정된 구축 사업');
   await expect(page.locator('#performance-documents')).not.toContainText('저장되면 안 되는 이름');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('performance import: HTML table has priority and plain quoted TSV previews without writes', async ({ page }) => {
+  const state = await setup(page);
+  await page.locator('.performance-import summary').click();
+  const html = '<table><tr><th>번호</th><th>사업명</th><th>사업기간</th><th>계약금액</th><th>발주처</th></tr>'
+    + '<tr><td>10</td><td>HTML<br>사업</td><td>2024.01 ~ 2025.12</td><td>금액 협의</td><td>기관</td></tr></table>';
+  await pastePerformance(page, 'plain should not parse', html);
+  let preview = page.getByLabel('실적표 붙여넣기 미리보기');
+  await expect(preview.locator('tbody tr')).toHaveCount(1);
+  await expect(preview.locator('tbody td').nth(1)).toHaveText('HTML\n사업');
+  await expect(preview.locator('tbody td').nth(3)).toHaveText('금액 협의');
+  expect(state.imports).toHaveLength(0);
+
+  const quoted = '11\t"첫째 줄\n둘째 줄"\t2025.01 ~ 수행중\t자유 금액\t기관';
+  await page.locator('#performance-paste').fill(quoted);
+  await expect(preview.locator('tbody tr')).toHaveCount(1);
+  await expect(preview.locator('tbody td').nth(1)).toHaveText('첫째 줄\n둘째 줄');
+  await page.locator('#performance-paste').fill('12\t셀 부족\t2024.01 ~ 2025.12\t100\n13\t셀\t2024.01 ~ 2025.12\t100\t기관\t초과');
+  await expect(preview.locator('.paste-preview-error')).toHaveCount(2);
+  await expect(preview).toContainText('5개 셀이 필요합니다.');
+
+  await pastePerformance(page, '', '<table><tr><td rowspan="2">14</td><td colspan="4">병합 셀</td></tr></table>');
+  preview = page.getByLabel('실적표 붙여넣기 미리보기');
+  await expect(preview.locator('.paste-preview-error')).toContainText('병합 셀을 확인하고 5개 열로 나누어 입력하세요.');
+  expect(state.requests.filter(request => request.method !== 'GET')).toHaveLength(0);
+});
+
+test('performance import: mixed server result appends valid rows and corrected error row retries separately', async ({ page }) => {
+  const state = await setup(page);
+  const imported = { id: 'bulk-1', projectId: 'perf-1', selectedFilename: null, selectedExt: null, resolvedStatus: 'COMPLETED', info: {
+    pptNumber: '10', businessName: '일괄 정상 사업', businessPeriod: '2024.01 ~ 2025.12', contractAmount: '금액 협의', client: '기관',
+    businessStatus: null, selectedFileId: null, selectedDriveFileId: null, selectedUploadedFileId: null,
+    evidenceType: null, kitcStatus: 'NEEDED', requestedAt: null, repliedAt: null,
+  } };
+  state.importResponse = { saved: [imported], errors: [
+    { row: 3, cells: ['1', '중복 사업', '2024.01 ~ 2025.12', '100', '기관'], message: '이미 저장된 PPT 번호입니다. 기존 실적을 수정하세요.' },
+    { row: 4, cells: ['12', '기간 오류', '날짜 오류', '200', '기관'], message: '사업기간은 시작~종료 날짜로 입력하거나 상세 수정에서 사업 상태를 지정하세요.' },
+  ] };
+  await page.locator('.performance-import summary').click();
+  const html = '<table><tr><td>10</td><td>일괄 정상 사업</td><td>2024.01 ~ 2025.12</td><td>금액 협의</td><td>기관</td></tr>'
+    + '<tr><td>1</td><td>중복 사업</td><td>2024.01 ~ 2025.12</td><td>100</td><td>기관</td></tr>'
+    + '<tr><td>12</td><td>기간 오류</td><td>날짜 오류</td><td>200</td><td>기관</td></tr></table>';
+  await pastePerformance(page, 'fallback text', html);
+  await page.getByRole('button', { name: '일괄 저장' }).click();
+
+  await expect(page.locator('.performance-import-result')).toHaveText('1행 저장, 2행 확인 필요');
+  await expect(page.locator('.performance-import-errors form')).toHaveCount(2);
+  await expect(page.locator('#performance-documents tbody tr')).toHaveCount(4);
+  await expect(page.locator('#performance-documents .panel-header')).toContainText('2 / 4');
+  expect(state.imports[0]).toEqual({ text: 'fallback text', html });
+  const firstError = page.locator('.performance-import-errors form').first();
+  await firstError.getByLabel('PPT 번호').fill('11');
+  await firstError.getByRole('button', { name: '수정 행 저장' }).click();
+  await expect(page.locator('.performance-import-errors form')).toHaveCount(1);
+  await expect(page.locator('#performance-documents tbody tr')).toHaveCount(5);
+  await expect(page.locator('#performance-documents .panel-header')).toContainText('2 / 5');
+  expect(state.imports).toHaveLength(2);
+});
+
+test('performance import: failed POST retains input and preview on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await setup(page);
+  state.importFailure = true;
+  await page.locator('.performance-import summary').click();
+  const text = '20\t모바일 사업\t2024.01 ~ 2025.12\t계약금액 자유\t기관';
+  await pastePerformance(page, text);
+  await page.getByRole('button', { name: '일괄 저장' }).click();
+  await expect(page.locator('.performance-import-body').getByRole('alert')).toHaveText('실적 일괄 저장에 실패했습니다.');
+  await expect(page.locator('#performance-paste')).toHaveValue(text);
+  await expect(page.getByLabel('실적표 붙여넣기 미리보기').locator('tbody tr')).toHaveCount(1);
+  await expect(page.locator('.performance-import-body')).not.toContainText('C:\\internal');
+  await expect(page.locator('#performance-documents .performance-documents-scroll tbody tr')).toHaveCount(3);
+  expect(state.imports).toHaveLength(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

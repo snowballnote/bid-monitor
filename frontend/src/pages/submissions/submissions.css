@@ -86,6 +86,23 @@
 .performance-entry-dialog .field-error, .performance-entry-dialog [role="alert"] { color: var(--danger, #b42318); }
 .performance-entry-dialog .performance-period-help, .performance-entry-dialog form > small { color: var(--muted); }
 .performance-entry-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.performance-import { margin: 0 0 14px; border: 1px solid var(--border); border-radius: 8px; }
+.performance-import > summary { padding: 10px 12px; cursor: pointer; font-weight: 700; font-size: 13px; }
+.performance-import-body { display: grid; gap: 9px; padding: 0 12px 12px; }
+.performance-import-body textarea { width: 100%; min-width: 0; box-sizing: border-box; resize: vertical; }
+.performance-import-scroll { overflow-x: auto; }
+.performance-import table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 11px; }
+.performance-import th, .performance-import td { padding: 7px; border-bottom: 1px solid var(--border); text-align: left; overflow-wrap: anywhere; }
+.performance-import .paste-preview-error { background: #fff8f6; }
+.performance-import-result { margin: 0; color: var(--muted); }
+.performance-import-errors { display: grid; gap: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
+.performance-import-errors h3 { margin: 0; font-size: 13px; }
+.performance-import-errors form { display: grid; gap: 7px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.performance-import-error-fields { display: grid; grid-template-columns: repeat(5, minmax(100px, 1fr)); gap: 6px; overflow-x: auto; }
+.performance-import-error-fields label { display: grid; gap: 3px; font-size: 11px; }
+.performance-import-error-fields input { min-width: 100px; }
+.performance-import-errors p { margin: 0; color: var(--danger, #b42318); font-size: 12px; }
+.performance-import-errors .ui-button { justify-self: end; }
 .performance-candidates footer { display: flex; justify-content: flex-end; margin-top: 16px; }
 @media (max-width: 520px) {
   .react-submissions .document-picker-heading { flex-wrap: wrap; }
