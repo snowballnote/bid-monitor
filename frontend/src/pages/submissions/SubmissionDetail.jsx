@@ -9,6 +9,7 @@ import Button from '../../components/Button';
 import Personnel from '../../components/submissions/Personnel';
 import OtherDocuments from '../../components/submissions/OtherDocuments';
 import PerformanceDocuments from '../../components/submissions/PerformanceDocuments';
+import PerformanceLink from '../../components/submissions/PerformanceLink';
 import styles from '../../../../src/main/resources/static/submissions/submissions.css?inline';
 import './submissions.css';
 
@@ -54,6 +55,7 @@ export default function SubmissionDetail() {
           return { ...previous, data, view: detailView(data) };
         })} />
         <PerformanceDocuments key={`performance-${caseId}`} project={current.data.project}
+          connection={<PerformanceLink key={caseId} project={current.data.project} required={current.data.requirements.some(row => row.performanceSelectionRequired)} />}
           required={current.data.requirements.some(row => row.performanceSelectionRequired)} onLoaded={entries => setState(previous => {
             if (previous.id !== caseId || previous.status !== 'success') return previous;
             const data = { ...previous.data, entries };

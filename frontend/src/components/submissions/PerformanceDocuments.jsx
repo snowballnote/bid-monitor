@@ -11,7 +11,7 @@ export const performanceEntryReady = entry => entry?.info?.selectedFileId != nul
 const businessStatusLabel = entry => `${entry?.resolvedStatus === 'IN_PROGRESS' ? '수행중' : '수행완료'} · ${entry?.info?.businessStatus ? '수동' : '자동'}`;
 const kitcStatusLabel = { NEEDED: '요청 필요', REQUESTED: '요청함', RECEIVED: '회신 완료' };
 
-export default function PerformanceDocuments({ project, required, onLoaded }) {
+export default function PerformanceDocuments({ project, required, onLoaded, connection }) {
   const callback = useRef(onLoaded); callback.current = onLoaded;
   const [state, setState] = useState(() => required && project.performanceProjectId
     ? { status: 'loading' } : { status: 'empty' });
@@ -73,6 +73,7 @@ export default function PerformanceDocuments({ project, required, onLoaded }) {
     <header className="panel-header"><h2 id="performance-documents-title">실적증빙</h2>
       {state.status === 'success' && <><strong>{prepared} / {entries.length}</strong>
         <Button className="ui-button ui-button-secondary" onClick={() => setEditor({ entry: null })}>실적 추가</Button></>}</header>
+    {connection}
     {state.status === 'loading' && <p className="panel-state" role="status">실적증빙 목록을 불러오는 중입니다.</p>}
     {state.status === 'error' && <p className="panel-state error" role="alert">{state.message}</p>}
     {state.status === 'empty' && <p className="panel-state">{required ? '연결된 실적 프로젝트가 없습니다.' : '필요한 실적증빙이 없습니다.'}</p>}

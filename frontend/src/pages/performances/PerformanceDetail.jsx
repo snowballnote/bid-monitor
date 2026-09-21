@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useLocation } from 'react-router-dom';
 import * as api from '../../api/performances';
 import Button from '../../components/Button';
 import PerformanceProjectDialog from '../../components/performances/PerformanceProjectDialog';
@@ -9,9 +9,21 @@ import { performanceDday, performanceStatus } from './performanceView';
 import sharedStyles from '../../../../src/main/resources/static/submissions/submissions.css?inline';
 import '../submissions/submissions.css';
 import './performances.css';
+import { getCaseResource } from '../../api/submissions';
 
 export default function PerformanceDetail() {
   const { projectId } = useParams();
+  const { search } = useLocation();
+  const caseId = new URLSearchParams(search).get('caseId');
+  const [returnContext, setReturnContext] = useState(null);
+  useEffect(() => {
+    const controller = new AbortController(); setReturnContext(null);
+    if (/^[1-9]\d*$/.test(caseId || '')) getCaseResource(caseId, '', controller.signal).then(project => {
+      if (!controller.signal.aborted && String(project.id) === caseId && project.performanceProjectId === projectId)
+        setReturnContext({ caseId, projectId });
+    }).catch(() => {});
+    return () => controller.abort();
+  }, [caseId, projectId]);
   const mounted = useRef(false); const locked = useRef(false); const downloadLocked = useRef(false); const entriesLoaded = useRef(false);
   const [state, setState] = useState({ status: 'loading' }); const [revision, setRevision] = useState(0);
   const [editing, setEditing] = useState(false); const [busy, setBusy] = useState(false); const [formError, setFormError] = useState('');
@@ -73,6 +85,7 @@ export default function PerformanceDetail() {
           <div className="performance-download-state"><span>{entries === null ? '선택 파일 확인 중…' : selectedFiles ? `선택 파일 ${selectedFiles}개` : '선택된 증빙파일이 없습니다.'}</span>
             {downloadError && <small role="alert">{downloadError}</small>}</div>
           <div className="performance-overview-actions"><Link className="ui-button ui-button-secondary" to="/performances">목록</Link>
+            {returnContext?.caseId === caseId && returnContext?.projectId === projectId && <Link className="ui-button ui-button-secondary" to={`/submissions/${caseId}`}>원래 제출서류로 돌아가기</Link>}
             <Button className="ui-button ui-button-secondary" disabled={downloading || entries === null || selectedFiles === 0}
               onClick={download}>{downloading ? 'ZIP 생성 중…' : 'ZIP 다운로드'}</Button>
             <Button className="ui-button ui-button-primary" disabled={busy} onClick={() => { setFormError(''); setEditing(true); }}>프로젝트 수정</Button></div></section>
