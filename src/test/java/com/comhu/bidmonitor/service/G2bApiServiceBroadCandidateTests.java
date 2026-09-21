@@ -28,6 +28,8 @@ class G2bApiServiceBroadCandidateTests {
         assertEquals("QUALIFICATION_REVIEW", result.getFirst().getAwardMethodCategory());
         assertEquals("CONFIRMED", result.getFirst().getAwardMethodStatus());
         assertEquals("STRUCTURED_DETAIL", result.getFirst().getAwardMethodSource());
+        assertEquals("G2B", result.getFirst().getSourceCode());
+        assertEquals("LINKED-2026-0001", result.getFirst().getSourceNoticeId());
     }
 
     @Test

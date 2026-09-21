@@ -44,6 +44,9 @@ class KoreaExpresswayBidCollectorTests {
 
         BidQualificationDto result = collector.toQualification(listItem, detail);
 
+        assertEquals("KOREA_EXPRESSWAY", result.getSourceCode());
+        assertEquals("18dfabd2-78d6-4516-9df0-719509258e03", result.getSourceNoticeId());
+        assertEquals("1", result.getRevision());
         assertEquals("202608222-00", result.getBidNtceNo());
         assertEquals("AI기술을 활용한 통행료정보시스템 고도화 감리용역", result.getBidNtceNm());
         assertEquals("한국도로공사", result.getNtceInsttNm());
@@ -57,6 +60,7 @@ class KoreaExpresswayBidCollectorTests {
                         + "&noti_no=202608222&bid_no=1&bid_rev=1",
                 result.getBidNtceDtlUrl()
         );
+        assertEquals(result.getBidNtceDtlUrl(), result.getDetailUrl());
         assertEquals("적격심사제", result.getSucsfbidMthdNm());
         assertEquals("D", result.getSucsfbidMthdAppStd());
         assertEquals("N", result.getPqEvalYn());
