@@ -7,6 +7,11 @@ import org.springframework.web.bind.annotation.GetMapping;
 @Controller
 public class AppPageController {
 
+    @GetMapping("/")
+    public String homePage() {
+        return "redirect:/react/index.html#/";
+    }
+
     @GetMapping({"/bids", "/bids/"})
     public String bidPage() {
         return "forward:/bids/index.html";

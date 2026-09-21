@@ -27,6 +27,8 @@ npm run build:spring
 개발 중 백엔드만 실행할 때도 먼저 이 명령을 실행하면 정적 빌드를 제공할 수 있다.
 CI에서는 `npm ci` → `npm run build:spring` → 기존 Maven 패키징 순서로 실행한다.
 `dist/`와 복사한 bundle은 Git에서 제외한다. Maven clean/package 자체는 프론트를 빌드하지 않는다.
+서비스 기본 주소 `/`는 `/react/index.html#/`로 리다이렉트한다. 따라서 배포 패키징 전에
+`npm ci` → `npm run build:spring`을 반드시 수행해야 한다. 기존 vanilla 홈은 `/index.html`에 유지한다.
 복사는 React 전용 경로에만 수행하며 기존 `/index.html`, `/submissions/`, `/documents/`, `/performances/` 등을 덮어쓰지 않는다.
 
 ## 구조와 라우팅

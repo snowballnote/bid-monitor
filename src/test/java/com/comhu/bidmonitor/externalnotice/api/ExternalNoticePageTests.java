@@ -11,6 +11,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.forwardedUrl;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -30,8 +31,8 @@ class ExternalNoticePageTests {
     @Test
     void servesBizAssistHomeAndSharedAppShell() throws Exception {
         mockMvc.perform(get("/"))
-                .andExpect(status().isOk())
-                .andExpect(forwardedUrl("index.html"));
+                .andExpect(status().isFound())
+                .andExpect(redirectedUrl("/react/index.html#/"));
 
         mockMvc.perform(get("/index.html"))
                 .andExpect(status().isOk())
