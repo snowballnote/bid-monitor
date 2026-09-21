@@ -37,6 +37,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -70,6 +71,22 @@ public class G2bApiService {
     private static final Pattern SAFE_SOURCE_CODE_PATTERN = Pattern.compile("[A-Z0-9_]{1,50}");
 
     private static final int BID_LIST_PAGE_SIZE = 100;
+    private static final List<String> G2B_TITLE_SEARCH_KEYWORDS = List.of(
+            "정보시스템 감리",
+            "정보화 감리",
+            "개인정보 영향평가",
+            "개인정보영향평가",
+            "감리"
+    );
+    private static final List<String> G2B_SUPERVISION_TITLE_CONTEXTS = List.of(
+            "정보시스템",
+            "정보화",
+            "전산",
+            "소프트웨어",
+            "시스템",
+            "ict",
+            "it감리"
+    );
     private static final String REQUIRED_LICENSE_CODE = "6146";
     private static final Set<String> DEFAULT_ALLOWED_LICENSE_CODES = Set.of("6146", "1468");
     private static final Set<String> REFERENCE_SITE_DOMAINS = Set.of("smpp.go.kr");
@@ -307,7 +324,7 @@ public class G2bApiService {
     /**
      * 지정한 기간과 페이지 번호로 나라장터 용역 감리 공고를 조회한다.
      */
-    private String requestBidListPage(LocalDate startDate, LocalDate endDate, int pageNo) {
+    protected String requestBidListPage(LocalDate startDate, LocalDate endDate, int pageNo) {
         String inquiryStartDateTime = startDate.format(DateTimeFormatter.ofPattern("yyyyMMdd")) + "0000";
         String inquiryEndDateTime = endDate.format(DateTimeFormatter.ofPattern("yyyyMMdd")) + "2359";
 
@@ -323,8 +340,34 @@ public class G2bApiService {
                 + "&inqryEndDt=" + inquiryEndDateTime
                 + "&indstrytyCd=6146";
 
-        RestClient restClient = RestClient.create();
+        return executeBidListRequest(requestUrl);
+    }
 
+    /** 나라장터 용역 검색 API의 공식 공고명 조건(bidNtceNm)으로 보완 후보를 조회한다. */
+    protected String requestBidTitleSearchPage(
+            LocalDate startDate,
+            LocalDate endDate,
+            String keyword,
+            int pageNo
+    ) {
+        String inquiryStartDateTime = startDate.format(DateTimeFormatter.ofPattern("yyyyMMdd")) + "0000";
+        String inquiryEndDateTime = endDate.format(DateTimeFormatter.ofPattern("yyyyMMdd")) + "2359";
+        String encodedKeyword = URLEncoder.encode(keyword, StandardCharsets.UTF_8);
+        String requestUrl = baseUrl
+                + "/getBidPblancListInfoServcPPSSrch"
+                + "?ServiceKey=" + serviceKey
+                + "&numOfRows=" + BID_LIST_PAGE_SIZE
+                + "&pageNo=" + pageNo
+                + "&type=json"
+                + "&inqryDiv=1"
+                + "&inqryBgnDt=" + inquiryStartDateTime
+                + "&inqryEndDt=" + inquiryEndDateTime
+                + "&bidNtceNm=" + encodedKeyword;
+        return executeBidListRequest(requestUrl);
+    }
+
+    protected String executeBidListRequest(String requestUrl) {
+        RestClient restClient = RestClient.create();
         return restClient.get()
                 .uri(URI.create(requestUrl))
                 .retrieve()
@@ -2085,6 +2128,8 @@ public class G2bApiService {
                 addUniqueBids(uniqueBids, page.bidList());
             }
 
+            addTitleSearchBids(uniqueBids, chunkStartDate, chunkEndDate);
+
             chunkStartDate = chunkEndDate.plusDays(1);
         }
 
@@ -2096,6 +2141,56 @@ public class G2bApiService {
      */
     private BidListPage fetchBidListPage(LocalDate startDate, LocalDate endDate, int pageNo) {
         return parseBidListPage(requestBidListPage(startDate, endDate, pageNo));
+    }
+
+    private BidListPage fetchBidTitleSearchPage(
+            LocalDate startDate,
+            LocalDate endDate,
+            String keyword,
+            int pageNo
+    ) {
+        return parseBidListPage(requestBidTitleSearchPage(startDate, endDate, keyword, pageNo));
+    }
+
+    private void addTitleSearchBids(
+            Map<String, BidDto> uniqueBids,
+            LocalDate startDate,
+            LocalDate endDate
+    ) {
+        for (String keyword : G2B_TITLE_SEARCH_KEYWORDS) {
+            try {
+                BidListPage firstPage = fetchBidTitleSearchPage(startDate, endDate, keyword, 1);
+                addRelevantTitleSearchBids(uniqueBids, firstPage.bidList());
+
+                int totalPages = (firstPage.totalCount() + BID_LIST_PAGE_SIZE - 1) / BID_LIST_PAGE_SIZE;
+                for (int pageNo = 2; pageNo <= totalPages; pageNo++) {
+                    BidListPage page = fetchBidTitleSearchPage(startDate, endDate, keyword, pageNo);
+                    addRelevantTitleSearchBids(uniqueBids, page.bidList());
+                }
+            } catch (RuntimeException exception) {
+                log.warn("G2B title search failed: keyword={}, errorType={}",
+                        keyword, exception.getClass().getSimpleName());
+            }
+        }
+    }
+
+    private void addRelevantTitleSearchBids(Map<String, BidDto> uniqueBids, List<BidDto> bids) {
+        addUniqueBids(uniqueBids, bids.stream()
+                .filter(this::isRelevantTitleSearchBid)
+                .toList());
+    }
+
+    private boolean isRelevantTitleSearchBid(BidDto bid) {
+        String normalizedTitle = getSafeValue(bid == null ? null : bid.getBidNtceNm())
+                .replaceAll("\\s+", "")
+                .toLowerCase(Locale.ROOT);
+        if (normalizedTitle.contains("개인정보영향평가")) {
+            return true;
+        }
+        if (!normalizedTitle.contains("감리")) {
+            return false;
+        }
+        return G2B_SUPERVISION_TITLE_CONTEXTS.stream().anyMatch(normalizedTitle::contains);
     }
 
     /**
