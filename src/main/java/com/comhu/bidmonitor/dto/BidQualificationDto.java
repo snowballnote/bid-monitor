@@ -37,6 +37,19 @@ public class BidQualificationDto {
     // 입찰마감일시
     private String bidClseDt;
 
+    // 개찰일시
+    private String bidOpeningDt;
+
+    // 계약방법
+    private String contractMethod;
+
+    // 입찰형태
+    private String bidForm;
+
+    // 원천 공고 상태와 상태 코드
+    private String noticeStatus;
+    private String noticeStatusCode;
+
     // 배정예산금액
     private String asignBdgtAmt;
 
