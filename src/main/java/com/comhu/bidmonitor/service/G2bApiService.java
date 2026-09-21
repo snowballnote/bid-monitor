@@ -23,6 +23,8 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -62,6 +64,10 @@ import java.util.zip.ZipInputStream;
 // 나라장터(G2B) OpenAPI 호출을 담당하는 서비스 클래스
 @Service
 public class G2bApiService {
+
+    private static final Logger log = LoggerFactory.getLogger(G2bApiService.class);
+    private static final String G2B_SOURCE_CODE = "G2B";
+    private static final Pattern SAFE_SOURCE_CODE_PATTERN = Pattern.compile("[A-Z0-9_]{1,50}");
 
     private static final int BID_LIST_PAGE_SIZE = 100;
     private static final String REQUIRED_LICENSE_CODE = "6146";
@@ -594,6 +600,9 @@ public class G2bApiService {
             qualification.setBidClseDt(bidDto.getBidClseDt());
             qualification.setAsignBdgtAmt(bidDto.getAsignBdgtAmt());
             qualification.setBidNtceDtlUrl(bidDto.getBidNtceDtlUrl());
+            qualification.setDetailUrl(bidDto.getBidNtceDtlUrl());
+            qualification.setSourceCode(G2B_SOURCE_CODE);
+            qualification.setSourceNoticeId(bidNtceNo);
             qualification.setSucsfbidMthdAppStd(bidDto.getSucsfbidMthdAppStd());
 
             // 공고 직접조회 응답에 포함된 첨부파일 정보를 DTO에 함께 보존한다.
@@ -2245,36 +2254,95 @@ public class G2bApiService {
             Set<String> allowedLicenseCodes
     ) {
         Set<String> normalizedCodes = normalizeAllowedLicenseCodes(allowedLicenseCodes);
-        LinkedHashMap<String, BidQualificationDto> uniqueCandidates = new LinkedHashMap<>();
+        LinkedHashMap<CandidateKey, BidQualificationDto> uniqueCandidates = new LinkedHashMap<>();
 
         // 기존 6146 나라장터 모집단은 그대로 상세조회와 자체 낙찰방법 판정을 수행한다.
         getBidDtoList(startDate, endDate).stream()
                 .map(BidDto::getBidNtceNo)
                 .map(bidNtceNo -> getBidQualification(bidNtceNo, normalizedCodes))
-                .forEach(candidate -> addUniqueCandidate(uniqueCandidates, candidate));
+                .forEach(candidate -> {
+                    applySourceIdentity(candidate, G2B_SOURCE_CODE);
+                    addUniqueCandidate(uniqueCandidates, candidate, true);
+                });
 
         // 나라장터 OpenAPI에 없는 연계기관 후보도 같은 classifier와 후속 검토 조건을 통과시킨다.
+        int successfulAdditionalCollectors = 0;
+        List<String> failedSourceCodes = new ArrayList<>();
         for (BidCandidateCollector collector : additionalBidCandidateCollectors) {
-            for (BidQualificationDto candidate : collector.collect(startDate, endDate)) {
-                applyExternalCheckResult(candidate);
-                applyAwardMethodClassification(candidate);
-                applyReviewResult(candidate, normalizedCodes);
-                addUniqueCandidate(uniqueCandidates, candidate);
+            String sourceCode = safeSourceCode(collector.sourceCode());
+            try {
+                LinkedHashMap<CandidateKey, BidQualificationDto> collectedCandidates = new LinkedHashMap<>();
+                for (BidQualificationDto candidate : collector.collect(startDate, endDate)) {
+                    applySourceIdentity(candidate, sourceCode);
+                    applyExternalCheckResult(candidate);
+                    applyAwardMethodClassification(candidate);
+                    applyReviewResult(candidate, normalizedCodes);
+                    addUniqueCandidate(collectedCandidates, candidate, false);
+                }
+                collectedCandidates.forEach(uniqueCandidates::putIfAbsent);
+                successfulAdditionalCollectors++;
+            } catch (RuntimeException exception) {
+                failedSourceCodes.add(sourceCode);
+                log.warn("Additional bid collector failed: sourceCode={}, errorType={}",
+                        sourceCode, exception.getClass().getSimpleName());
             }
+        }
+
+        if (!additionalBidCandidateCollectors.isEmpty()
+                && successfulAdditionalCollectors == 0
+                && uniqueCandidates.isEmpty()) {
+            throw new IllegalStateException(
+                    "추가 입찰공고 수집원 조회에 실패했습니다: " + String.join(", ", failedSourceCodes)
+            );
         }
 
         return new ArrayList<>(uniqueCandidates.values());
     }
 
     private void addUniqueCandidate(
-            Map<String, BidQualificationDto> uniqueCandidates,
-            BidQualificationDto candidate
+            Map<CandidateKey, BidQualificationDto> uniqueCandidates,
+            BidQualificationDto candidate,
+            boolean g2bCandidate
     ) {
         String bidNtceNo = candidate == null ? "" : getSafeValue(candidate.getBidNtceNo()).trim();
         if (bidNtceNo.isEmpty()) {
             throw new IllegalStateException("입찰공고 후보에 공고번호가 없는 항목이 있습니다.");
         }
-        uniqueCandidates.putIfAbsent(bidNtceNo, candidate);
+        String sourceCode = g2bCandidate ? G2B_SOURCE_CODE : safeSourceCode(candidate.getSourceCode());
+        String sourceNoticeId = getSafeValue(candidate.getSourceNoticeId()).trim();
+        if (sourceNoticeId.isEmpty()) {
+            sourceNoticeId = bidNtceNo;
+            candidate.setSourceNoticeId(sourceNoticeId);
+        }
+        String revision = g2bCandidate ? null : normalizeNullable(candidate.getRevision());
+        candidate.setRevision(revision);
+        uniqueCandidates.putIfAbsent(new CandidateKey(sourceCode, sourceNoticeId, revision), candidate);
+    }
+
+    private void applySourceIdentity(BidQualificationDto candidate, String sourceCode) {
+        if (candidate == null) {
+            return;
+        }
+        candidate.setSourceCode(sourceCode);
+        if (getSafeValue(candidate.getSourceNoticeId()).trim().isEmpty()) {
+            candidate.setSourceNoticeId(getSafeValue(candidate.getBidNtceNo()).trim());
+        }
+        if (getSafeValue(candidate.getDetailUrl()).isBlank()) {
+            candidate.setDetailUrl(candidate.getBidNtceDtlUrl());
+        }
+        if (getSafeValue(candidate.getBidNtceDtlUrl()).isBlank()) {
+            candidate.setBidNtceDtlUrl(candidate.getDetailUrl());
+        }
+    }
+
+    private String safeSourceCode(String sourceCode) {
+        String normalized = getSafeValue(sourceCode).trim().toUpperCase(Locale.ROOT);
+        return SAFE_SOURCE_CODE_PATTERN.matcher(normalized).matches() ? normalized : "UNKNOWN";
+    }
+
+    private String normalizeNullable(String value) {
+        String normalized = getSafeValue(value).trim();
+        return normalized.isEmpty() ? null : normalized;
     }
 
     /**
@@ -2289,5 +2357,8 @@ public class G2bApiService {
 
     /** 공고 직접조회에서 변환한 기본정보와 첨부파일 목록을 함께 보관한다. */
     private record BidDetail(BidDto bidDto, List<BidAttachmentDto> attachments) {
+    }
+
+    private record CandidateKey(String sourceCode, String sourceNoticeId, String revision) {
     }
 }

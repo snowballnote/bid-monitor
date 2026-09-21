@@ -17,6 +17,11 @@ import java.util.List;
 @AllArgsConstructor
 public class BidQualificationDto {
 
+    private String sourceCode;
+    private String sourceNoticeId;
+    private String revision;
+    private String detailUrl;
+
     // 입찰공고번호
     private String bidNtceNo;
 

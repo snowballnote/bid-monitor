@@ -43,6 +43,8 @@ import java.util.Locale;
 )
 public class KoreaExpresswayBidCollector implements BidCandidateCollector {
 
+    static final String SOURCE_CODE = "KOREA_EXPRESSWAY";
+
     private static final DateTimeFormatter REQUEST_DATE = DateTimeFormatter.BASIC_ISO_DATE;
     private static final DateTimeFormatter SOURCE_DATE_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmm");
     private static final DateTimeFormatter DISPLAY_DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
@@ -92,6 +94,11 @@ public class KoreaExpresswayBidCollector implements BidCandidateCollector {
             candidates.add(toQualification(item, detailResponse));
         }
         return candidates;
+    }
+
+    @Override
+    public String sourceCode() {
+        return SOURCE_CODE;
     }
 
     /** 공개 첫 화면에서 세션 쿠키와 CSRF 토큰을 함께 확보한다. */
@@ -188,13 +195,19 @@ public class KoreaExpresswayBidCollector implements BidCandidateCollector {
         }
 
         BidQualificationDto qualification = new BidQualificationDto();
+        qualification.setSourceCode(SOURCE_CODE);
+        qualification.setSourceNoticeId(listItem.path("noti_id").asText());
+        String revision = listItem.path("bid_rev").asText();
+        qualification.setRevision(revision.isBlank() ? null : revision);
         qualification.setBidNtceNo(formatNoticeNumber(detail.path("noti_no").asText()));
         qualification.setBidNtceNm(detail.path("noti_nm").asText(listItem.path("noti_nm").asText()));
         qualification.setNtceInsttNm("한국도로공사");
         qualification.setBidNtceDt(formatSourceDateTime(detail.path("bid_start_dt").asText()));
         qualification.setBidClseDt(formatSourceDateTime(detail.path("bid_end_dt").asText()));
         qualification.setAsignBdgtAmt(detail.path("dsgng_amt").asText());
-        qualification.setBidNtceDtlUrl(createSourceDetailUrl(listItem));
+        String detailUrl = createSourceDetailUrl(listItem);
+        qualification.setBidNtceDtlUrl(detailUrl);
+        qualification.setDetailUrl(detailUrl);
         qualification.setAttachments(createAttachments(detailResponse.path("fileAttList")));
         qualification.setLicenseLimit(detail.path("bid_prtc_lcs").asText());
         qualification.setLicenseGroups(List.of());

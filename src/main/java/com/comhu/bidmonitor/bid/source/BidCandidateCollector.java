@@ -11,5 +11,9 @@ import java.util.List;
  */
 public interface BidCandidateCollector {
 
+    default String sourceCode() {
+        return "ADDITIONAL";
+    }
+
     List<BidQualificationDto> collect(LocalDate startDate, LocalDate endDate);
 }
