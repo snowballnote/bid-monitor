@@ -8,6 +8,8 @@ public interface BidCollectionLockRepository {
 
     Optional<BidCollectionLock> findForUpdate(String sourceCode, LocalDate startDate, LocalDate endDate);
 
+    Optional<BidCollectionLock> find(String sourceCode, LocalDate startDate, LocalDate endDate);
+
     void insert(BidCollectionLock lock);
 
     void replace(BidCollectionLock lock);

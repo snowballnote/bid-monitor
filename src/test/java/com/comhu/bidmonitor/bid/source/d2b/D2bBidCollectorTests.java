@@ -180,7 +180,60 @@ class D2bBidCollectorTests {
     }
 
     @Test
+    void reservesEveryListRequestAndReportsMeasuredAttempts() {
+        RecordingTransport transport = new RecordingTransport(uri -> emptyList());
+        AtomicInteger reservations = new AtomicInteger();
+        D2bBidCollector collector = new D2bBidCollector(
+                "https://example.test/BidPblancInfoService", "test-key", transport,
+                reservations::incrementAndGet
+        );
+
+        D2bBidCollector.CollectionResult result = collector.collectMeasured(START, END);
+
+        assertEquals(20, reservations.get());
+        assertEquals(20, transport.uris.size());
+        assertEquals(20, result.apiCallCount());
+    }
+
+    @Test
+    void quotaDenialPreventsHttpRequest() {
+        RecordingTransport transport = new RecordingTransport(uri -> emptyList());
+        D2bBidCollector collector = new D2bBidCollector(
+                "https://example.test/BidPblancInfoService", "test-key", transport,
+                () -> { throw new D2bDailyQuotaExceededException(START); }
+        );
+
+        D2bBidCollector.CollectionException failure = assertThrows(
+                D2bBidCollector.CollectionException.class,
+                () -> collector.collectMeasured(START, END)
+        );
+
+        assertEquals(0, transport.uris.size());
+        assertEquals(0, failure.getApiCallCount());
+    }
+
+    @Test
+    void keepsPerCollectionRequestLimitAtOneHundred() {
+        RecordingTransport transport = new RecordingTransport(uri -> listWithTotal(10_000));
+        AtomicInteger reservations = new AtomicInteger();
+        D2bBidCollector collector = new D2bBidCollector(
+                "https://example.test/BidPblancInfoService", "test-key", transport,
+                reservations::incrementAndGet
+        );
+
+        D2bBidCollector.CollectionException failure = assertThrows(
+                D2bBidCollector.CollectionException.class,
+                () -> collector.collectMeasured(START, END)
+        );
+
+        assertEquals(100, transport.uris.size());
+        assertEquals(100, reservations.get());
+        assertEquals(100, failure.getApiCallCount());
+    }
+
+    @Test
     void followsPaginationAndPassesOfficialTitleAndDateParameters() {
+        AtomicInteger reservations = new AtomicInteger();
         RecordingTransport transport = new RecordingTransport(uri -> {
             Map<String, String> query = query(uri);
             if (!path(uri).equals("getDmstcCmpetBidPblancList")
@@ -193,13 +246,21 @@ class D2bBidCollectorTests {
             return listWithTotal(101);
         });
 
-        List<BidQualificationDto> result = collector(transport).collect(START, END);
+        D2bBidCollector collector = new D2bBidCollector(
+                "https://example.test/BidPblancInfoService", "test-key", transport,
+                reservations::incrementAndGet
+        );
+        D2bBidCollector.CollectionResult measured = collector.collectMeasured(START, END);
+        List<BidQualificationDto> result = measured.candidates();
 
         assertEquals(1, result.size());
         assertTrue(transport.uris.stream().map(D2bBidCollectorTests::query)
                 .anyMatch(values -> "20260901".equals(values.get("anmtDateBegin"))
                         && "20260921".equals(values.get("anmtDateEnd"))
                         && "2".equals(values.get("pageNo"))));
+        assertEquals(transport.uris.size(), reservations.get());
+        assertEquals(transport.uris.size(), measured.apiCallCount());
+        assertEquals(1, transport.detailCalls.get());
     }
 
     @Test

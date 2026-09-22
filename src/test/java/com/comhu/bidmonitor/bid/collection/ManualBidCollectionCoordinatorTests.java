@@ -59,6 +59,9 @@ class ManualBidCollectionCoordinatorTests {
     private BidSourceStateRepository stateRepository;
 
     @Autowired
+    private BidCollectionExecutionLockService lockService;
+
+    @Autowired
     private BidNoticeRepository noticeRepository;
 
     @Autowired
@@ -73,6 +76,7 @@ class ManualBidCollectionCoordinatorTests {
     void clearTables() {
         jdbcTemplate.update("DELETE FROM bid_notice_version");
         jdbcTemplate.update("DELETE FROM bid_notice");
+        jdbcTemplate.update("DELETE FROM bid_collection_lock");
         jdbcTemplate.update("DELETE FROM bid_collection_run");
         jdbcTemplate.update("DELETE FROM bid_source_state");
         clock = Clock.fixed(NOW, ZoneOffset.UTC);
@@ -94,6 +98,7 @@ class ManualBidCollectionCoordinatorTests {
         assertEquals(1, run.getCollectedCount());
         assertEquals(1, run.getNewCount());
         assertNotNull(run.getFinishedAt());
+        assertEquals(0, activeLockCount());
     }
 
     @Test
@@ -123,13 +128,40 @@ class ManualBidCollectionCoordinatorTests {
     }
 
     @Test
-    void productionRegistryKeepsD2bDisabledUntilDailyQuotaProtectionExists() {
+    void productionRegistryKeepsD2bDisabledAfterQuotaProtectionIsAdded() {
         ManualBidCollectionSource d2b = sourceRegistry.sources().stream()
                 .filter(source -> source.sourceCode().equals("D2B"))
                 .findFirst()
                 .orElseThrow();
 
         assertFalse(d2b.executionEnabled());
+    }
+
+    @Test
+    void explicitSourceSelectionCannotEnableD2b() {
+        AtomicInteger invocations = new AtomicInteger();
+        ManualBidCollectionSource disabledD2b = new ManualBidCollectionSource() {
+            @Override
+            public String sourceCode() {
+                return "D2B";
+            }
+
+            @Override
+            public boolean executionEnabled() {
+                return false;
+            }
+
+            @Override
+            public CollectionBatch collect(LocalDate startDate, LocalDate endDate, Set<String> codes) {
+                invocations.incrementAndGet();
+                return CollectionBatch.unmeasured(List.of());
+            }
+        };
+
+        assertThrows(IllegalArgumentException.class, () -> coordinator(disabledD2b).collect(
+                START, END, LICENSE_CODES, Set.of("D2B")
+        ));
+        assertEquals(0, invocations.get());
     }
 
     @Test
@@ -206,6 +238,29 @@ class ManualBidCollectionCoordinatorTests {
         assertEquals(BidCollectionRun.Status.FAILED, latestRun("G2B").getStatus());
         assertEquals(BidCollectionRun.Status.FAILED, latestRun("KOREA_EXPRESSWAY").getStatus());
         assertTrue(noticeRepository.findAll().isEmpty());
+        assertEquals(0, activeLockCount());
+    }
+
+    @Test
+    void recordsMeasuredCallCountWhenD2bCollectionFails() {
+        ManualBidCollectionSource measuredFailure = new ManualBidCollectionSource() {
+            @Override
+            public String sourceCode() {
+                return "D2B";
+            }
+
+            @Override
+            public CollectionBatch collect(LocalDate startDate, LocalDate endDate, Set<String> codes) {
+                throw new MeasuredCollectionException(4, new IllegalStateException("fixture failure"));
+            }
+        };
+
+        assertThrows(
+                ManualBidCollectionException.class,
+                () -> coordinator(measuredFailure).collect(START, END, LICENSE_CODES)
+        );
+
+        assertEquals(4, latestRun("D2B").getApiCallCount());
     }
 
     @Test
@@ -231,7 +286,7 @@ class ManualBidCollectionCoordinatorTests {
     }
 
     @Test
-    void preventsConcurrentDuplicateForSameSourceAndPeriodWithinCoordinatorInstance() throws Exception {
+    void preventsConcurrentDuplicateAcrossCoordinatorInstances() throws Exception {
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         AtomicInteger invocations = new AtomicInteger();
@@ -256,15 +311,16 @@ class ManualBidCollectionCoordinatorTests {
                 return CollectionBatch.unmeasured(List.of(candidate("G2B", "LOCK-1", null, "공고")));
             }
         };
-        ManualBidCollectionCoordinator coordinator = coordinator(blocking);
+        ManualBidCollectionCoordinator firstCoordinator = coordinator(blocking);
+        ManualBidCollectionCoordinator secondCoordinator = coordinator(blocking);
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            var first = executor.submit(() -> coordinator.collect(START, END, LICENSE_CODES));
+            var first = executor.submit(() -> firstCoordinator.collect(START, END, LICENSE_CODES));
             assertTrue(entered.await(5, TimeUnit.SECONDS));
 
             ManualBidCollectionException duplicate = assertThrows(
                     ManualBidCollectionException.class,
-                    () -> coordinator.collect(START, END, LICENSE_CODES)
+                    () -> secondCoordinator.collect(START, END, LICENSE_CODES)
             );
             assertEquals("ALREADY_RUNNING", duplicate.getResult().sourceResults().getFirst().errorCode());
             assertEquals(1, invocations.get());
@@ -277,8 +333,8 @@ class ManualBidCollectionCoordinatorTests {
     private ManualBidCollectionCoordinator coordinator(ManualBidCollectionSource... sources) {
         return new ManualBidCollectionCoordinator(
                 persistenceService,
-                runRepository,
                 stateRepository,
+                lockService,
                 clock,
                 List.of(sources)
         );
@@ -324,6 +380,10 @@ class ManualBidCollectionCoordinatorTests {
 
     private BidCollectionRun latestRun(String sourceCode) {
         return runRepository.findBySourceCodeLatestFirst(sourceCode).getFirst();
+    }
+
+    private int activeLockCount() {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM bid_collection_lock", Integer.class);
     }
 
     private BidQualificationDto candidate(

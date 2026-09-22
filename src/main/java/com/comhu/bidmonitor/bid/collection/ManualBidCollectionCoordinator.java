@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.Locale;
 
 @Slf4j
 @Service
@@ -66,16 +67,31 @@ public class ManualBidCollectionCoordinator {
             LocalDate endDate,
             Set<String> allowedLicenseCodes
     ) {
+        return collect(startDate, endDate, allowedLicenseCodes, Set.of());
+    }
+
+    public ManualBidCollectionResult collect(
+            LocalDate startDate,
+            LocalDate endDate,
+            Set<String> allowedLicenseCodes,
+            Set<String> requestedSourceCodes
+    ) {
         validateRange(startDate, endDate);
         Set<String> normalizedCodes = allowedLicenseCodes == null ? Set.of() : Set.copyOf(allowedLicenseCodes);
+        Set<String> normalizedSources = normalizeRequestedSources(requestedSourceCodes);
+        validateRequestedSources(normalizedSources);
         List<String> skippedSources = new ArrayList<>();
         List<BidSourceCollectionResult> collectedResults = new ArrayList<>();
         Map<String, ExecutionContext> executions = new LinkedHashMap<>();
+        Map<String, Long> runIdsBySource = new LinkedHashMap<>();
         List<BidCollectionExecutionLockService.LockedRun> acquiredLocks = new ArrayList<>();
 
         try {
             for (ManualBidCollectionSource source : sources) {
                 String sourceCode = source.sourceCode();
+                if (!normalizedSources.isEmpty() && !normalizedSources.contains(sourceCode)) {
+                    continue;
+                }
                 if (!source.executionEnabled()) {
                     skippedSources.add(sourceCode);
                     continue;
@@ -85,11 +101,14 @@ public class ManualBidCollectionCoordinator {
                         sourceCode, startDate, endDate, BidCollectionRun.TriggerType.MANUAL, startedAt
                 );
                 if (acquired.isEmpty()) {
+                    lockService.currentRunId(sourceCode, startDate, endDate)
+                            .ifPresent(runId -> runIdsBySource.put(sourceCode, runId));
                     collectedResults.add(BidSourceCollectionResult.failure(sourceCode, ALREADY_RUNNING));
                     continue;
                 }
                 BidCollectionExecutionLockService.LockedRun lockedRun = acquired.get();
                 acquiredLocks.add(lockedRun);
+                runIdsBySource.put(sourceCode, lockedRun.run().getId());
                 executions.put(sourceCode, new ExecutionContext(lockedRun, null));
                 try {
                     markAttempt(sourceCode, startedAt);
@@ -128,7 +147,9 @@ public class ManualBidCollectionCoordinator {
             }
 
             finishExecutions(executions, persistenceResult.sourceResults());
-            ManualBidCollectionResult result = toCoordinatorResult(persistenceResult, skippedSources);
+            ManualBidCollectionResult result = toCoordinatorResult(
+                    persistenceResult, startDate, endDate, skippedSources, runIdsBySource
+            );
             if (allFailed) {
                 throw new ManualBidCollectionException(result);
             }
@@ -206,7 +227,10 @@ public class ManualBidCollectionCoordinator {
 
     private ManualBidCollectionResult toCoordinatorResult(
             BidCollectionPersistenceResult persistenceResult,
-            List<String> skippedSources
+            LocalDate startDate,
+            LocalDate endDate,
+            List<String> skippedSources,
+            Map<String, Long> runIdsBySource
     ) {
         int successes = persistenceResult.successfulSourceCount();
         int failures = persistenceResult.failedSourceCount();
@@ -215,7 +239,40 @@ public class ManualBidCollectionCoordinator {
                 : failures == 0
                 ? ManualBidCollectionResult.Status.SUCCESS
                 : ManualBidCollectionResult.Status.PARTIAL_SUCCESS;
-        return new ManualBidCollectionResult(status, persistenceResult.sourceResults(), skippedSources);
+        return new ManualBidCollectionResult(
+                status, startDate, endDate, persistenceResult.sourceResults(), skippedSources, runIdsBySource
+        );
+    }
+
+    private Set<String> normalizeRequestedSources(Set<String> requestedSourceCodes) {
+        if (requestedSourceCodes == null || requestedSourceCodes.isEmpty()) {
+            return Set.of();
+        }
+        Set<String> normalized = new LinkedHashSet<>();
+        for (String sourceCode : requestedSourceCodes) {
+            if (sourceCode == null || sourceCode.isBlank()) {
+                throw new IllegalArgumentException("sourceCodes must not contain blank values.");
+            }
+            normalized.add(sourceCode.trim().toUpperCase(Locale.ROOT));
+        }
+        return Set.copyOf(normalized);
+    }
+
+    private void validateRequestedSources(Set<String> requestedSourceCodes) {
+        if (requestedSourceCodes.isEmpty()) {
+            return;
+        }
+        Map<String, ManualBidCollectionSource> configured = new LinkedHashMap<>();
+        sources.forEach(source -> configured.put(source.sourceCode(), source));
+        for (String sourceCode : requestedSourceCodes) {
+            ManualBidCollectionSource source = configured.get(sourceCode);
+            if (source == null) {
+                throw new IllegalArgumentException("Unsupported bid source: " + sourceCode);
+            }
+            if (!source.executionEnabled()) {
+                throw new IllegalArgumentException("Bid source is disabled: " + sourceCode);
+            }
+        }
     }
 
     private List<ManualBidCollectionSource> validateSources(List<ManualBidCollectionSource> values) {

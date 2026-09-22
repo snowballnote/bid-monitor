@@ -39,6 +39,17 @@ public class JdbcBidCollectionLockRepository implements BidCollectionLockReposit
     }
 
     @Override
+    public Optional<BidCollectionLock> find(String sourceCode, LocalDate startDate, LocalDate endDate) {
+        return jdbcTemplate.query("""
+                SELECT source_code, query_start_date, query_end_date, owner_token,
+                       acquired_at, lease_expires_at, run_id
+                FROM bid_collection_lock
+                WHERE source_code = ? AND query_start_date = ? AND query_end_date = ?
+                """, this::map, sourceCode, Date.valueOf(startDate), Date.valueOf(endDate))
+                .stream().findFirst();
+    }
+
+    @Override
     public void insert(BidCollectionLock lock) {
         jdbcTemplate.update("""
                 INSERT INTO bid_collection_lock (

@@ -107,6 +107,10 @@ public class BidCollectionExecutionLockService {
         }
     }
 
+    public Optional<Long> currentRunId(String sourceCode, LocalDate startDate, LocalDate endDate) {
+        return lockRepository.find(sourceCode, startDate, endDate).map(BidCollectionLock::runId);
+    }
+
     public void completeAndRelease(LockedRun lockedRun, BidCollectionRun completedRun) {
         transactions.executeWithoutResult(status -> {
             if (!lockedRun.run().getId().equals(completedRun.getId())) {
