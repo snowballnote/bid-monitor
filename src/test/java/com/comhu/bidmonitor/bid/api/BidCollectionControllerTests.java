@@ -5,6 +5,8 @@ import com.comhu.bidmonitor.bid.collection.ManualBidCollectionException;
 import com.comhu.bidmonitor.bid.collection.ManualBidCollectionResult;
 import com.comhu.bidmonitor.bid.persistence.BidCollectionRun;
 import com.comhu.bidmonitor.bid.persistence.BidCollectionRunRepository;
+import com.comhu.bidmonitor.bid.persistence.BidNotice;
+import com.comhu.bidmonitor.bid.persistence.BidNoticeRepository;
 import com.comhu.bidmonitor.bid.persistence.BidSourceState;
 import com.comhu.bidmonitor.bid.persistence.BidSourceStateRepository;
 import com.comhu.bidmonitor.bid.persistence.service.BidSourcePersistenceResult;
@@ -22,6 +24,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -30,6 +33,7 @@ import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -62,6 +66,9 @@ class BidCollectionControllerTests {
     private BidSourceStateRepository stateRepository;
 
     @Autowired
+    private BidNoticeRepository noticeRepository;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @MockitoBean
@@ -72,9 +79,126 @@ class BidCollectionControllerTests {
 
     @BeforeEach
     void clearTables() {
+        jdbcTemplate.update("DELETE FROM bid_notice_version");
+        jdbcTemplate.update("DELETE FROM bid_notice");
         jdbcTemplate.update("DELETE FROM bid_collection_lock");
         jdbcTemplate.update("DELETE FROM bid_collection_run");
         jdbcTemplate.update("DELETE FROM bid_source_state");
+    }
+
+    @Test
+    void returnsEmptyStoredNoticePageWithoutCallingExternalApis() throws Exception {
+        mockMvc.perform(get("/api/bid-notices"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isEmpty())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.totalCount").value(0))
+                .andExpect(jsonPath("$.totalPages").value(0));
+
+        verifyNoInteractions(coordinator, g2bApiService);
+    }
+
+    @Test
+    void returnsStoredNoticesLatestFirstWithPublicFieldsOnly() throws Exception {
+        saveNotice("G2B", "old", "000", LocalDateTime.of(2026, 9, 20, 9, 0), 'a');
+        saveNotice("D2B", "same-time-first", "1", LocalDateTime.of(2026, 9, 22, 9, 0), 'b');
+        saveNotice("G2B", "same-time-last", "002", LocalDateTime.of(2026, 9, 22, 9, 0), 'c');
+
+        mockMvc.perform(get("/api/bid-notices"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].sourceNoticeId").value("same-time-last"))
+                .andExpect(jsonPath("$.items[1].sourceNoticeId").value("same-time-first"))
+                .andExpect(jsonPath("$.items[2].sourceNoticeId").value("old"))
+                .andExpect(jsonPath("$.items[0].sourceCode").value("G2B"))
+                .andExpect(jsonPath("$.items[0].revision").value("002"))
+                .andExpect(jsonPath("$.items[0].noticeNumber").value("NO-same-time-last"))
+                .andExpect(jsonPath("$.items[0].title").value("Title same-time-last"))
+                .andExpect(jsonPath("$.items[0].orderingOrganization").value("Ordering organization"))
+                .andExpect(jsonPath("$.items[0].publishedAt").value("2026-09-22T09:00:00"))
+                .andExpect(jsonPath("$.items[0].submissionDeadlineAt").exists())
+                .andExpect(jsonPath("$.items[0].bidOpeningAt").exists())
+                .andExpect(jsonPath("$.items[0].contractMethod").value("Restricted"))
+                .andExpect(jsonPath("$.items[0].bidMethod").value("Electronic"))
+                .andExpect(jsonPath("$.items[0].noticeStatus").value("Open"))
+                .andExpect(jsonPath("$.items[0].detailUrl").value("https://example.test/same-time-last"))
+                .andExpect(jsonPath("$.items[0].firstSeenAt").exists())
+                .andExpect(jsonPath("$.items[0].lastSeenAt").exists())
+                .andExpect(jsonPath("$.items[0].id").doesNotExist())
+                .andExpect(jsonPath("$.items[0].contentHash").doesNotExist())
+                .andExpect(jsonPath("$.items[0].noticeStatusCode").doesNotExist())
+                .andExpect(jsonPath("$.items[0].analysisStatus").doesNotExist())
+                .andExpect(jsonPath("$.items[0].analysisResult").doesNotExist())
+                .andExpect(jsonPath("$.items[0].relevant").doesNotExist());
+    }
+
+    @Test
+    void filtersStoredNoticesByInclusivePublishedDateAndSource() throws Exception {
+        saveNotice("G2B", "before", "", LocalDateTime.of(2026, 9, 20, 23, 59), 'd');
+        saveNotice("G2B", "start", "", LocalDateTime.of(2026, 9, 21, 0, 0), 'e');
+        saveNotice("D2B", "other-source", "", LocalDateTime.of(2026, 9, 21, 12, 0), 'f');
+        saveNotice("G2B", "end", "", LocalDateTime.of(2026, 9, 22, 23, 59), '1');
+        saveNotice("G2B", "after", "", LocalDateTime.of(2026, 9, 23, 0, 0), '2');
+
+        mockMvc.perform(get("/api/bid-notices")
+                        .param("startDate", "2026-09-21")
+                        .param("endDate", "2026-09-22")
+                        .param("sourceCode", "g2b"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].sourceNoticeId").value("end"))
+                .andExpect(jsonPath("$.items[1].sourceNoticeId").value("start"))
+                .andExpect(jsonPath("$.totalCount").value(2));
+    }
+
+    @Test
+    void paginatesStoredNoticesAndReportsTotalCount() throws Exception {
+        saveNotice("G2B", "first", "", LocalDateTime.of(2026, 9, 20, 9, 0), '3');
+        saveNotice("G2B", "second", "", LocalDateTime.of(2026, 9, 21, 9, 0), '4');
+        saveNotice("G2B", "third", "", LocalDateTime.of(2026, 9, 22, 9, 0), '5');
+
+        mockMvc.perform(get("/api/bid-notices").param("page", "1").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].sourceNoticeId").value("first"))
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.size").value(2))
+                .andExpect(jsonPath("$.totalCount").value(3))
+                .andExpect(jsonPath("$.totalPages").value(2));
+    }
+
+    @Test
+    void returnsEachStoredRevision() throws Exception {
+        saveNotice("G2B", "revised", "000", LocalDateTime.of(2026, 9, 22, 9, 0), '6');
+        saveNotice("G2B", "revised", "001", LocalDateTime.of(2026, 9, 22, 10, 0), '7');
+
+        mockMvc.perform(get("/api/bid-notices"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].revision").value("001"))
+                .andExpect(jsonPath("$.items[1].revision").value("000"))
+                .andExpect(jsonPath("$.totalCount").value(2));
+    }
+
+    @Test
+    void rejectsInvalidStoredNoticeQueryParameters() throws Exception {
+        mockMvc.perform(get("/api/bid-notices").param("startDate", "2026-09-23")
+                        .param("endDate", "2026-09-22"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        mockMvc.perform(get("/api/bid-notices").param("startDate", "not-a-date"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/bid-notices").param("sourceCode", "UNKNOWN"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Unsupported bid source."));
+        mockMvc.perform(get("/api/bid-notices").param("page", "-1"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/bid-notices").param("page", "NaN"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/bid-notices").param("size", "0"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/bid-notices").param("size", "101"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -267,5 +391,36 @@ class BidCollectionControllerTests {
         return new BidSourcePersistenceResult(
                 sourceCode, status, collected, added, updated, unchanged, errorCode
         );
+    }
+
+    private void saveNotice(
+            String sourceCode,
+            String sourceNoticeId,
+            String revision,
+            LocalDateTime publishedAt,
+            char hashCharacter
+    ) {
+        noticeRepository.save(BidNotice.builder()
+                .sourceCode(sourceCode)
+                .sourceNoticeId(sourceNoticeId)
+                .revisionKey(revision)
+                .noticeNumber("NO-" + sourceNoticeId)
+                .title("Title " + sourceNoticeId)
+                .orderingOrganization("Ordering organization")
+                .publishedAt(publishedAt)
+                .submissionDeadlineAt(publishedAt.plusDays(7))
+                .bidOpeningAt(publishedAt.plusDays(8))
+                .contractMethod("Restricted")
+                .bidMethod("Electronic")
+                .noticeStatus("Open")
+                .noticeStatusCode("OPEN")
+                .detailUrl("https://example.test/" + sourceNoticeId)
+                .relevant(true)
+                .analysisStatus("MATCHED")
+                .analysisResult("internal")
+                .contentHash(String.valueOf(hashCharacter).repeat(64))
+                .firstSeenAt(Instant.parse("2026-09-22T01:00:00Z"))
+                .lastSeenAt(Instant.parse("2026-09-22T02:00:00Z"))
+                .build());
     }
 }

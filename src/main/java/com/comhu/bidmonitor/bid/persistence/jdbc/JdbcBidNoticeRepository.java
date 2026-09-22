@@ -17,7 +17,10 @@ import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -108,6 +111,46 @@ public class JdbcBidNoticeRepository implements BidNoticeRepository {
                 "SELECT " + NOTICE_COLUMNS + " FROM bid_notice ORDER BY id",
                 this::mapNotice
         );
+    }
+
+    @Override
+    public BidNoticePage findLatest(
+            LocalDate startDate,
+            LocalDate endDate,
+            String sourceCode,
+            int page,
+            int size
+    ) {
+        StringBuilder where = new StringBuilder(" FROM bid_notice WHERE 1 = 1");
+        List<Object> parameters = new ArrayList<>();
+        if (startDate != null) {
+            where.append(" AND published_at >= ?");
+            parameters.add(Timestamp.valueOf(startDate.atStartOfDay()));
+        }
+        if (endDate != null) {
+            where.append(" AND published_at <= ?");
+            parameters.add(Timestamp.valueOf(endDate.atTime(LocalTime.MAX)));
+        }
+        if (sourceCode != null) {
+            where.append(" AND source_code = ?");
+            parameters.add(sourceCode);
+        }
+
+        Long totalCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*)" + where,
+                Long.class,
+                parameters.toArray()
+        );
+        List<Object> pageParameters = new ArrayList<>(parameters);
+        pageParameters.add(size);
+        pageParameters.add(Math.multiplyExact((long) page, size));
+        List<BidNotice> items = jdbcTemplate.query(
+                "SELECT " + NOTICE_COLUMNS + where
+                        + " ORDER BY published_at DESC NULLS LAST, id DESC LIMIT ? OFFSET ?",
+                this::mapNotice,
+                pageParameters.toArray()
+        );
+        return new BidNoticePage(items, Objects.requireNonNull(totalCount));
     }
 
     @Override
