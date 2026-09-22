@@ -29,4 +29,17 @@ public interface ManualBidCollectionSource {
             return new CollectionBatch(candidates, null);
         }
     }
+
+    class MeasuredCollectionException extends RuntimeException {
+        private final int apiCallCount;
+
+        public MeasuredCollectionException(int apiCallCount, Throwable cause) {
+            super(cause);
+            this.apiCallCount = apiCallCount;
+        }
+
+        public int getApiCallCount() {
+            return apiCallCount;
+        }
+    }
 }

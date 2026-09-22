@@ -100,7 +100,10 @@ public class ManualBidCollectionCoordinator {
                 } catch (RuntimeException exception) {
                     log.warn("Manual bid collection failed: sourceCode={}, errorType={}",
                             sourceCode, exception.getClass().getSimpleName());
-                    executions.put(sourceCode, new ExecutionContext(run, null));
+                    Integer apiCallCount = exception instanceof ManualBidCollectionSource.MeasuredCollectionException measured
+                            ? measured.getApiCallCount()
+                            : null;
+                    executions.put(sourceCode, new ExecutionContext(run, apiCallCount));
                     collectedResults.add(BidSourceCollectionResult.failure(sourceCode, COLLECTION_FAILED));
                 }
             }

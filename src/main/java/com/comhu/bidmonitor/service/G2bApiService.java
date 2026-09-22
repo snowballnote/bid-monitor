@@ -2409,10 +2409,23 @@ public class G2bApiService {
         if (collector == null) {
             throw new IllegalArgumentException("입찰공고 collector가 없습니다.");
         }
+        return processAdditionalBidQualificationList(
+                collector, collector.collect(startDate, endDate), allowedLicenseCodes
+        );
+    }
+
+    public List<BidQualificationDto> processAdditionalBidQualificationList(
+            BidCandidateCollector collector,
+            List<BidQualificationDto> candidates,
+            Set<String> allowedLicenseCodes
+    ) {
+        if (collector == null) {
+            throw new IllegalArgumentException("입찰공고 collector가 없습니다.");
+        }
         String sourceCode = safeSourceCode(collector.sourceCode());
         Set<String> normalizedCodes = normalizeAllowedLicenseCodes(allowedLicenseCodes);
         LinkedHashMap<CandidateKey, BidQualificationDto> collectedCandidates = new LinkedHashMap<>();
-        for (BidQualificationDto candidate : collector.collect(startDate, endDate)) {
+        for (BidQualificationDto candidate : candidates) {
             applySourceIdentity(candidate, sourceCode);
             applyExternalCheckResult(candidate);
             applyAwardMethodClassification(candidate);

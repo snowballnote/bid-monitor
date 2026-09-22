@@ -147,6 +147,11 @@ CREATE TABLE IF NOT EXISTS bid_source_state (
         CHECK (cooldown_seconds >= 0)
 );
 
+-- Seed only the D2B quota row. Existing limits and usage are never overwritten.
+INSERT INTO bid_source_state (source_code, consecutive_failures, daily_limit, used_calls, cooldown_seconds)
+SELECT 'D2B', 0, 100, 0, 0
+WHERE NOT EXISTS (SELECT 1 FROM bid_source_state WHERE source_code = 'D2B');
+
 CREATE TABLE IF NOT EXISTS notification_baseline (
     channel VARCHAR(50) NOT NULL,
     notification_type VARCHAR(100) NOT NULL,

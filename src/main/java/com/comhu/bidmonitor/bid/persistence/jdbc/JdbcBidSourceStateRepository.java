@@ -13,6 +13,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -85,6 +86,39 @@ public class JdbcBidSourceStateRepository implements BidSourceStateRepository {
                 "SELECT " + COLUMNS + " FROM bid_source_state ORDER BY source_code",
                 this::map
         );
+    }
+
+    @Override
+    @Transactional
+    public boolean tryReserveDailyCall(String sourceCode, LocalDate quotaDate, int defaultDailyLimit) {
+        if (sourceCode == null || sourceCode.isBlank() || quotaDate == null) {
+            throw new IllegalArgumentException("sourceCode and quotaDate are required.");
+        }
+        if (defaultDailyLimit < 0) {
+            throw new IllegalArgumentException("defaultDailyLimit must not be negative.");
+        }
+        String normalizedSourceCode = sourceCode.trim();
+        Date sqlDate = Date.valueOf(quotaDate);
+
+        int reservedAfterDateChange = jdbcTemplate.update("""
+                UPDATE bid_source_state
+                SET daily_limit = COALESCE(daily_limit, ?), used_calls = 1, quota_date = ?
+                WHERE source_code = ?
+                  AND (quota_date IS NULL OR quota_date <> ?)
+                  AND COALESCE(daily_limit, ?) > 0
+                """, defaultDailyLimit, sqlDate, normalizedSourceCode, sqlDate, defaultDailyLimit);
+        if (reservedAfterDateChange == 1) {
+            return true;
+        }
+
+        int reservedForCurrentDate = jdbcTemplate.update("""
+                UPDATE bid_source_state
+                SET daily_limit = COALESCE(daily_limit, ?), used_calls = used_calls + 1
+                WHERE source_code = ?
+                  AND quota_date = ?
+                  AND used_calls < COALESCE(daily_limit, ?)
+                """, defaultDailyLimit, normalizedSourceCode, sqlDate, defaultDailyLimit);
+        return reservedForCurrentDate == 1;
     }
 
     private void validate(BidSourceState state) {

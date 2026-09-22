@@ -56,22 +56,29 @@ public class D2bBidCollector implements BidCandidateCollector {
     private final String baseUrl;
     private final String serviceKey;
     private final Transport transport;
+    private final CallQuota callQuota;
 
     @Autowired
     public D2bBidCollector(
             @Value("${d2b.api.base-url}") String baseUrl,
-            @Value("${d2b.api.service-key:}") String serviceKey
+            @Value("${d2b.api.service-key:}") String serviceKey,
+            D2bDailyQuotaService dailyQuotaService
     ) {
-        this(baseUrl, serviceKey, new JdkTransport());
+        this(baseUrl, serviceKey, new JdkTransport(), dailyQuotaService::reserve);
     }
 
     D2bBidCollector(String baseUrl, String serviceKey, Transport transport) {
+        this(baseUrl, serviceKey, transport, () -> { });
+    }
+
+    D2bBidCollector(String baseUrl, String serviceKey, Transport transport, CallQuota callQuota) {
         if (baseUrl == null || baseUrl.isBlank()) {
             throw new IllegalArgumentException("D2B API 기본 URL이 비어 있습니다.");
         }
         this.baseUrl = stripTrailingSlash(baseUrl);
         this.serviceKey = serviceKey == null ? "" : serviceKey.trim();
         this.transport = transport;
+        this.callQuota = callQuota;
     }
 
     @Override
@@ -81,19 +88,24 @@ public class D2bBidCollector implements BidCandidateCollector {
 
     @Override
     public List<BidQualificationDto> collect(LocalDate startDate, LocalDate endDate) {
+        return collectMeasured(startDate, endDate).candidates();
+    }
+
+    public CollectionResult collectMeasured(LocalDate startDate, LocalDate endDate) {
         validateRange(startDate, endDate);
         if (serviceKey.isBlank()) {
             throw new IllegalStateException("D2B API 인증키가 설정되지 않았습니다.");
         }
 
         RequestBudget budget = new RequestBudget(MAX_REQUESTS_PER_COLLECTION);
+        RequestCounter counter = new RequestCounter();
         LinkedHashMap<CandidateKey, ListedNotice> listed = new LinkedHashMap<>();
         int successfulOperations = 0;
         List<String> failedOperations = new ArrayList<>();
 
         for (Operation operation : Operation.values()) {
             try {
-                for (ListedNotice notice : collectOperation(operation, startDate, endDate, budget)) {
+                for (ListedNotice notice : collectOperation(operation, startDate, endDate, budget, counter)) {
                     listed.putIfAbsent(notice.key(), notice);
                 }
                 successfulOperations++;
@@ -105,8 +117,8 @@ public class D2bBidCollector implements BidCandidateCollector {
         }
 
         if (successfulOperations == 0) {
-            throw new IllegalStateException("D2B 목록 오퍼레이션 조회에 실패했습니다: "
-                    + String.join(", ", failedOperations));
+            throw new CollectionException("D2B 목록 오퍼레이션 조회에 실패했습니다: "
+                    + String.join(", ", failedOperations), counter.count());
         }
 
         List<BidQualificationDto> result = new ArrayList<>();
@@ -114,7 +126,7 @@ public class D2bBidCollector implements BidCandidateCollector {
             Element detail = null;
             if (budget.tryAcquire()) {
                 try {
-                    detail = readDetail(notice);
+                    detail = readDetail(notice, counter);
                 } catch (RuntimeException exception) {
                     log.warn("D2B detail operation failed: operation={}, sourceNoticeId={}, errorType={}",
                             notice.operation.detailPath, notice.sourceNoticeId(),
@@ -123,14 +135,15 @@ public class D2bBidCollector implements BidCandidateCollector {
             }
             result.add(toQualification(notice, detail));
         }
-        return result;
+        return new CollectionResult(result, counter.count());
     }
 
     private List<ListedNotice> collectOperation(
             Operation operation,
             LocalDate startDate,
             LocalDate endDate,
-            RequestBudget budget
+            RequestBudget budget,
+            RequestCounter counter
     ) {
         LinkedHashMap<CandidateKey, ListedNotice> notices = new LinkedHashMap<>();
         for (String term : SEARCH_TERMS) {
@@ -145,7 +158,7 @@ public class D2bBidCollector implements BidCandidateCollector {
                 parameters.put(operation.startDateParameter, startDate.format(REQUEST_DATE));
                 parameters.put(operation.endDateParameter, endDate.format(REQUEST_DATE));
 
-                Document document = request(operation.listPath, parameters);
+                Document document = request(operation.listPath, parameters, counter);
                 totalCount = integer(text(first(document, "totalCount")), 0);
                 for (Element item : elements(document, "item")) {
                     String title = firstText(item, operation.titleField, "bidNm", "othbcNtatNm", "cntrwkNm");
@@ -162,7 +175,7 @@ public class D2bBidCollector implements BidCandidateCollector {
         return new ArrayList<>(notices.values());
     }
 
-    private Element readDetail(ListedNotice notice) {
+    private Element readDetail(ListedNotice notice, RequestCounter counter) {
         Map<String, String> parameters = new LinkedHashMap<>();
         for (String name : notice.operation.detailParameters) {
             String value = notice.value(name);
@@ -171,13 +184,15 @@ public class D2bBidCollector implements BidCandidateCollector {
             }
             parameters.put(name, value);
         }
-        return first(request(notice.operation.detailPath, parameters), "item");
+        return first(request(notice.operation.detailPath, parameters, counter), "item");
     }
 
-    private Document request(String path, Map<String, String> parameters) {
+    private Document request(String path, Map<String, String> parameters, RequestCounter counter) {
         StringBuilder url = new StringBuilder(baseUrl).append('/').append(path)
                 .append("?serviceKey=").append(encodedServiceKey(serviceKey));
         parameters.forEach((name, value) -> url.append('&').append(encode(name)).append('=').append(encode(value)));
+        callQuota.reserve();
+        counter.recordAttempt();
         String body = transport.get(URI.create(url.toString()));
         Document document = parseXml(body);
         String resultCode = text(first(document, "resultCode"));
@@ -414,6 +429,40 @@ public class D2bBidCollector implements BidCandidateCollector {
     private record CandidateKey(String sourceNoticeId, String revision) {
     }
 
+    public record CollectionResult(List<BidQualificationDto> candidates, int apiCallCount) {
+        public CollectionResult {
+            candidates = List.copyOf(candidates);
+            if (apiCallCount < 0) {
+                throw new IllegalArgumentException("apiCallCount must not be negative.");
+            }
+        }
+    }
+
+    public static class CollectionException extends IllegalStateException {
+        private final int apiCallCount;
+
+        CollectionException(String message, int apiCallCount) {
+            super(message);
+            this.apiCallCount = apiCallCount;
+        }
+
+        public int getApiCallCount() {
+            return apiCallCount;
+        }
+    }
+
+    private static final class RequestCounter {
+        private int count;
+
+        private void recordAttempt() {
+            count++;
+        }
+
+        private int count() {
+            return count;
+        }
+    }
+
     private static final class RequestBudget {
         private int remaining;
 
@@ -439,6 +488,11 @@ public class D2bBidCollector implements BidCandidateCollector {
     @FunctionalInterface
     interface Transport {
         String get(URI uri);
+    }
+
+    @FunctionalInterface
+    interface CallQuota {
+        void reserve();
     }
 
     private static final class JdkTransport implements Transport {

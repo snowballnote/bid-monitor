@@ -1,6 +1,7 @@
 package com.comhu.bidmonitor.bid.collection;
 
 import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
+import com.comhu.bidmonitor.bid.source.d2b.D2bBidCollector;
 import com.comhu.bidmonitor.service.G2bApiService;
 import org.springframework.stereotype.Component;
 
@@ -52,7 +53,7 @@ public class ManualBidCollectionSourceRegistry {
 
                 @Override
                 public boolean executionEnabled() {
-                    // D2B stays unavailable until a shared daily-quota reservation is implemented.
+                    // Operational activation remains a separate, explicit step.
                     return !D2B_SOURCE_CODE.equals(collector.sourceCode());
                 }
 
@@ -62,6 +63,19 @@ public class ManualBidCollectionSourceRegistry {
                         java.time.LocalDate endDate,
                         java.util.Set<String> allowedLicenseCodes
                 ) {
+                    if (collector instanceof D2bBidCollector d2bCollector) {
+                        try {
+                            D2bBidCollector.CollectionResult measured = d2bCollector.collectMeasured(startDate, endDate);
+                            return new CollectionBatch(
+                                    g2bApiService.processAdditionalBidQualificationList(
+                                            collector, measured.candidates(), allowedLicenseCodes
+                                    ),
+                                    measured.apiCallCount()
+                            );
+                        } catch (D2bBidCollector.CollectionException exception) {
+                            throw new MeasuredCollectionException(exception.getApiCallCount(), exception);
+                        }
+                    }
                     return CollectionBatch.unmeasured(g2bApiService.getAdditionalBidQualificationList(
                             collector, startDate, endDate, allowedLicenseCodes
                     ));
