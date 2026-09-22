@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS bid_collection_run (
     started_at TIMESTAMP NOT NULL,
     finished_at TIMESTAMP,
     status VARCHAR(20) NOT NULL,
-    api_call_count INTEGER NOT NULL DEFAULT 0,
+    api_call_count INTEGER,
     collected_count INTEGER NOT NULL DEFAULT 0,
     new_count INTEGER NOT NULL DEFAULT 0,
     changed_count INTEGER NOT NULL DEFAULT 0,
@@ -115,9 +115,13 @@ CREATE TABLE IF NOT EXISTS bid_collection_run (
     CONSTRAINT ck_bid_collection_run_time_order
         CHECK (finished_at IS NULL OR finished_at >= started_at),
     CONSTRAINT ck_bid_collection_run_counts
-        CHECK (api_call_count >= 0 AND collected_count >= 0 AND new_count >= 0
+        CHECK ((api_call_count IS NULL OR api_call_count >= 0) AND collected_count >= 0 AND new_count >= 0
             AND changed_count >= 0 AND failure_count >= 0)
 );
+
+-- Existing local H2 files created by an earlier development revision keep their rows while
+-- gaining an explicit NULL state for call counts that the source client cannot measure yet.
+ALTER TABLE bid_collection_run ALTER COLUMN api_call_count DROP NOT NULL;
 
 CREATE INDEX IF NOT EXISTS ix_bid_collection_run_source_started
     ON bid_collection_run (source_code, started_at);

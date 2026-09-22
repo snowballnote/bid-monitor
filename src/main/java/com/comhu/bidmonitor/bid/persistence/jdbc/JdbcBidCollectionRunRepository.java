@@ -51,7 +51,7 @@ public class JdbcBidCollectionRunRepository implements BidCollectionRunRepositor
             statement.setTimestamp(5, Timestamp.from(run.getStartedAt()));
             setTimestamp(statement, 6, run.getFinishedAt());
             statement.setString(7, run.getStatus().name());
-            statement.setInt(8, run.getApiCallCount());
+            setInteger(statement, 8, run.getApiCallCount());
             statement.setInt(9, run.getCollectedCount());
             statement.setInt(10, run.getNewCount());
             statement.setInt(11, run.getChangedCount());
@@ -78,7 +78,7 @@ public class JdbcBidCollectionRunRepository implements BidCollectionRunRepositor
                     """);
             setTimestamp(statement, 1, run.getFinishedAt());
             statement.setString(2, run.getStatus().name());
-            statement.setInt(3, run.getApiCallCount());
+            setInteger(statement, 3, run.getApiCallCount());
             statement.setInt(4, run.getCollectedCount());
             statement.setInt(5, run.getNewCount());
             statement.setInt(6, run.getChangedCount());
@@ -136,7 +136,8 @@ public class JdbcBidCollectionRunRepository implements BidCollectionRunRepositor
         if (run.getFinishedAt() != null && run.getFinishedAt().isBefore(run.getStartedAt())) {
             throw new IllegalArgumentException("finishedAt must not be before startedAt.");
         }
-        if (run.getApiCallCount() < 0 || run.getCollectedCount() < 0 || run.getNewCount() < 0
+        if ((run.getApiCallCount() != null && run.getApiCallCount() < 0)
+                || run.getCollectedCount() < 0 || run.getNewCount() < 0
                 || run.getChangedCount() < 0 || run.getFailureCount() < 0) {
             throw new IllegalArgumentException("Collection counts must not be negative.");
         }
@@ -153,7 +154,7 @@ public class JdbcBidCollectionRunRepository implements BidCollectionRunRepositor
                 .startedAt(rs.getTimestamp("started_at").toInstant())
                 .finishedAt(finishedAt == null ? null : finishedAt.toInstant())
                 .status(BidCollectionRun.Status.valueOf(rs.getString("status")))
-                .apiCallCount(rs.getInt("api_call_count"))
+                .apiCallCount((Integer) rs.getObject("api_call_count"))
                 .collectedCount(rs.getInt("collected_count"))
                 .newCount(rs.getInt("new_count"))
                 .changedCount(rs.getInt("changed_count"))
@@ -168,6 +169,14 @@ public class JdbcBidCollectionRunRepository implements BidCollectionRunRepositor
             statement.setNull(index, Types.TIMESTAMP);
         } else {
             statement.setTimestamp(index, Timestamp.from(value));
+        }
+    }
+
+    private void setInteger(PreparedStatement statement, int index, Integer value) throws SQLException {
+        if (value == null) {
+            statement.setNull(index, Types.INTEGER);
+        } else {
+            statement.setInt(index, value);
         }
     }
 }

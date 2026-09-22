@@ -2351,14 +2351,8 @@ public class G2bApiService {
         Set<String> normalizedCodes = normalizeAllowedLicenseCodes(allowedLicenseCodes);
         LinkedHashMap<CandidateKey, BidQualificationDto> uniqueCandidates = new LinkedHashMap<>();
 
-        // 기존 6146 나라장터 모집단은 그대로 상세조회와 자체 낙찰방법 판정을 수행한다.
-        getBidDtoList(startDate, endDate).stream()
-                .map(BidDto::getBidNtceNo)
-                .map(bidNtceNo -> getBidQualification(bidNtceNo, normalizedCodes))
-                .forEach(candidate -> {
-                    applySourceIdentity(candidate, G2B_SOURCE_CODE);
-                    addUniqueCandidate(uniqueCandidates, candidate, true);
-                });
+        getG2bTargetBidQualificationList(startDate, endDate, normalizedCodes)
+                .forEach(candidate -> addUniqueCandidate(uniqueCandidates, candidate, true));
 
         // 나라장터 OpenAPI에 없는 연계기관 후보도 같은 classifier와 후속 검토 조건을 통과시킨다.
         int successfulAdditionalCollectors = 0;
@@ -2366,15 +2360,8 @@ public class G2bApiService {
         for (BidCandidateCollector collector : additionalBidCandidateCollectors) {
             String sourceCode = safeSourceCode(collector.sourceCode());
             try {
-                LinkedHashMap<CandidateKey, BidQualificationDto> collectedCandidates = new LinkedHashMap<>();
-                for (BidQualificationDto candidate : collector.collect(startDate, endDate)) {
-                    applySourceIdentity(candidate, sourceCode);
-                    applyExternalCheckResult(candidate);
-                    applyAwardMethodClassification(candidate);
-                    applyReviewResult(candidate, normalizedCodes);
-                    addUniqueCandidate(collectedCandidates, candidate, false);
-                }
-                collectedCandidates.forEach(uniqueCandidates::putIfAbsent);
+                getAdditionalBidQualificationList(collector, startDate, endDate, normalizedCodes)
+                        .forEach(candidate -> addUniqueCandidate(uniqueCandidates, candidate, false));
                 successfulAdditionalCollectors++;
             } catch (RuntimeException exception) {
                 failedSourceCodes.add(sourceCode);
@@ -2392,6 +2379,47 @@ public class G2bApiService {
         }
 
         return new ArrayList<>(uniqueCandidates.values());
+    }
+
+    /** Coordinator가 나라장터와 연계기관을 독립 실행할 수 있도록 기존 G2B 처리만 분리한다. */
+    public List<BidQualificationDto> getG2bTargetBidQualificationList(
+            LocalDate startDate,
+            LocalDate endDate,
+            Set<String> allowedLicenseCodes
+    ) {
+        Set<String> normalizedCodes = normalizeAllowedLicenseCodes(allowedLicenseCodes);
+        LinkedHashMap<CandidateKey, BidQualificationDto> uniqueCandidates = new LinkedHashMap<>();
+        getBidDtoList(startDate, endDate).stream()
+                .map(BidDto::getBidNtceNo)
+                .map(bidNtceNo -> getBidQualification(bidNtceNo, normalizedCodes))
+                .forEach(candidate -> {
+                    applySourceIdentity(candidate, G2B_SOURCE_CODE);
+                    addUniqueCandidate(uniqueCandidates, candidate, true);
+                });
+        return new ArrayList<>(uniqueCandidates.values());
+    }
+
+    /** 기존 연계기관 후보의 후처리와 source-aware 중복 제거를 단일 출처 실행에도 재사용한다. */
+    public List<BidQualificationDto> getAdditionalBidQualificationList(
+            BidCandidateCollector collector,
+            LocalDate startDate,
+            LocalDate endDate,
+            Set<String> allowedLicenseCodes
+    ) {
+        if (collector == null) {
+            throw new IllegalArgumentException("입찰공고 collector가 없습니다.");
+        }
+        String sourceCode = safeSourceCode(collector.sourceCode());
+        Set<String> normalizedCodes = normalizeAllowedLicenseCodes(allowedLicenseCodes);
+        LinkedHashMap<CandidateKey, BidQualificationDto> collectedCandidates = new LinkedHashMap<>();
+        for (BidQualificationDto candidate : collector.collect(startDate, endDate)) {
+            applySourceIdentity(candidate, sourceCode);
+            applyExternalCheckResult(candidate);
+            applyAwardMethodClassification(candidate);
+            applyReviewResult(candidate, normalizedCodes);
+            addUniqueCandidate(collectedCandidates, candidate, false);
+        }
+        return new ArrayList<>(collectedCandidates.values());
     }
 
     private void addUniqueCandidate(

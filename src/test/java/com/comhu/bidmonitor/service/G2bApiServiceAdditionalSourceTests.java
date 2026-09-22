@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -19,6 +20,33 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class G2bApiServiceAdditionalSourceTests {
+
+    @Test
+    void separatedG2bExecutionDoesNotInvokeAdditionalCollectors() {
+        AtomicBoolean additionalInvoked = new AtomicBoolean(false);
+        BidCandidateCollector additional = new BidCandidateCollector() {
+            @Override
+            public String sourceCode() {
+                return "KOREA_EXPRESSWAY";
+            }
+
+            @Override
+            public List<BidQualificationDto> collect(LocalDate startDate, LocalDate endDate) {
+                additionalInvoked.set(true);
+                throw new IllegalStateException("must not run");
+            }
+        };
+        G2bApiService service = new G2bOnlyFixtureService(additional);
+
+        List<BidQualificationDto> result = service.getG2bTargetBidQualificationList(
+                LocalDate.of(2026, 8, 27), LocalDate.of(2026, 8, 27), Set.of("6146", "1468")
+        );
+
+        assertEquals(1, result.size());
+        assertEquals("G2B", result.getFirst().getSourceCode());
+        assertEquals("G2B-ONLY-00", result.getFirst().getSourceNoticeId());
+        assertFalse(additionalInvoked.get());
+    }
 
     @Test
     void additionalSourceCandidateUsesSameClassifierAndReviewPipeline() {
@@ -190,6 +218,26 @@ class G2bApiServiceAdditionalSourceTests {
         @Override
         public List<BidDto> getBidDtoList(LocalDate startDate, LocalDate endDate) {
             return List.of();
+        }
+    }
+
+    private static final class G2bOnlyFixtureService extends G2bApiService {
+        private G2bOnlyFixtureService(BidCandidateCollector additionalCollector) {
+            super(new BidAwardMethodClassifier(), List.of(additionalCollector));
+        }
+
+        @Override
+        public List<BidDto> getBidDtoList(LocalDate startDate, LocalDate endDate) {
+            BidDto bid = new BidDto();
+            bid.setBidNtceNo("G2B-ONLY-00");
+            return List.of(bid);
+        }
+
+        @Override
+        public BidQualificationDto getBidQualification(String bidNtceNo, Set<String> allowedLicenseCodes) {
+            BidQualificationDto candidate = candidate(bidNtceNo, bidNtceNo, null);
+            candidate.setSourceCode("G2B");
+            return candidate;
         }
     }
 }

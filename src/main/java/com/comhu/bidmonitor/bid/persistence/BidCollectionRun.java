@@ -18,7 +18,7 @@ public class BidCollectionRun {
     Instant startedAt;
     Instant finishedAt;
     Status status;
-    int apiCallCount;
+    Integer apiCallCount;
     int collectedCount;
     int newCount;
     int changedCount;
