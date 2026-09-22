@@ -126,6 +126,24 @@ ALTER TABLE bid_collection_run ALTER COLUMN api_call_count DROP NOT NULL;
 CREATE INDEX IF NOT EXISTS ix_bid_collection_run_source_started
     ON bid_collection_run (source_code, started_at);
 
+CREATE TABLE IF NOT EXISTS bid_collection_lock (
+    source_code VARCHAR(50) NOT NULL,
+    query_start_date DATE NOT NULL,
+    query_end_date DATE NOT NULL,
+    owner_token VARCHAR(36) NOT NULL,
+    acquired_at TIMESTAMP NOT NULL,
+    lease_expires_at TIMESTAMP NOT NULL,
+    run_id BIGINT,
+    CONSTRAINT pk_bid_collection_lock
+        PRIMARY KEY (source_code, query_start_date, query_end_date),
+    CONSTRAINT uk_bid_collection_lock_owner UNIQUE (owner_token),
+    CONSTRAINT uk_bid_collection_lock_run UNIQUE (run_id),
+    CONSTRAINT fk_bid_collection_lock_run
+        FOREIGN KEY (run_id) REFERENCES bid_collection_run (id),
+    CONSTRAINT ck_bid_collection_lock_range CHECK (query_end_date >= query_start_date),
+    CONSTRAINT ck_bid_collection_lock_lease CHECK (lease_expires_at > acquired_at)
+);
+
 CREATE TABLE IF NOT EXISTS bid_source_state (
     source_code VARCHAR(50) PRIMARY KEY,
     last_attempt_at TIMESTAMP,

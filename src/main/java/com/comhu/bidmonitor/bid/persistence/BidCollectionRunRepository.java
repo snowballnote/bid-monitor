@@ -1,5 +1,6 @@
 package com.comhu.bidmonitor.bid.persistence;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -12,4 +13,6 @@ public interface BidCollectionRunRepository {
     Optional<BidCollectionRun> findById(Long id);
 
     List<BidCollectionRun> findBySourceCodeLatestFirst(String sourceCode);
+
+    boolean failIfRunning(long id, Instant finishedAt, String errorCode);
 }

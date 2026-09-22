@@ -14,6 +14,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -118,6 +119,20 @@ public class JdbcBidCollectionRunRepository implements BidCollectionRunRepositor
                 this::map,
                 sourceCode.trim()
         );
+    }
+
+    @Override
+    public boolean failIfRunning(long id, Instant finishedAt, String errorCode) {
+        if (finishedAt == null || errorCode == null || errorCode.isBlank()) {
+            throw new IllegalArgumentException("finishedAt and errorCode are required.");
+        }
+        return jdbcTemplate.update("""
+                UPDATE bid_collection_run
+                SET finished_at = ?, status = 'FAILED', failure_count = CASE
+                        WHEN failure_count < 1 THEN 1 ELSE failure_count END,
+                    error_code = ?
+                WHERE id = ? AND status = 'RUNNING' AND started_at <= ?
+                """, Timestamp.from(finishedAt), errorCode, id, Timestamp.from(finishedAt)) == 1;
     }
 
     private void validate(BidCollectionRun run) {

@@ -1,7 +1,6 @@
 package com.comhu.bidmonitor.bid.collection;
 
 import com.comhu.bidmonitor.bid.persistence.BidCollectionRun;
-import com.comhu.bidmonitor.bid.persistence.BidCollectionRunRepository;
 import com.comhu.bidmonitor.bid.persistence.BidSourceState;
 import com.comhu.bidmonitor.bid.persistence.BidSourceStateRepository;
 import com.comhu.bidmonitor.bid.persistence.service.BidCollectionPersistenceException;
@@ -21,8 +20,8 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Service
@@ -32,33 +31,32 @@ public class ManualBidCollectionCoordinator {
     private static final String ALREADY_RUNNING = "ALREADY_RUNNING";
 
     private final BidCollectionPersistenceService persistenceService;
-    private final BidCollectionRunRepository runRepository;
     private final BidSourceStateRepository stateRepository;
+    private final BidCollectionExecutionLockService lockService;
     private final Clock clock;
     private final List<ManualBidCollectionSource> sources;
-    private final Set<CollectionKey> activeCollections = ConcurrentHashMap.newKeySet();
 
     @Autowired
     public ManualBidCollectionCoordinator(
             BidCollectionPersistenceService persistenceService,
-            BidCollectionRunRepository runRepository,
             BidSourceStateRepository stateRepository,
+            BidCollectionExecutionLockService lockService,
             Clock clock,
             ManualBidCollectionSourceRegistry sourceRegistry
     ) {
-        this(persistenceService, runRepository, stateRepository, clock, sourceRegistry.sources());
+        this(persistenceService, stateRepository, lockService, clock, sourceRegistry.sources());
     }
 
     ManualBidCollectionCoordinator(
             BidCollectionPersistenceService persistenceService,
-            BidCollectionRunRepository runRepository,
             BidSourceStateRepository stateRepository,
+            BidCollectionExecutionLockService lockService,
             Clock clock,
             List<ManualBidCollectionSource> sources
     ) {
         this.persistenceService = persistenceService;
-        this.runRepository = runRepository;
         this.stateRepository = stateRepository;
+        this.lockService = lockService;
         this.clock = clock;
         this.sources = validateSources(sources);
     }
@@ -73,7 +71,7 @@ public class ManualBidCollectionCoordinator {
         List<String> skippedSources = new ArrayList<>();
         List<BidSourceCollectionResult> collectedResults = new ArrayList<>();
         Map<String, ExecutionContext> executions = new LinkedHashMap<>();
-        Set<CollectionKey> acquiredKeys = new LinkedHashSet<>();
+        List<BidCollectionExecutionLockService.LockedRun> acquiredLocks = new ArrayList<>();
 
         try {
             for (ManualBidCollectionSource source : sources) {
@@ -82,20 +80,24 @@ public class ManualBidCollectionCoordinator {
                     skippedSources.add(sourceCode);
                     continue;
                 }
-                CollectionKey key = new CollectionKey(sourceCode, startDate, endDate);
-                if (!activeCollections.add(key)) {
+                Instant startedAt = clock.instant();
+                Optional<BidCollectionExecutionLockService.LockedRun> acquired = lockService.tryStart(
+                        sourceCode, startDate, endDate, BidCollectionRun.TriggerType.MANUAL, startedAt
+                );
+                if (acquired.isEmpty()) {
                     collectedResults.add(BidSourceCollectionResult.failure(sourceCode, ALREADY_RUNNING));
                     continue;
                 }
-                acquiredKeys.add(key);
-                Instant startedAt = clock.instant();
-                BidCollectionRun run = startRun(sourceCode, startDate, endDate, startedAt);
-                markAttempt(sourceCode, startedAt);
+                BidCollectionExecutionLockService.LockedRun lockedRun = acquired.get();
+                acquiredLocks.add(lockedRun);
+                executions.put(sourceCode, new ExecutionContext(lockedRun, null));
                 try {
+                    markAttempt(sourceCode, startedAt);
                     ManualBidCollectionSource.CollectionBatch batch = source.collect(
                             startDate, endDate, normalizedCodes
                     );
-                    executions.put(sourceCode, new ExecutionContext(run, batch.apiCallCount()));
+                    lockService.renew(lockedRun, clock.instant());
+                    executions.put(sourceCode, new ExecutionContext(lockedRun, batch.apiCallCount()));
                     collectedResults.add(BidSourceCollectionResult.success(sourceCode, batch.candidates()));
                 } catch (RuntimeException exception) {
                     log.warn("Manual bid collection failed: sourceCode={}, errorType={}",
@@ -103,7 +105,7 @@ public class ManualBidCollectionCoordinator {
                     Integer apiCallCount = exception instanceof ManualBidCollectionSource.MeasuredCollectionException measured
                             ? measured.getApiCallCount()
                             : null;
-                    executions.put(sourceCode, new ExecutionContext(run, apiCallCount));
+                    executions.put(sourceCode, new ExecutionContext(lockedRun, apiCallCount));
                     collectedResults.add(BidSourceCollectionResult.failure(sourceCode, COLLECTION_FAILED));
                 }
             }
@@ -111,6 +113,9 @@ public class ManualBidCollectionCoordinator {
             if (collectedResults.isEmpty()) {
                 throw new IllegalStateException("No bid source is enabled for manual collection.");
             }
+
+            Instant persistenceStartedAt = clock.instant();
+            acquiredLocks.forEach(lockedRun -> lockService.renew(lockedRun, persistenceStartedAt));
 
             BidCollectionPersistenceResult persistenceResult;
             boolean allFailed;
@@ -129,25 +134,9 @@ public class ManualBidCollectionCoordinator {
             }
             return result;
         } finally {
-            activeCollections.removeAll(acquiredKeys);
+            Instant abortedAt = clock.instant();
+            acquiredLocks.forEach(lockedRun -> lockService.abortAndRelease(lockedRun, abortedAt));
         }
-    }
-
-    private BidCollectionRun startRun(
-            String sourceCode,
-            LocalDate startDate,
-            LocalDate endDate,
-            Instant startedAt
-    ) {
-        return runRepository.save(BidCollectionRun.builder()
-                .sourceCode(sourceCode)
-                .triggerType(BidCollectionRun.TriggerType.MANUAL)
-                .queryStartDate(startDate)
-                .queryEndDate(endDate)
-                .startedAt(startedAt)
-                .status(BidCollectionRun.Status.RUNNING)
-                .apiCallCount(null)
-                .build());
     }
 
     private void finishExecutions(
@@ -168,7 +157,7 @@ public class ManualBidCollectionCoordinator {
             }
             Instant finishedAt = clock.instant();
             boolean success = result.status() == BidSourcePersistenceResult.Status.SUCCESS;
-            runRepository.update(execution.run().toBuilder()
+            BidCollectionRun completedRun = execution.lockedRun().run().toBuilder()
                     .finishedAt(finishedAt)
                     .status(success ? BidCollectionRun.Status.SUCCESS : BidCollectionRun.Status.FAILED)
                     .apiCallCount(execution.apiCallCount())
@@ -177,7 +166,8 @@ public class ManualBidCollectionCoordinator {
                     .changedCount(result.changedCount())
                     .failureCount(success ? 0 : 1)
                     .errorCode(result.errorCode())
-                    .build());
+                    .build();
+            lockService.completeAndRelease(execution.lockedRun(), completedRun);
             if (success) {
                 markSuccess(sourceCode, finishedAt);
             } else {
@@ -250,9 +240,9 @@ public class ManualBidCollectionCoordinator {
         }
     }
 
-    private record CollectionKey(String sourceCode, LocalDate startDate, LocalDate endDate) {
-    }
-
-    private record ExecutionContext(BidCollectionRun run, Integer apiCallCount) {
+    private record ExecutionContext(
+            BidCollectionExecutionLockService.LockedRun lockedRun,
+            Integer apiCallCount
+    ) {
     }
 }
