@@ -2355,9 +2355,14 @@ public class G2bApiService {
                 .forEach(candidate -> addUniqueCandidate(uniqueCandidates, candidate, true));
 
         // 나라장터 OpenAPI에 없는 연계기관 후보도 같은 classifier와 후속 검토 조건을 통과시킨다.
+        int enabledAdditionalCollectors = 0;
         int successfulAdditionalCollectors = 0;
         List<String> failedSourceCodes = new ArrayList<>();
         for (BidCandidateCollector collector : additionalBidCandidateCollectors) {
+            if (!collector.executionEnabled()) {
+                continue;
+            }
+            enabledAdditionalCollectors++;
             String sourceCode = safeSourceCode(collector.sourceCode());
             try {
                 getAdditionalBidQualificationList(collector, startDate, endDate, normalizedCodes)
@@ -2370,7 +2375,7 @@ public class G2bApiService {
             }
         }
 
-        if (!additionalBidCandidateCollectors.isEmpty()
+        if (enabledAdditionalCollectors > 0
                 && successfulAdditionalCollectors == 0
                 && uniqueCandidates.isEmpty()) {
             throw new IllegalStateException(

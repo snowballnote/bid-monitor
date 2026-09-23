@@ -87,6 +87,12 @@ public class D2bBidCollector implements BidCandidateCollector {
     }
 
     @Override
+    public boolean executionEnabled() {
+        // Operational activation remains a separate, explicit step.
+        return false;
+    }
+
+    @Override
     public List<BidQualificationDto> collect(LocalDate startDate, LocalDate endDate) {
         return collectMeasured(startDate, endDate).candidates();
     }

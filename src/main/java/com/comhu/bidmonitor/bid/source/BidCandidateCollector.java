@@ -15,5 +15,9 @@ public interface BidCandidateCollector {
         return "ADDITIONAL";
     }
 
+    default boolean executionEnabled() {
+        return true;
+    }
+
     List<BidQualificationDto> collect(LocalDate startDate, LocalDate endDate);
 }

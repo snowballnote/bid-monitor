@@ -1,6 +1,7 @@
 package com.comhu.bidmonitor.service;
 
 import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
+import com.comhu.bidmonitor.bid.source.d2b.D2bDailyQuotaExceededException;
 import com.comhu.bidmonitor.classifier.BidAwardMethodClassifier;
 import com.comhu.bidmonitor.dto.BidDto;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
@@ -46,6 +47,51 @@ class G2bApiServiceAdditionalSourceTests {
         assertEquals("G2B", result.getFirst().getSourceCode());
         assertEquals("G2B-ONLY-00", result.getFirst().getSourceNoticeId());
         assertFalse(additionalInvoked.get());
+    }
+
+    @Test
+    void disabledD2bIsNotInvokedAndG2bAndExpresswayResultsRemain() {
+        AtomicBoolean d2bInvoked = new AtomicBoolean(false);
+        BidCandidateCollector disabledD2b = new BidCandidateCollector() {
+            @Override
+            public String sourceCode() {
+                return "D2B";
+            }
+
+            @Override
+            public boolean executionEnabled() {
+                return false;
+            }
+
+            @Override
+            public List<BidQualificationDto> collect(LocalDate startDate, LocalDate endDate) {
+                d2bInvoked.set(true);
+                throw new IllegalStateException("D2B must remain disabled");
+            }
+        };
+        G2bApiService service = new G2bOnlyFixtureService(List.of(
+                disabledD2b,
+                collector("KOREA_EXPRESSWAY", List.of(candidate("EX-00", "EX-ID", null)))
+        ));
+
+        List<BidQualificationDto> result = query(service);
+
+        assertFalse(d2bInvoked.get());
+        assertEquals(List.of("G2B", "KOREA_EXPRESSWAY"),
+                result.stream().map(BidQualificationDto::getSourceCode).toList());
+    }
+
+    @Test
+    void exhaustedD2bQuotaDoesNotDiscardG2bOrExpresswayResults() {
+        G2bApiService service = new G2bOnlyFixtureService(List.of(
+                failingCollector("D2B", new D2bDailyQuotaExceededException(LocalDate.of(2026, 8, 27))),
+                collector("KOREA_EXPRESSWAY", List.of(candidate("EX-00", "EX-ID", null)))
+        ));
+
+        List<BidQualificationDto> result = query(service);
+
+        assertEquals(List.of("G2B", "KOREA_EXPRESSWAY"),
+                result.stream().map(BidQualificationDto::getSourceCode).toList());
     }
 
     @Test
@@ -193,6 +239,10 @@ class G2bApiServiceAdditionalSourceTests {
     }
 
     private static BidCandidateCollector failingCollector(String sourceCode, String sensitiveMessage) {
+        return failingCollector(sourceCode, new IllegalStateException(sensitiveMessage));
+    }
+
+    private static BidCandidateCollector failingCollector(String sourceCode, RuntimeException failure) {
         return new BidCandidateCollector() {
             @Override
             public String sourceCode() {
@@ -201,7 +251,7 @@ class G2bApiServiceAdditionalSourceTests {
 
             @Override
             public List<BidQualificationDto> collect(LocalDate startDate, LocalDate endDate) {
-                throw new IllegalStateException(sensitiveMessage);
+                throw failure;
             }
         };
     }
@@ -224,6 +274,10 @@ class G2bApiServiceAdditionalSourceTests {
     private static final class G2bOnlyFixtureService extends G2bApiService {
         private G2bOnlyFixtureService(BidCandidateCollector additionalCollector) {
             super(new BidAwardMethodClassifier(), List.of(additionalCollector));
+        }
+
+        private G2bOnlyFixtureService(List<BidCandidateCollector> additionalCollectors) {
+            super(new BidAwardMethodClassifier(), additionalCollectors);
         }
 
         @Override

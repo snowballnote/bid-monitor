@@ -12,8 +12,6 @@ import java.util.List;
 @Component
 public class ManualBidCollectionSourceRegistry {
 
-    private static final String D2B_SOURCE_CODE = "D2B";
-
     private final G2bApiService g2bApiService;
     private final List<BidCandidateCollector> additionalCollectors;
 
@@ -53,8 +51,7 @@ public class ManualBidCollectionSourceRegistry {
 
                 @Override
                 public boolean executionEnabled() {
-                    // Operational activation remains a separate, explicit step.
-                    return !D2B_SOURCE_CODE.equals(collector.sourceCode());
+                    return collector.executionEnabled();
                 }
 
                 @Override
