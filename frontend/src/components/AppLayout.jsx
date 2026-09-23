@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom';
 
-const menus = [['/bids/', '입찰공고'], ['/notices/', '외부 중요공지'],
+const menus = [['/bids/', '입찰공고'], ['/bid-sources/', '수집처 관리'], ['/notices/', '외부 중요공지'],
   ['/notifications/', '알림 관리'], ['/submissions/', '서류 모으기'], ['/documents/', '서류 관리'], ['/performances/', '실적 관리']];
 
 export default function AppLayout() {
@@ -12,7 +12,7 @@ export default function AppLayout() {
       </NavLink>
       <nav className="app-nav" aria-label="주요 메뉴">
         <NavLink className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`} to="/" end>홈</NavLink>
-        {menus.map(([href, label]) => ['/bids/', '/submissions/', '/documents/', '/performances/'].includes(href)
+        {menus.map(([href, label]) => ['/bids/', '/bid-sources/', '/submissions/', '/documents/', '/performances/'].includes(href)
           ? <NavLink key={href} to={href.slice(0, -1)} className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>{label}</NavLink>
           : <a className="app-nav-link" href={href} key={href}>{label}</a>)}
       </nav>

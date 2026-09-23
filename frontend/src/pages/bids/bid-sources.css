@@ -1,0 +1,51 @@
+.bid-sources-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+.bid-sources-back-link { flex: 0 0 auto; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--primary); font-weight: 700; text-decoration: none; }
+.bid-source-review-notice { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 18px; padding: 14px 16px; border: 1px solid #bfdbfe; border-radius: 10px; background: #eff6ff; }
+.bid-source-review-notice strong { color: #1d4ed8; font-size: 14px; }
+.bid-source-review-notice span { color: #475569; font-size: 13px; }
+.bid-sources-layout { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 18px; align-items: start; }
+.bid-source-form-card, .bid-source-list-card { overflow: hidden; }
+.bid-source-section-heading { padding: 18px; border-bottom: 1px solid var(--border); }
+.bid-source-section-heading h2 { margin: 0; font-size: 17px; }
+.bid-source-section-heading p { margin: 5px 0 0; color: var(--muted); font-size: 13px; }
+.bid-source-form-card form { display: grid; gap: 15px; padding: 18px; }
+.bid-source-form-card label { display: grid; gap: 7px; color: #475569; font-size: 13px; font-weight: 700; }
+.bid-source-form-card input { width: 100%; min-height: 42px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; }
+.bid-source-form-card button { min-height: 42px; border: 1px solid var(--primary); border-radius: 8px; background: var(--primary); color: white; font: inherit; font-weight: 800; cursor: pointer; }
+.bid-source-form-card button:disabled { cursor: wait; opacity: .65; }
+.bid-source-form-message { margin: 0 18px 18px; padding: 11px 12px; border-radius: 8px; font-size: 13px; line-height: 1.5; }
+.bid-source-form-message.success { background: #ecfdf3; color: #067647; }
+.bid-source-form-message.error { background: #fef3f2; color: var(--danger); }
+.bid-source-list-state { padding: 64px 18px; color: var(--muted); text-align: center; }
+.bid-source-list-state.error { color: var(--danger); }
+.bid-source-table-wrap { overflow-x: auto; }
+.bid-source-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.bid-source-table th, .bid-source-table td { padding: 13px 12px; border-top: 1px solid var(--border); color: var(--text); font-size: 13px; line-height: 1.45; text-align: left; vertical-align: middle; }
+.bid-source-table th { border-top: 0; background: var(--surface-subtle); color: var(--muted); font-size: 12px; white-space: nowrap; }
+.bid-source-table th:nth-child(1) { width: 18%; }
+.bid-source-table th:nth-child(2) { width: 31%; }
+.bid-source-table th:nth-child(3) { width: 112px; }
+.bid-source-table th:nth-child(4), .bid-source-table th:nth-child(5), .bid-source-table th:nth-child(6) { width: 100px; }
+.bid-source-url { overflow-wrap: anywhere; color: #475569; }
+.registration-status, .collection-enabled, .collection-disabled { display: inline-flex; padding: 4px 8px; border-radius: 999px; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.registration-status-pending_review { background: #fff7ed; color: #b54708; }
+.registration-status-under_review { background: #eff6ff; color: #1d4ed8; }
+.registration-status-approved, .collection-enabled { background: #ecfdf3; color: #067647; }
+.registration-status-rejected { background: #fef3f2; color: var(--danger); }
+.collection-disabled { background: #f2f4f7; color: #667085; }
+
+@media (max-width: 1050px) {
+  .bid-sources-layout { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 700px) {
+  .bid-sources-heading, .bid-source-review-notice { align-items: stretch; flex-direction: column; }
+  .bid-sources-back-link { text-align: center; }
+  .bid-source-review-notice { gap: 6px; }
+  .bid-source-table-wrap { overflow: visible; padding: 0 12px 12px; }
+  .bid-source-table, .bid-source-table tbody, .bid-source-table tr, .bid-source-table td { display: block; width: 100%; }
+  .bid-source-table thead { display: none; }
+  .bid-source-table tr { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+  .bid-source-table td { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 10px; padding: 7px 0; border: 0; overflow-wrap: anywhere; }
+  .bid-source-table td::before { content: attr(data-label); color: var(--muted); font-size: 12px; font-weight: 700; }
+}

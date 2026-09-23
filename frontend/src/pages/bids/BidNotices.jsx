@@ -212,6 +212,7 @@ export default function BidNotices() {
           disabled={collection.status === 'loading'}>
           {collection.status === 'loading' ? '공고 수집 중…' : '최신 공고 갱신'}
         </button>
+        <a className="saved-bids-source-link" href="#/bid-sources">수집처 등록·현황</a>
         <a className="saved-bids-live-link" href="/bids/">실시간 분석 화면 열기 ↗</a>
       </div>
     </header>
