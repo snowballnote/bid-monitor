@@ -76,6 +76,37 @@ public class ManualBidCollectionCoordinator {
             Set<String> allowedLicenseCodes,
             Set<String> requestedSourceCodes
     ) {
+        return collect(
+                startDate,
+                endDate,
+                allowedLicenseCodes,
+                requestedSourceCodes,
+                BidCollectionRun.TriggerType.MANUAL
+        );
+    }
+
+    public ManualBidCollectionResult collectScheduled(
+            LocalDate startDate,
+            LocalDate endDate,
+            Set<String> allowedLicenseCodes,
+            String sourceCode
+    ) {
+        return collect(
+                startDate,
+                endDate,
+                allowedLicenseCodes,
+                Set.of(sourceCode),
+                BidCollectionRun.TriggerType.SCHEDULED
+        );
+    }
+
+    private ManualBidCollectionResult collect(
+            LocalDate startDate,
+            LocalDate endDate,
+            Set<String> allowedLicenseCodes,
+            Set<String> requestedSourceCodes,
+            BidCollectionRun.TriggerType triggerType
+    ) {
         validateRange(startDate, endDate);
         Set<String> normalizedCodes = allowedLicenseCodes == null ? Set.of() : Set.copyOf(allowedLicenseCodes);
         Set<String> normalizedSources = normalizeRequestedSources(requestedSourceCodes);
@@ -98,7 +129,7 @@ public class ManualBidCollectionCoordinator {
                 }
                 Instant startedAt = clock.instant();
                 Optional<BidCollectionExecutionLockService.LockedRun> acquired = lockService.tryStart(
-                        sourceCode, startDate, endDate, BidCollectionRun.TriggerType.MANUAL, startedAt
+                        sourceCode, startDate, endDate, triggerType, startedAt
                 );
                 if (acquired.isEmpty()) {
                     lockService.currentRunId(sourceCode, startDate, endDate)
@@ -119,7 +150,7 @@ public class ManualBidCollectionCoordinator {
                     executions.put(sourceCode, new ExecutionContext(lockedRun, batch.apiCallCount()));
                     collectedResults.add(BidSourceCollectionResult.success(sourceCode, batch.candidates()));
                 } catch (RuntimeException exception) {
-                    log.warn("Manual bid collection failed: sourceCode={}, errorType={}",
+                    log.warn("Bid collection failed: sourceCode={}, errorType={}",
                             sourceCode, exception.getClass().getSimpleName());
                     Integer apiCallCount = exception instanceof ManualBidCollectionSource.MeasuredCollectionException measured
                             ? measured.getApiCallCount()

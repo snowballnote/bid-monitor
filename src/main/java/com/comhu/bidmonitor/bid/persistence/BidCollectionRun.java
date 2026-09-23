@@ -27,7 +27,8 @@ public class BidCollectionRun {
 
     public enum TriggerType {
         AUTOMATIC,
-        MANUAL
+        MANUAL,
+        SCHEDULED
     }
 
     public enum Status {

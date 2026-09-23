@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS bid_collection_run (
     failure_count INTEGER NOT NULL DEFAULT 0,
     error_code VARCHAR(100),
     CONSTRAINT ck_bid_collection_run_trigger
-        CHECK (trigger_type IN ('AUTOMATIC', 'MANUAL')),
+        CHECK (trigger_type IN ('AUTOMATIC', 'MANUAL', 'SCHEDULED')),
     CONSTRAINT ck_bid_collection_run_status
         CHECK (status IN ('RUNNING', 'SUCCESS', 'PARTIAL', 'FAILED')),
     CONSTRAINT ck_bid_collection_run_query_range
@@ -122,6 +122,9 @@ CREATE TABLE IF NOT EXISTS bid_collection_run (
 -- Existing local H2 files created by an earlier development revision keep their rows while
 -- gaining an explicit NULL state for call counts that the source client cannot measure yet.
 ALTER TABLE bid_collection_run ALTER COLUMN api_call_count DROP NOT NULL;
+ALTER TABLE bid_collection_run DROP CONSTRAINT IF EXISTS ck_bid_collection_run_trigger;
+ALTER TABLE bid_collection_run ADD CONSTRAINT IF NOT EXISTS ck_bid_collection_run_trigger
+    CHECK (trigger_type IN ('AUTOMATIC', 'MANUAL', 'SCHEDULED'));
 
 CREATE INDEX IF NOT EXISTS ix_bid_collection_run_source_started
     ON bid_collection_run (source_code, started_at);
