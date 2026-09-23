@@ -2,6 +2,9 @@
 .saved-bids-heading .page-eyebrow { display: block; margin-bottom: 6px; color: var(--primary); font-size: 12px; font-weight: 800; letter-spacing: .12em; }
 .saved-bids-live-link, .saved-bid-detail-link { color: var(--primary); font-weight: 700; text-decoration: none; }
 .saved-bids-live-link { flex: 0 0 auto; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.saved-bids-heading-actions { display: flex; align-items: center; gap: 10px; }
+.saved-bids-refresh-button { min-height: 40px; padding: 9px 14px; border: 1px solid var(--primary); border-radius: 8px; background: var(--primary); color: white; font: inherit; font-weight: 800; cursor: pointer; }
+.saved-bids-refresh-button:disabled { cursor: wait; opacity: .65; }
 .saved-bids-panel { overflow: visible; }
 .saved-bids-filters { display: grid; grid-template-columns: repeat(2, minmax(150px, 1fr)) minmax(150px, .8fr) minmax(120px, .6fr) auto; gap: 12px; align-items: end; padding: 18px; border-bottom: 1px solid var(--border); }
 .saved-bids-filters label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; font-weight: 700; }
@@ -11,6 +14,31 @@
 .saved-bids-summary strong { color: var(--text); font-size: 18px; }
 .saved-bids-summary span { color: var(--muted); font-size: 13px; }
 .saved-bids-validation { margin: 12px 18px 0; color: var(--danger, #b42318); font-size: 14px; }
+.collection-message { margin: 12px 18px 0; padding: 12px 14px; border-radius: 8px; background: #eff6ff; color: #1d4ed8; font-size: 14px; }
+.collection-message.error { background: #fef3f2; color: var(--danger, #b42318); }
+.collection-result { margin: 12px 18px 0; padding: 14px; border: 1px solid #abefc6; border-radius: 10px; background: #ecfdf3; }
+.collection-result.partial { border-color: #fedf89; background: #fffaeb; }
+.collection-result > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.collection-result > div span { color: var(--muted); font-size: 13px; }
+.collection-result ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin: 12px 0 0; padding: 0; list-style: none; }
+.collection-result li { display: flex; justify-content: space-between; gap: 8px; padding-top: 8px; border-top: 1px solid rgba(15, 23, 42, .1); font-size: 13px; }
+.collection-result li span { color: var(--muted); text-align: right; }
+.bid-source-statuses { padding: 16px 18px; border-bottom: 1px solid var(--border); }
+.bid-source-status-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.bid-source-status-heading h2 { margin: 0; font-size: 16px; }
+.bid-source-status-heading > span, .bid-source-status-message { color: var(--muted); font-size: 13px; }
+.bid-source-status-message { margin: 12px 0 0; }
+.bid-source-status-message.error { color: var(--danger, #b42318); }
+.bid-source-status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-top: 12px; }
+.bid-source-status-card { padding: 12px; border: 1px solid var(--border); border-radius: 9px; }
+.bid-source-status-card > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bid-source-status-card > div span { padding: 3px 7px; border-radius: 999px; font-size: 11px; font-weight: 800; }
+.bid-source-status-card .enabled { background: #ecfdf3; color: #067647; }
+.bid-source-status-card .disabled { background: #f2f4f7; color: #667085; }
+.bid-source-status-card dl { display: grid; gap: 6px; margin: 10px 0 0; }
+.bid-source-status-card dl div { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.bid-source-status-card dt { color: var(--muted); }
+.bid-source-status-card dd { margin: 0; text-align: right; }
 .saved-bids-state { padding: 52px 20px; color: var(--muted); text-align: center; }
 .saved-bids-state.error { color: var(--danger, #b42318); }
 .saved-bids-table-wrap { overflow-x: auto; }
@@ -41,7 +69,10 @@
 
 @media (max-width: 700px) {
   .saved-bids-heading { align-items: stretch; flex-direction: column; gap: 14px; }
-  .saved-bids-live-link { align-self: flex-start; }
+  .saved-bids-heading-actions { align-items: stretch; flex-direction: column; }
+  .saved-bids-live-link { text-align: center; }
+  .collection-result > div, .collection-result li, .bid-source-status-heading { align-items: flex-start; flex-direction: column; }
+  .collection-result li span { text-align: left; }
   .saved-bids-filters { grid-template-columns: 1fr; padding: 14px; }
   .saved-bids-summary { padding-inline: 14px; }
   .saved-bids-table-wrap { overflow: visible; padding: 0 12px 12px; }
