@@ -136,7 +136,7 @@ export default function Dashboard() {
       <Summary id="document" href="/documents/" icon="▤" title="파일 미등록 문서" resource={documents}
         count={common.filter(row => !row.uploadedFileId && !row.currentFileId).length}
         message={common.length ? '회사 공통서류 기준' : '등록된 공통서류 없음'} />
-      <Summary id="bid-check" href="/bids/" icon="⌕" title="확인 필요한 입찰공고" resource={bids}
+      <Summary id="bid-check" href="#/bids" icon="⌕" title="확인 필요한 입찰공고" resource={bids}
         count={(bids.data || []).filter(row => row.reviewStatus === '추가확인필요').length}
         message="추가 확인 필요 공고" failure="입찰공고 현황을 불러오지 못했습니다." />
     </section>
@@ -154,7 +154,7 @@ export default function Dashboard() {
     </section>
     <section className="quick-section" aria-labelledby="quick-title"><h2 id="quick-title" className="section-title">빠른 작업</h2>
       <div className="quick-grid">{[['#/submissions', '▣', '서류 프로젝트'], ['#/performances', '▥', '실적 붙여넣기'],
-        ['/documents/', '▤', '공통서류 등록'], ['/bids/', '⌕', '입찰공고 조회']].map(([href, icon, label]) =>
+        ['/documents/', '▤', '공통서류 등록'], ['#/bids', '⌕', '입찰공고 조회']].map(([href, icon, label]) =>
         <a href={href} key={href}><span aria-hidden="true">{icon}</span>{label}<span aria-hidden="true">→</span></a>)}</div>
     </section>
     <Notices resource={notices} />

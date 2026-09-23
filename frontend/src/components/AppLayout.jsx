@@ -12,7 +12,7 @@ export default function AppLayout() {
       </NavLink>
       <nav className="app-nav" aria-label="주요 메뉴">
         <NavLink className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`} to="/" end>홈</NavLink>
-        {menus.map(([href, label]) => ['/submissions/', '/documents/', '/performances/'].includes(href)
+        {menus.map(([href, label]) => ['/bids/', '/submissions/', '/documents/', '/performances/'].includes(href)
           ? <NavLink key={href} to={href.slice(0, -1)} className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>{label}</NavLink>
           : <a className="app-nav-link" href={href} key={href}>{label}</a>)}
       </nav>

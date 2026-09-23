@@ -12,6 +12,7 @@ async function setup(page, { empty = false, fail = '', malformed = false } = {})
         '/api/submission-document-masters': [{ category: 'COMPANY_COMMON', currentFileId: 'file' },
             { category: 'COMPANY_COMMON', uploadedFileId: 'uploaded' }, { category: 'COMPANY_COMMON' }, { category: 'OTHER' }],
         '/api/bids/target/qualification': [{ reviewStatus: '추가확인필요' }, { reviewStatus: '검토완료' }],
+        '/api/bid-notices': { items: [], page: 0, size: 20, totalCount: 0, totalPages: 0 },
         '/api/external-notices': [{ id: 9, title: '중요공지', publishedDate: '2026-09-01', lastSeenAt: '2026-09-01T09:00:00Z' }]
     };
     await page.route('**/*', async route => {
@@ -24,7 +25,11 @@ async function setup(page, { empty = false, fail = '', malformed = false } = {})
                 { info: { selectedUploadedFileId: 'upload' } }, { info: {} }];
             const body = url.pathname.endsWith('/entries') ? entries : data[url.pathname];
             if (!body) return route.fulfill({ status: 404, json: {} });
-            return route.fulfill({ json: empty ? [] : body });
+            const responseBody = empty && Array.isArray(body) ? []
+                : empty && url.pathname === '/api/bid-notices'
+                    ? { items: [], page: 0, size: 20, totalCount: 0, totalPages: 0 }
+                    : body;
+            return route.fulfill({ json: responseBody });
         }
 
         return route.continue();
@@ -44,6 +49,7 @@ test('dashboard: counts, recent order, saved evidence types and existing links',
     await expect(page.locator('#performance-count')).toHaveText('12건');
     await expect(page.locator('#document-count')).toHaveText('1건');
     await expect(page.locator('#bid-check-count')).toHaveText('1건');
+    await expect(page.locator('#bid-check-count').locator('xpath=ancestor::a')).toHaveAttribute('href', '#/bids');
     await expect(page.locator('#recent-submissions .work-item')).toHaveCount(3);
     const first = page.locator('#recent-submissions .work-item').first();
     await expect(first).toContainText('서류 사업 4');
@@ -61,10 +67,16 @@ test('dashboard: counts, recent order, saved evidence types and existing links',
     await expect(page.getByRole('link', { name: '전체보기 →', exact: true }).nth(1)).toHaveAttribute('href', '#/performances');
     await expect(page.locator('.quick-grid a').filter({ hasText: '실적 붙여넣기' })).toHaveAttribute('href', '#/performances');
     await expect(page.locator('.quick-grid a')).toHaveCount(4);
+    await expect(page.locator('.quick-grid a').filter({ hasText: '입찰공고 조회' })).toHaveAttribute('href', '#/bids');
     await expect(page.locator('#recent-notice-list a')).toHaveAttribute('href', '/notices/?noticeId=9');
     expect(requests.every(request => request.method === 'GET')).toBe(true);
+    expect(requests.some(request => request.path === '/api/bids/target/qualification')).toBe(true);
+    expect(requests.some(request => request.path === '/api/bid-notices')).toBe(false);
     expect(errors).toEqual([]);
     await page.screenshot({ path: 'test-results/dashboard-desktop.png', fullPage: true });
+    await page.locator('#bid-check-count').locator('xpath=ancestor::a').click();
+    await expect(page).toHaveURL(/#\/bids$/);
+    await expect(page.getByRole('heading', { name: '저장된 입찰공고' })).toBeVisible();
 });
 
 test('dashboard: empty data does not create sample work', async ({ page }) => {

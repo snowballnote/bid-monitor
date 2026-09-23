@@ -1,0 +1,53 @@
+.saved-bids-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+.saved-bids-heading .page-eyebrow { display: block; margin-bottom: 6px; color: var(--primary); font-size: 12px; font-weight: 800; letter-spacing: .12em; }
+.saved-bids-live-link, .saved-bid-detail-link { color: var(--primary); font-weight: 700; text-decoration: none; }
+.saved-bids-live-link { flex: 0 0 auto; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.saved-bids-panel { overflow: visible; }
+.saved-bids-filters { display: grid; grid-template-columns: repeat(2, minmax(150px, 1fr)) minmax(150px, .8fr) minmax(120px, .6fr) auto; gap: 12px; align-items: end; padding: 18px; border-bottom: 1px solid var(--border); }
+.saved-bids-filters label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; font-weight: 700; }
+.saved-bids-filters input, .saved-bids-filters select { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; }
+.saved-bids-search-button, .saved-bids-pagination button { min-height: 40px; padding: 8px 16px; border: 1px solid var(--primary); border-radius: 8px; background: var(--primary); color: white; font: inherit; font-weight: 700; cursor: pointer; }
+.saved-bids-summary { display: flex; align-items: baseline; gap: 10px; padding: 16px 18px 10px; }
+.saved-bids-summary strong { color: var(--text); font-size: 18px; }
+.saved-bids-summary span { color: var(--muted); font-size: 13px; }
+.saved-bids-validation { margin: 12px 18px 0; color: var(--danger, #b42318); font-size: 14px; }
+.saved-bids-state { padding: 52px 20px; color: var(--muted); text-align: center; }
+.saved-bids-state.error { color: var(--danger, #b42318); }
+.saved-bids-table-wrap { overflow-x: auto; }
+.saved-bids-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.saved-bids-table th, .saved-bids-table td { padding: 13px 12px; border-top: 1px solid var(--border); color: var(--text); font-size: 13px; line-height: 1.45; text-align: left; vertical-align: middle; }
+.saved-bids-table th { background: var(--surface-subtle, #f8fafc); color: var(--muted); font-size: 12px; white-space: nowrap; }
+.saved-bids-table th:nth-child(1) { width: 104px; }
+.saved-bids-table th:nth-child(2) { width: 30%; }
+.saved-bids-table th:nth-child(3) { width: 16%; }
+.saved-bids-table th:nth-child(4), .saved-bids-table th:nth-child(5) { width: 125px; }
+.saved-bids-table th:nth-child(6) { width: 90px; }
+.saved-bids-table th:nth-child(7) { width: 105px; }
+.saved-bid-title-cell strong, .saved-bid-title-cell small { display: block; overflow-wrap: anywhere; }
+.saved-bid-title-cell small { margin-top: 4px; color: var(--muted); }
+.bid-source { display: inline-flex; padding: 4px 7px; border-radius: 999px; background: #eef2ff; color: #3730a3; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.bid-source-korea_expressway { background: #ecfdf3; color: #067647; }
+.bid-source-d2b { background: #fff7ed; color: #b54708; }
+.saved-bid-no-link { color: var(--muted); font-size: 12px; }
+.saved-bids-pagination { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 18px; border-top: 1px solid var(--border); }
+.saved-bids-pagination button { min-height: 34px; padding: 6px 14px; }
+.saved-bids-pagination button:disabled { border-color: var(--border); background: #e5e7eb; color: #94a3b8; cursor: default; }
+.saved-bids-pagination span { min-width: 72px; color: var(--muted); text-align: center; }
+
+@media (max-width: 900px) {
+  .saved-bids-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .saved-bids-search-button { width: 100%; }
+}
+
+@media (max-width: 700px) {
+  .saved-bids-heading { align-items: stretch; flex-direction: column; gap: 14px; }
+  .saved-bids-live-link { align-self: flex-start; }
+  .saved-bids-filters { grid-template-columns: 1fr; padding: 14px; }
+  .saved-bids-summary { padding-inline: 14px; }
+  .saved-bids-table-wrap { overflow: visible; padding: 0 12px 12px; }
+  .saved-bids-table, .saved-bids-table tbody, .saved-bids-table tr, .saved-bids-table td { display: block; width: 100%; }
+  .saved-bids-table thead { display: none; }
+  .saved-bids-table tr { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+  .saved-bids-table td { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 10px; padding: 7px 0; border: 0; overflow-wrap: anywhere; }
+  .saved-bids-table td::before { content: attr(data-label); color: var(--muted); font-size: 12px; font-weight: 700; }
+}
