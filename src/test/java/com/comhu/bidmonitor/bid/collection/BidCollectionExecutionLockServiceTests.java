@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
@@ -154,6 +155,31 @@ class BidCollectionExecutionLockServiceTests {
         assertFalse(start("G2B", NOW.plusSeconds(1)).isPresent());
         assertEquals(BidCollectionRun.Status.RUNNING,
                 runRepository.findById(locked.run().getId()).orElseThrow().getStatus());
+    }
+
+    @Test
+    void expiredOwnerCannotCompleteAsSuccessOrReleaseReplacementLock() {
+        BidCollectionExecutionLockService.LockedRun expired = start("G2B", NOW).orElseThrow();
+        BidCollectionExecutionLockService.LockedRun replacement = start(
+                "G2B", NOW.plusSeconds(61)
+        ).orElseThrow();
+        BidCollectionRun staleSuccess = expired.run().toBuilder()
+                .finishedAt(NOW.plusSeconds(62))
+                .status(BidCollectionRun.Status.SUCCESS)
+                .build();
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> lockService.completeAndRelease(expired, staleSuccess)
+        );
+
+        assertEquals(BidCollectionRun.Status.FAILED,
+                runRepository.findById(expired.run().getId()).orElseThrow().getStatus());
+        assertEquals(BidCollectionRun.Status.RUNNING,
+                runRepository.findById(replacement.run().getId()).orElseThrow().getStatus());
+        BidCollectionLock current = lockRepository.find("G2B", START, END).orElseThrow();
+        assertEquals(replacement.lock().ownerToken(), current.ownerToken());
+        assertEquals(1, lockCount());
     }
 
     private java.util.Optional<BidCollectionExecutionLockService.LockedRun> start(

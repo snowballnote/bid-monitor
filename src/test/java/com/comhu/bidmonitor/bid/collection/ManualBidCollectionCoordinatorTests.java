@@ -200,6 +200,21 @@ class ManualBidCollectionCoordinatorTests {
     }
 
     @Test
+    void scheduledCollectionRecordsScheduledTriggerAndKeepsEmptyResultSuccessful() {
+        ManualBidCollectionCoordinator emptyCoordinator = coordinator(source("G2B", true, List.of(), 1));
+
+        ManualBidCollectionResult result = emptyCoordinator.collectScheduled(
+                START, END, LICENSE_CODES, "G2B"
+        );
+
+        assertEquals(ManualBidCollectionResult.Status.SUCCESS, result.status());
+        BidCollectionRun run = latestRun("G2B");
+        assertEquals(BidCollectionRun.TriggerType.SCHEDULED, run.getTriggerType());
+        assertEquals(BidCollectionRun.Status.SUCCESS, run.getStatus());
+        assertEquals(0, run.getCollectedCount());
+    }
+
+    @Test
     void partialSuccessKeepsSuccessfulSourceAndUpdatesStatesIndependently() {
         ManualBidCollectionCoordinator coordinator = coordinator(
                 failingSource("G2B"),
@@ -320,7 +335,7 @@ class ManualBidCollectionCoordinatorTests {
 
             ManualBidCollectionException duplicate = assertThrows(
                     ManualBidCollectionException.class,
-                    () -> secondCoordinator.collect(START, END, LICENSE_CODES)
+                    () -> secondCoordinator.collectScheduled(START, END, LICENSE_CODES, "G2B")
             );
             assertEquals("ALREADY_RUNNING", duplicate.getResult().sourceResults().getFirst().errorCode());
             assertEquals(1, invocations.get());
