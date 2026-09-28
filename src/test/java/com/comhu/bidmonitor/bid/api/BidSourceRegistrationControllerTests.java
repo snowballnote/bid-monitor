@@ -20,6 +20,7 @@ import java.util.Map;
 
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -182,11 +183,128 @@ class BidSourceRegistrationControllerTests {
         ));
     }
 
+    @Test
+    void movesFromPendingThroughReviewToApprovedWithDeterminedCollectionMethod() throws Exception {
+        register("Approval Source", "https://approval.example/notices");
+        long sourceId = sourceId("Approval Source");
+
+        review(sourceId, Map.of("registrationStatus", "UNDER_REVIEW"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.registrationStatus").value("UNDER_REVIEW"))
+                .andExpect(jsonPath("$.collectionMethod").value("UNDETERMINED"))
+                .andExpect(jsonPath("$.executionEnabled").value(false));
+
+        review(sourceId, Map.of(
+                "registrationStatus", "APPROVED",
+                "collectionMethod", "OFFICIAL_API"
+        ))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.registrationStatus").value("APPROVED"))
+                .andExpect(jsonPath("$.collectionMethod").value("OFFICIAL_API"))
+                .andExpect(jsonPath("$.executionEnabled").value(false));
+
+        org.junit.jupiter.api.Assertions.assertFalse(jdbcTemplate.queryForObject(
+                "SELECT execution_enabled FROM bid_source_registration WHERE source_id = ?",
+                Boolean.class,
+                sourceId
+        ));
+        verifyNoInteractions(coordinator, g2bApiService, koreaExpresswayBidCollector, d2bBidCollector);
+    }
+
+    @Test
+    void rejectsInvalidStatusJumpAndApprovalWithoutCollectionMethod() throws Exception {
+        register("Invalid Transition", "https://invalid-transition.example/notices");
+        long sourceId = sourceId("Invalid Transition");
+
+        review(sourceId, Map.of(
+                "registrationStatus", "APPROVED",
+                "collectionMethod", "PUBLIC_PAGE"
+        ))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        review(sourceId, Map.of("registrationStatus", "UNDER_REVIEW"))
+                .andExpect(status().isOk());
+
+        review(sourceId, Map.of("registrationStatus", "APPROVED"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.message")
+                        .value("collectionMethod must be determined before approval."));
+
+        mockMvc.perform(get("/api/bid-source-registrations/{sourceId}", sourceId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.registrationStatus").value("UNDER_REVIEW"))
+                .andExpect(jsonPath("$.collectionMethod").value("UNDETERMINED"))
+                .andExpect(jsonPath("$.executionEnabled").value(false));
+    }
+
+    @Test
+    void rejectsRegistrationAfterReviewWithoutEnablingExecution() throws Exception {
+        register("Rejected Source", "https://rejected.example/notices");
+        long sourceId = sourceId("Rejected Source");
+
+        review(sourceId, Map.of(
+                "registrationStatus", "UNDER_REVIEW",
+                "collectionMethod", "RSS"
+        )).andExpect(status().isOk());
+
+        review(sourceId, Map.of("registrationStatus", "REJECTED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.registrationStatus").value("REJECTED"))
+                .andExpect(jsonPath("$.collectionMethod").value("RSS"))
+                .andExpect(jsonPath("$.executionEnabled").value(false));
+
+        review(sourceId, Map.of("registrationStatus", "UNDER_REVIEW"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        verifyNoInteractions(coordinator, g2bApiService, koreaExpresswayBidCollector, d2bBidCollector);
+    }
+
+    @Test
+    void reviewReturnsNotFoundAndRejectsExecutionChanges() throws Exception {
+        review(999999L, Map.of("registrationStatus", "UNDER_REVIEW"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SOURCE_REGISTRATION_NOT_FOUND"));
+
+        register("Execution Protected", "https://execution-protected.example/notices");
+        long sourceId = sourceId("Execution Protected");
+        review(sourceId, Map.of(
+                "registrationStatus", "UNDER_REVIEW",
+                "executionEnabled", true
+        ))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        org.junit.jupiter.api.Assertions.assertFalse(jdbcTemplate.queryForObject(
+                "SELECT execution_enabled FROM bid_source_registration WHERE source_id = ?",
+                Boolean.class,
+                sourceId
+        ));
+    }
+
     private void register(String sourceName, String siteUrl) throws Exception {
         mockMvc.perform(post("/api/bid-source-registrations")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("sourceName", sourceName, "siteUrl", siteUrl))))
                 .andExpect(status().isCreated());
+    }
+
+    private long sourceId(String sourceName) {
+        return jdbcTemplate.queryForObject(
+                "SELECT source_id FROM bid_source_registration WHERE source_name = ?",
+                Long.class,
+                sourceName
+        );
+    }
+
+    private org.springframework.test.web.servlet.ResultActions review(
+            long sourceId,
+            Map<String, ?> request
+    ) throws Exception {
+        return mockMvc.perform(patch("/api/bid-source-registrations/{sourceId}/review", sourceId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(request)));
     }
 
     private String json(Map<String, ?> value) throws Exception {

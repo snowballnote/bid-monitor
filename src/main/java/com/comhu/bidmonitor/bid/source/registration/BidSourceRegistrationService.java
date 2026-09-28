@@ -58,6 +58,79 @@ public class BidSourceRegistrationService {
                 .orElseThrow(BidSourceRegistrationNotFoundException::new);
     }
 
+    @Transactional
+    public BidSourceRegistration review(
+            long sourceId,
+            String registrationStatus,
+            String collectionMethod
+    ) {
+        BidSourceRegistration current = findById(sourceId);
+        BidSourceRegistration.RegistrationStatus targetStatus = parseRegistrationStatus(registrationStatus);
+        BidSourceRegistration.CollectionMethod targetMethod = collectionMethod == null
+                ? current.getCollectionMethod()
+                : parseCollectionMethod(collectionMethod);
+
+        validateTransition(current.getRegistrationStatus(), targetStatus);
+        if (targetStatus == BidSourceRegistration.RegistrationStatus.APPROVED
+                && targetMethod == BidSourceRegistration.CollectionMethod.UNDETERMINED) {
+            throw new IllegalArgumentException(
+                    "collectionMethod must be determined before approval."
+            );
+        }
+
+        boolean updated = repository.updateReview(
+                sourceId,
+                current.getRegistrationStatus(),
+                targetStatus,
+                targetMethod,
+                clock.instant()
+        );
+        if (!updated) {
+            repository.findById(sourceId)
+                    .orElseThrow(BidSourceRegistrationNotFoundException::new);
+            throw new IllegalArgumentException("Registration status changed during review.");
+        }
+        return findById(sourceId);
+    }
+
+    private BidSourceRegistration.RegistrationStatus parseRegistrationStatus(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("registrationStatus is required.");
+        }
+        try {
+            return BidSourceRegistration.RegistrationStatus.valueOf(value);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("registrationStatus is invalid.");
+        }
+    }
+
+    private BidSourceRegistration.CollectionMethod parseCollectionMethod(String value) {
+        if (value.isBlank()) {
+            throw new IllegalArgumentException("collectionMethod is invalid.");
+        }
+        try {
+            return BidSourceRegistration.CollectionMethod.valueOf(value);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("collectionMethod is invalid.");
+        }
+    }
+
+    private void validateTransition(
+            BidSourceRegistration.RegistrationStatus current,
+            BidSourceRegistration.RegistrationStatus target
+    ) {
+        boolean allowed = (current == BidSourceRegistration.RegistrationStatus.PENDING_REVIEW
+                && target == BidSourceRegistration.RegistrationStatus.UNDER_REVIEW)
+                || (current == BidSourceRegistration.RegistrationStatus.UNDER_REVIEW
+                && (target == BidSourceRegistration.RegistrationStatus.APPROVED
+                || target == BidSourceRegistration.RegistrationStatus.REJECTED));
+        if (!allowed) {
+            throw new IllegalArgumentException(
+                    "Registration status cannot transition from " + current + " to " + target + "."
+            );
+        }
+    }
+
     private String normalizeName(String sourceName) {
         if (sourceName == null || sourceName.isBlank()) {
             throw new IllegalArgumentException("sourceName is required.");

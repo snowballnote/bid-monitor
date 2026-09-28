@@ -2,11 +2,13 @@ package com.comhu.bidmonitor.bid.api;
 
 import com.comhu.bidmonitor.bid.api.dto.BidSourceRegistrationRequest;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceRegistrationResponse;
+import com.comhu.bidmonitor.bid.api.dto.BidSourceReviewRequest;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceRegistrationService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -47,5 +49,21 @@ public class BidSourceRegistrationController {
     @GetMapping("/{sourceId}")
     public BidSourceRegistrationResponse findById(@PathVariable long sourceId) {
         return BidSourceRegistrationResponse.from(service.findById(sourceId));
+    }
+
+    @PatchMapping("/{sourceId}/review")
+    public BidSourceRegistrationResponse review(
+            @PathVariable long sourceId,
+            @RequestBody BidSourceReviewRequest request
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException("Request body is required.");
+        }
+        request.rejectExecutionSetting();
+        return BidSourceRegistrationResponse.from(service.review(
+                sourceId,
+                request.registrationStatus(),
+                request.collectionMethod()
+        ));
     }
 }

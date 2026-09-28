@@ -12,6 +12,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -68,6 +69,31 @@ public class JdbcBidSourceRegistrationRepository implements BidSourceRegistratio
                 this::map,
                 sourceId
         ).stream().findFirst();
+    }
+
+    @Override
+    public boolean updateReview(
+            long sourceId,
+            BidSourceRegistration.RegistrationStatus expectedStatus,
+            BidSourceRegistration.RegistrationStatus registrationStatus,
+            BidSourceRegistration.CollectionMethod collectionMethod,
+            Instant updatedAt
+    ) {
+        Objects.requireNonNull(expectedStatus, "Expected registration status is required.");
+        Objects.requireNonNull(registrationStatus, "Registration status is required.");
+        Objects.requireNonNull(collectionMethod, "Collection method is required.");
+        Objects.requireNonNull(updatedAt, "Review update time is required.");
+        return jdbcTemplate.update("""
+                        UPDATE bid_source_registration
+                        SET registration_status = ?, collection_method = ?, updated_at = ?
+                        WHERE source_id = ? AND registration_status = ? AND execution_enabled = FALSE
+                        """,
+                registrationStatus.name(),
+                collectionMethod.name(),
+                Timestamp.from(updatedAt),
+                sourceId,
+                expectedStatus.name()
+        ) == 1;
     }
 
     @Override

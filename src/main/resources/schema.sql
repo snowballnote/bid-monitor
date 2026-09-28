@@ -193,6 +193,10 @@ CREATE TABLE IF NOT EXISTS bid_source_registration (
     CONSTRAINT ck_bid_source_registration_time CHECK (updated_at >= created_at)
 );
 
+ALTER TABLE bid_source_registration ADD CONSTRAINT IF NOT EXISTS ck_bid_source_registration_approved_method CHECK (
+    registration_status <> 'APPROVED' OR collection_method <> 'UNDETERMINED'
+);
+
 CREATE INDEX IF NOT EXISTS ix_bid_source_registration_created
     ON bid_source_registration (created_at DESC, source_id DESC);
 
