@@ -58,6 +58,8 @@ public class BidSourceRegistration {
         HTTP_ERROR,
         UNSUPPORTED_CONTENT_TYPE,
         INVALID_RESPONSE,
+        CHECK_TIMEOUT,
+        CHECK_INTERRUPTED,
         CHECK_FAILED
     }
 }

@@ -19,9 +19,16 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.util.Map;
 import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -367,7 +374,140 @@ class BidSourceRegistrationControllerTests {
         mockMvc.perform(post("/api/bid-source-registrations/{sourceId}/check", sourceId))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        register("Rejected Check", "https://rejected-check.example/notices");
+        long rejectedSourceId = sourceId("Rejected Check");
+        review(rejectedSourceId, Map.of("registrationStatus", "UNDER_REVIEW"))
+                .andExpect(status().isOk());
+        review(rejectedSourceId, Map.of("registrationStatus", "REJECTED"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/bid-source-registrations/{sourceId}/check", rejectedSourceId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         verify(availabilityChecker).check("https://review-check.example/notices");
+    }
+
+    @Test
+    void rejectsDuplicateCheckBeforeTenMinuteTimeout() throws Exception {
+        register("Active Check", "https://active-check.example/notices");
+        long sourceId = sourceId("Active Check");
+        jdbcTemplate.update("""
+                UPDATE bid_source_registration
+                SET check_status = 'CHECKING', check_attempt_id = 'active-attempt',
+                    check_started_at = DATEADD('MINUTE', -9, CURRENT_TIMESTAMP)
+                WHERE source_id = ?
+                """, sourceId);
+
+        mockMvc.perform(post("/api/bid-source-registrations/{sourceId}/check", sourceId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.message").value("A site availability check is already running."));
+
+        assertEquals("CHECKING", jdbcTemplate.queryForObject(
+                "SELECT check_status FROM bid_source_registration WHERE source_id = ?",
+                String.class,
+                sourceId
+        ));
+        verifyNoInteractions(availabilityChecker);
+    }
+
+    @Test
+    void retriesExpiredCheckAndDoesNotTreatPreviousAttemptAsSuccess() throws Exception {
+        register("Expired Check", "https://expired-check.example/notices");
+        long sourceId = sourceId("Expired Check");
+        jdbcTemplate.update("""
+                UPDATE bid_source_registration
+                SET check_status = 'CHECKING', check_attempt_id = 'expired-attempt',
+                    check_started_at = DATEADD('MINUTE', -11, CURRENT_TIMESTAMP),
+                    detected_collection_method = 'PUBLIC_PAGE', http_status = 200,
+                    content_type = 'text/html'
+                WHERE source_id = ?
+                """, sourceId);
+        when(availabilityChecker.check("https://expired-check.example/notices"))
+                .thenAnswer(invocation -> {
+                    Map<String, Object> inProgress = jdbcTemplate.queryForMap("""
+                            SELECT check_status, safe_failure_code, http_status,
+                                   detected_collection_method, check_started_at
+                            FROM bid_source_registration WHERE source_id = ?
+                            """, sourceId);
+                    assertEquals("CHECKING", inProgress.get("CHECK_STATUS"));
+                    assertEquals("CHECK_TIMEOUT", inProgress.get("SAFE_FAILURE_CODE"));
+                    assertEquals("UNDETERMINED", inProgress.get("DETECTED_COLLECTION_METHOD"));
+                    assertEquals(null, inProgress.get("HTTP_STATUS"));
+                    assertNotNull(inProgress.get("CHECK_STARTED_AT"));
+                    return new BidSourceCheckResult(
+                            BidSourceRegistration.CheckStatus.UNREACHABLE,
+                            BidSourceRegistration.CollectionMethod.UNDETERMINED,
+                            null,
+                            null,
+                            Instant.parse("2026-09-28T03:00:00Z"),
+                            BidSourceRegistration.SafeFailureCode.CONNECTION_TIMEOUT
+                    );
+                });
+
+        mockMvc.perform(post("/api/bid-source-registrations/{sourceId}/check", sourceId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.checkStatus").value("UNREACHABLE"))
+                .andExpect(jsonPath("$.detectedCollectionMethod").value("UNDETERMINED"))
+                .andExpect(jsonPath("$.httpStatus").doesNotExist())
+                .andExpect(jsonPath("$.safeFailureCode").value("CONNECTION_TIMEOUT"))
+                .andExpect(jsonPath("$.registrationStatus").value("PENDING_REVIEW"))
+                .andExpect(jsonPath("$.executionEnabled").value(false));
+
+        assertEquals(0, jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM bid_source_registration
+                WHERE source_id = ? AND check_status = 'REACHABLE'
+                """, Integer.class, sourceId));
+    }
+
+    @Test
+    void permitsOnlyOneConcurrentCheckAndStoresStartTime() throws Exception {
+        register("Concurrent Check", "https://concurrent-check.example/notices");
+        long sourceId = sourceId("Concurrent Check");
+        CountDownLatch checkerEntered = new CountDownLatch(1);
+        CountDownLatch releaseChecker = new CountDownLatch(1);
+        when(availabilityChecker.check("https://concurrent-check.example/notices"))
+                .thenAnswer(invocation -> {
+                    checkerEntered.countDown();
+                    if (!releaseChecker.await(5, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("Test checker release timed out.");
+                    }
+                    return new BidSourceCheckResult(
+                            BidSourceRegistration.CheckStatus.REACHABLE,
+                            BidSourceRegistration.CollectionMethod.PUBLIC_PAGE,
+                            200,
+                            "text/html",
+                            Instant.parse("2026-09-28T04:00:00Z"),
+                            null
+                    );
+                });
+
+        try (ExecutorService executor = Executors.newSingleThreadExecutor()) {
+            Future<Integer> firstStatus = executor.submit(() -> mockMvc.perform(
+                            post("/api/bid-source-registrations/{sourceId}/check", sourceId))
+                    .andReturn().getResponse().getStatus());
+            org.junit.jupiter.api.Assertions.assertTrue(checkerEntered.await(5, TimeUnit.SECONDS));
+
+            assertEquals("CHECKING", jdbcTemplate.queryForObject(
+                    "SELECT check_status FROM bid_source_registration WHERE source_id = ?",
+                    String.class,
+                    sourceId
+            ));
+            assertNotNull(jdbcTemplate.queryForObject(
+                    "SELECT check_started_at FROM bid_source_registration WHERE source_id = ?",
+                    java.sql.Timestamp.class,
+                    sourceId
+            ));
+            mockMvc.perform(post("/api/bid-source-registrations/{sourceId}/check", sourceId))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("A site availability check is already running."));
+
+            releaseChecker.countDown();
+            assertEquals(200, firstStatus.get(5, TimeUnit.SECONDS));
+        } finally {
+            releaseChecker.countDown();
+        }
+        verify(availabilityChecker).check("https://concurrent-check.example/notices");
     }
 
     private void register(String sourceName, String siteUrl) throws Exception {

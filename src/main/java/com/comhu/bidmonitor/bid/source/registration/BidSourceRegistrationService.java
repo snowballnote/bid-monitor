@@ -3,13 +3,16 @@ package com.comhu.bidmonitor.bid.source.registration;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistrationRepository;
 import com.comhu.bidmonitor.bid.persistence.BidSourceCheckResult;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class BidSourceRegistrationService {
@@ -20,17 +23,23 @@ public class BidSourceRegistrationService {
     private final BidSourceUrlNormalizer urlNormalizer;
     private final BidSourceAvailabilityChecker availabilityChecker;
     private final Clock clock;
+    private final Duration checkTimeout;
 
     public BidSourceRegistrationService(
             BidSourceRegistrationRepository repository,
             BidSourceUrlNormalizer urlNormalizer,
             BidSourceAvailabilityChecker availabilityChecker,
-            Clock clock
+            Clock clock,
+            @Value("${bid-source.registration.check-timeout:PT10M}") Duration checkTimeout
     ) {
         this.repository = repository;
         this.urlNormalizer = urlNormalizer;
         this.availabilityChecker = availabilityChecker;
         this.clock = clock;
+        if (checkTimeout == null || checkTimeout.isZero() || checkTimeout.isNegative()) {
+            throw new IllegalArgumentException("Bid source check timeout must be positive.");
+        }
+        this.checkTimeout = checkTimeout;
     }
 
     @Transactional
@@ -65,20 +74,22 @@ public class BidSourceRegistrationService {
     }
 
     public BidSourceRegistration check(long sourceId) {
-        BidSourceRegistration current = findById(sourceId);
-        if (current.getRegistrationStatus() != BidSourceRegistration.RegistrationStatus.PENDING_REVIEW
-                && current.getRegistrationStatus() != BidSourceRegistration.RegistrationStatus.UNDER_REVIEW) {
-            throw new IllegalArgumentException(
-                    "Only pending or under-review registrations can be checked."
-            );
-        }
-        if (!repository.markCheckStarted(sourceId)) {
+        Instant startedAt = clock.instant();
+        String attemptId = UUID.randomUUID().toString();
+        BidSourceRegistrationRepository.CheckStartOutcome startOutcome = repository.tryStartCheck(
+                sourceId,
+                attemptId,
+                startedAt,
+                startedAt.minus(checkTimeout)
+        );
+        if (startOutcome == BidSourceRegistrationRepository.CheckStartOutcome.REJECTED) {
             BidSourceRegistration latest = findById(sourceId);
             if (latest.getCheckStatus() == BidSourceRegistration.CheckStatus.CHECKING) {
                 throw new IllegalArgumentException("A site availability check is already running.");
             }
-            throw new IllegalArgumentException("The registration is no longer eligible for checking.");
+            throw new IllegalArgumentException("Only pending or under-review registrations can be checked.");
         }
+        BidSourceRegistration current = findById(sourceId);
 
         BidSourceCheckResult result;
         try {
@@ -93,7 +104,7 @@ public class BidSourceRegistrationService {
                     BidSourceRegistration.SafeFailureCode.CHECK_FAILED
             );
         }
-        if (!repository.updateCheckResult(sourceId, result)) {
+        if (!repository.updateCheckResult(sourceId, attemptId, result)) {
             throw new IllegalStateException("The site availability check result could not be saved.");
         }
         return findById(sourceId);

@@ -184,6 +184,8 @@ CREATE TABLE IF NOT EXISTS bid_source_registration (
     detected_collection_method VARCHAR(30) NOT NULL DEFAULT 'UNDETERMINED',
     http_status INTEGER,
     content_type VARCHAR(255),
+    check_attempt_id VARCHAR(36),
+    check_started_at TIMESTAMP,
     checked_at TIMESTAMP,
     safe_failure_code VARCHAR(50),
     created_at TIMESTAMP NOT NULL,
@@ -203,6 +205,8 @@ ALTER TABLE bid_source_registration ADD COLUMN IF NOT EXISTS check_status VARCHA
 ALTER TABLE bid_source_registration ADD COLUMN IF NOT EXISTS detected_collection_method VARCHAR(30) NOT NULL DEFAULT 'UNDETERMINED';
 ALTER TABLE bid_source_registration ADD COLUMN IF NOT EXISTS http_status INTEGER;
 ALTER TABLE bid_source_registration ADD COLUMN IF NOT EXISTS content_type VARCHAR(255);
+ALTER TABLE bid_source_registration ADD COLUMN IF NOT EXISTS check_attempt_id VARCHAR(36);
+ALTER TABLE bid_source_registration ADD COLUMN IF NOT EXISTS check_started_at TIMESTAMP;
 ALTER TABLE bid_source_registration ADD COLUMN IF NOT EXISTS checked_at TIMESTAMP;
 ALTER TABLE bid_source_registration ADD COLUMN IF NOT EXISTS safe_failure_code VARCHAR(50);
 ALTER TABLE bid_source_registration ADD CONSTRAINT IF NOT EXISTS ck_bid_source_registration_check_status CHECK (
@@ -214,14 +218,27 @@ ALTER TABLE bid_source_registration ADD CONSTRAINT IF NOT EXISTS ck_bid_source_r
 ALTER TABLE bid_source_registration ADD CONSTRAINT IF NOT EXISTS ck_bid_source_registration_http_status CHECK (
     http_status IS NULL OR (http_status >= 100 AND http_status <= 599)
 );
-ALTER TABLE bid_source_registration ADD CONSTRAINT IF NOT EXISTS ck_bid_source_registration_check_time CHECK (
-    (check_status IN ('NOT_CHECKED', 'CHECKING') AND checked_at IS NULL)
-    OR (check_status IN ('REACHABLE', 'UNREACHABLE', 'BLOCKED') AND checked_at IS NOT NULL)
+UPDATE bid_source_registration
+SET check_status = 'UNREACHABLE', detected_collection_method = 'UNDETERMINED',
+    http_status = NULL, content_type = NULL, check_attempt_id = NULL,
+    checked_at = CURRENT_TIMESTAMP,
+    safe_failure_code = 'CHECK_INTERRUPTED'
+WHERE check_status = 'CHECKING' AND (check_started_at IS NULL OR check_attempt_id IS NULL);
+ALTER TABLE bid_source_registration DROP CONSTRAINT IF EXISTS ck_bid_source_registration_check_time;
+ALTER TABLE bid_source_registration ADD CONSTRAINT ck_bid_source_registration_check_time CHECK (
+    (check_status = 'NOT_CHECKED' AND check_attempt_id IS NULL
+        AND check_started_at IS NULL AND checked_at IS NULL)
+    OR (check_status = 'CHECKING' AND check_attempt_id IS NOT NULL
+        AND check_started_at IS NOT NULL AND checked_at IS NULL)
+    OR (check_status IN ('REACHABLE', 'UNREACHABLE', 'BLOCKED')
+        AND check_attempt_id IS NULL AND check_started_at IS NULL AND checked_at IS NOT NULL)
 );
-ALTER TABLE bid_source_registration ADD CONSTRAINT IF NOT EXISTS ck_bid_source_registration_check_failure CHECK (
+ALTER TABLE bid_source_registration DROP CONSTRAINT IF EXISTS ck_bid_source_registration_check_failure;
+ALTER TABLE bid_source_registration ADD CONSTRAINT ck_bid_source_registration_check_failure CHECK (
     (check_status = 'REACHABLE' AND safe_failure_code IS NULL)
     OR (check_status IN ('UNREACHABLE', 'BLOCKED') AND safe_failure_code IS NOT NULL)
-    OR (check_status IN ('NOT_CHECKED', 'CHECKING') AND safe_failure_code IS NULL)
+    OR (check_status = 'NOT_CHECKED' AND safe_failure_code IS NULL)
+    OR (check_status = 'CHECKING' AND (safe_failure_code IS NULL OR safe_failure_code = 'CHECK_TIMEOUT'))
 );
 
 ALTER TABLE bid_source_registration ADD CONSTRAINT IF NOT EXISTS ck_bid_source_registration_approved_method CHECK (

@@ -7,6 +7,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -102,28 +103,75 @@ public class JdbcBidSourceRegistrationRepository implements BidSourceRegistratio
     }
 
     @Override
-    public boolean markCheckStarted(long sourceId) {
-        return jdbcTemplate.update("""
+    @Transactional
+    public CheckStartOutcome tryStartCheck(
+            long sourceId,
+            String attemptId,
+            Instant startedAt,
+            Instant expiredBefore
+    ) {
+        if (attemptId == null || attemptId.isBlank()) {
+            throw new IllegalArgumentException("Check attempt identifier is required.");
+        }
+        Objects.requireNonNull(startedAt, "Check start time is required.");
+        Objects.requireNonNull(expiredBefore, "Check expiry cutoff is required.");
+        int expired = jdbcTemplate.update("""
                         UPDATE bid_source_registration
-                        SET check_status = 'CHECKING', http_status = NULL, content_type = NULL,
-                            checked_at = NULL, safe_failure_code = NULL
+                        SET check_status = 'UNREACHABLE',
+                            detected_collection_method = 'UNDETERMINED',
+                            http_status = NULL, content_type = NULL,
+                            check_attempt_id = NULL, check_started_at = NULL, checked_at = ?,
+                            safe_failure_code = 'CHECK_TIMEOUT'
+                        WHERE source_id = ?
+                          AND registration_status IN ('PENDING_REVIEW', 'UNDER_REVIEW')
+                          AND check_status = 'CHECKING'
+                          AND (check_started_at IS NULL OR check_started_at <= ?)
+                          AND execution_enabled = FALSE
+                        """,
+                Timestamp.from(startedAt),
+                sourceId,
+                Timestamp.from(expiredBefore)
+        );
+        int started = jdbcTemplate.update("""
+                        UPDATE bid_source_registration
+                        SET check_status = 'CHECKING', detected_collection_method = 'UNDETERMINED',
+                            http_status = NULL, content_type = NULL, check_started_at = ?,
+                            check_attempt_id = ?, checked_at = NULL, safe_failure_code = ?
                         WHERE source_id = ?
                           AND registration_status IN ('PENDING_REVIEW', 'UNDER_REVIEW')
                           AND check_status <> 'CHECKING'
                           AND execution_enabled = FALSE
                         """,
+                Timestamp.from(startedAt),
+                attemptId,
+                expired == 1 ? BidSourceRegistration.SafeFailureCode.CHECK_TIMEOUT.name() : null,
                 sourceId
-        ) == 1;
+        );
+        if (started == 0) {
+            return CheckStartOutcome.REJECTED;
+        }
+        return expired == 1
+                ? CheckStartOutcome.RESTARTED_AFTER_TIMEOUT
+                : CheckStartOutcome.STARTED;
     }
 
     @Override
-    public boolean updateCheckResult(long sourceId, BidSourceCheckResult result) {
+    public boolean updateCheckResult(
+            long sourceId,
+            String expectedAttemptId,
+            BidSourceCheckResult result
+    ) {
+        if (expectedAttemptId == null || expectedAttemptId.isBlank()) {
+            throw new IllegalArgumentException("Expected check attempt identifier is required.");
+        }
         Objects.requireNonNull(result, "Bid source check result is required.");
         return jdbcTemplate.update("""
                         UPDATE bid_source_registration
                         SET check_status = ?, detected_collection_method = ?, http_status = ?,
-                            content_type = ?, checked_at = ?, safe_failure_code = ?
-                        WHERE source_id = ? AND check_status = 'CHECKING' AND execution_enabled = FALSE
+                            content_type = ?, check_attempt_id = NULL, check_started_at = NULL,
+                            checked_at = ?, safe_failure_code = ?
+                        WHERE source_id = ? AND check_status = 'CHECKING'
+                          AND check_attempt_id = ? AND execution_enabled = FALSE
                         """,
                 result.checkStatus().name(),
                 result.detectedCollectionMethod().name(),
@@ -131,7 +179,8 @@ public class JdbcBidSourceRegistrationRepository implements BidSourceRegistratio
                 result.contentType(),
                 Timestamp.from(result.checkedAt()),
                 result.safeFailureCode() == null ? null : result.safeFailureCode().name(),
-                sourceId
+                sourceId,
+                expectedAttemptId
         ) == 1;
     }
 

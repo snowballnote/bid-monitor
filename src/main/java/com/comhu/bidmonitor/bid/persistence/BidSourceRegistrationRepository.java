@@ -18,9 +18,20 @@ public interface BidSourceRegistrationRepository {
             Instant updatedAt
     );
 
-    boolean markCheckStarted(long sourceId);
+    CheckStartOutcome tryStartCheck(
+            long sourceId,
+            String attemptId,
+            Instant startedAt,
+            Instant expiredBefore
+    );
 
-    boolean updateCheckResult(long sourceId, BidSourceCheckResult result);
+    boolean updateCheckResult(long sourceId, String expectedAttemptId, BidSourceCheckResult result);
 
     List<BidSourceRegistration> findAllLatestFirst();
+
+    enum CheckStartOutcome {
+        STARTED,
+        RESTARTED_AFTER_TIMEOUT,
+        REJECTED
+    }
 }
