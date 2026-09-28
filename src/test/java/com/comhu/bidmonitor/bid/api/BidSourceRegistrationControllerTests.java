@@ -1,6 +1,9 @@
 package com.comhu.bidmonitor.bid.api;
 
 import com.comhu.bidmonitor.bid.collection.ManualBidCollectionCoordinator;
+import com.comhu.bidmonitor.bid.persistence.BidSourceCheckResult;
+import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
+import com.comhu.bidmonitor.bid.source.registration.BidSourceAvailabilityChecker;
 import com.comhu.bidmonitor.bid.source.d2b.D2bBidCollector;
 import com.comhu.bidmonitor.bid.source.koreaexpressway.KoreaExpresswayBidCollector;
 import com.comhu.bidmonitor.service.G2bApiService;
@@ -17,8 +20,11 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.Map;
+import java.time.Instant;
 
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -59,6 +65,9 @@ class BidSourceRegistrationControllerTests {
     @MockitoBean
     private D2bBidCollector d2bBidCollector;
 
+    @MockitoBean
+    private BidSourceAvailabilityChecker availabilityChecker;
+
     @BeforeEach
     void clearRegistrations() {
         jdbcTemplate.update("DELETE FROM bid_source_registration");
@@ -81,10 +90,17 @@ class BidSourceRegistrationControllerTests {
                 .andExpect(jsonPath("$.registrationStatus").value("PENDING_REVIEW"))
                 .andExpect(jsonPath("$.collectionMethod").value("UNDETERMINED"))
                 .andExpect(jsonPath("$.executionEnabled").value(false))
+                .andExpect(jsonPath("$.checkStatus").value("NOT_CHECKED"))
+                .andExpect(jsonPath("$.detectedCollectionMethod").value("UNDETERMINED"))
+                .andExpect(jsonPath("$.httpStatus").doesNotExist())
+                .andExpect(jsonPath("$.checkedAt").doesNotExist())
                 .andExpect(jsonPath("$.createdAt").exists())
                 .andExpect(jsonPath("$.updatedAt").exists());
 
-        verifyNoInteractions(coordinator, g2bApiService, koreaExpresswayBidCollector, d2bBidCollector);
+        verifyNoInteractions(
+                coordinator, g2bApiService, koreaExpresswayBidCollector, d2bBidCollector,
+                availabilityChecker
+        );
         org.junit.jupiter.api.Assertions.assertEquals(0, jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM bid_source_state WHERE source_code = 'EXAMPLE_TENDERS'",
                 Integer.class
@@ -281,6 +297,77 @@ class BidSourceRegistrationControllerTests {
                 Boolean.class,
                 sourceId
         ));
+    }
+
+    @Test
+    void explicitlyChecksAndStoresResultWithoutChangingReviewOrExecution() throws Exception {
+        register("KOGAS", "https://ebid.kogas.or.kr/notices");
+        long sourceId = sourceId("KOGAS");
+        Instant checkedAt = Instant.parse("2026-09-28T01:02:03Z");
+        when(availabilityChecker.check("https://ebid.kogas.or.kr/notices"))
+                .thenReturn(new BidSourceCheckResult(
+                        BidSourceRegistration.CheckStatus.REACHABLE,
+                        BidSourceRegistration.CollectionMethod.PUBLIC_PAGE,
+                        200,
+                        "text/html; charset=UTF-8",
+                        checkedAt,
+                        null
+                ));
+
+        mockMvc.perform(post("/api/bid-source-registrations/{sourceId}/check", sourceId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.registrationStatus").value("PENDING_REVIEW"))
+                .andExpect(jsonPath("$.collectionMethod").value("UNDETERMINED"))
+                .andExpect(jsonPath("$.executionEnabled").value(false))
+                .andExpect(jsonPath("$.checkStatus").value("REACHABLE"))
+                .andExpect(jsonPath("$.detectedCollectionMethod").value("PUBLIC_PAGE"))
+                .andExpect(jsonPath("$.httpStatus").value(200))
+                .andExpect(jsonPath("$.contentType").value("text/html; charset=UTF-8"))
+                .andExpect(jsonPath("$.checkedAt").value("2026-09-28T01:02:03Z"))
+                .andExpect(jsonPath("$.safeFailureCode").doesNotExist());
+
+        Map<String, Object> stored = jdbcTemplate.queryForMap("""
+                SELECT registration_status, collection_method, execution_enabled, check_status,
+                       detected_collection_method, http_status, content_type, safe_failure_code
+                FROM bid_source_registration WHERE source_id = ?
+                """, sourceId);
+        org.junit.jupiter.api.Assertions.assertEquals("PENDING_REVIEW", stored.get("REGISTRATION_STATUS"));
+        org.junit.jupiter.api.Assertions.assertEquals("UNDETERMINED", stored.get("COLLECTION_METHOD"));
+        org.junit.jupiter.api.Assertions.assertEquals(false, stored.get("EXECUTION_ENABLED"));
+        org.junit.jupiter.api.Assertions.assertEquals("REACHABLE", stored.get("CHECK_STATUS"));
+        org.junit.jupiter.api.Assertions.assertEquals("PUBLIC_PAGE", stored.get("DETECTED_COLLECTION_METHOD"));
+        verify(availabilityChecker).check("https://ebid.kogas.or.kr/notices");
+        verifyNoInteractions(coordinator, g2bApiService, koreaExpresswayBidCollector, d2bBidCollector);
+    }
+
+    @Test
+    void allowsCheckDuringReviewButNotAfterApproval() throws Exception {
+        register("Review Check", "https://review-check.example/notices");
+        long sourceId = sourceId("Review Check");
+        review(sourceId, Map.of("registrationStatus", "UNDER_REVIEW"))
+                .andExpect(status().isOk());
+        when(availabilityChecker.check("https://review-check.example/notices"))
+                .thenReturn(new BidSourceCheckResult(
+                        BidSourceRegistration.CheckStatus.REACHABLE,
+                        BidSourceRegistration.CollectionMethod.PUBLIC_PAGE,
+                        200,
+                        "text/html",
+                        Instant.parse("2026-09-28T02:00:00Z"),
+                        null
+                ));
+
+        mockMvc.perform(post("/api/bid-source-registrations/{sourceId}/check", sourceId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.registrationStatus").value("UNDER_REVIEW"));
+
+        review(sourceId, Map.of(
+                "registrationStatus", "APPROVED",
+                "collectionMethod", "PUBLIC_PAGE"
+        )).andExpect(status().isOk());
+        mockMvc.perform(post("/api/bid-source-registrations/{sourceId}/check", sourceId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        verify(availabilityChecker).check("https://review-check.example/notices");
     }
 
     private void register(String sourceName, String siteUrl) throws Exception {

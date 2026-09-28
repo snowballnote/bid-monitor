@@ -11,6 +11,12 @@ public record BidSourceRegistrationResponse(
         BidSourceRegistration.RegistrationStatus registrationStatus,
         BidSourceRegistration.CollectionMethod collectionMethod,
         boolean executionEnabled,
+        BidSourceRegistration.CheckStatus checkStatus,
+        BidSourceRegistration.CollectionMethod detectedCollectionMethod,
+        Integer httpStatus,
+        String contentType,
+        Instant checkedAt,
+        BidSourceRegistration.SafeFailureCode safeFailureCode,
         Instant createdAt,
         Instant updatedAt
 ) {
@@ -23,6 +29,12 @@ public record BidSourceRegistrationResponse(
                 registration.getRegistrationStatus(),
                 registration.getCollectionMethod(),
                 registration.isExecutionEnabled(),
+                registration.getCheckStatus(),
+                registration.getDetectedCollectionMethod(),
+                registration.getHttpStatus(),
+                registration.getContentType(),
+                registration.getCheckedAt(),
+                registration.getSafeFailureCode(),
                 registration.getCreatedAt(),
                 registration.getUpdatedAt()
         );

@@ -88,9 +88,14 @@ public class BidSourceUrlNormalizer {
         if (host.chars().allMatch(Character::isDigit) || isHexadecimalAddress(host)) {
             return true;
         }
+        boolean numericAddress = host.chars()
+                .allMatch(character -> Character.isDigit(character) || character == '.');
+        if (!numericAddress) {
+            return false;
+        }
         String[] octets = host.split("\\.", -1);
         if (octets.length != 4) {
-            return host.chars().allMatch(character -> Character.isDigit(character) || character == '.');
+            return true;
         }
         int[] address = new int[4];
         for (int index = 0; index < octets.length; index++) {

@@ -18,5 +18,9 @@ public interface BidSourceRegistrationRepository {
             Instant updatedAt
     );
 
+    boolean markCheckStarted(long sourceId);
+
+    boolean updateCheckResult(long sourceId, BidSourceCheckResult result);
+
     List<BidSourceRegistration> findAllLatestFirst();
 }

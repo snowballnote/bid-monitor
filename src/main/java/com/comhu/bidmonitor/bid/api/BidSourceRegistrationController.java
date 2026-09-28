@@ -66,4 +66,9 @@ public class BidSourceRegistrationController {
                 request.collectionMethod()
         ));
     }
+
+    @PostMapping("/{sourceId}/check")
+    public BidSourceRegistrationResponse check(@PathVariable long sourceId) {
+        return BidSourceRegistrationResponse.from(service.check(sourceId));
+    }
 }

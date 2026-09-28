@@ -180,6 +180,12 @@ CREATE TABLE IF NOT EXISTS bid_source_registration (
     registration_status VARCHAR(30) NOT NULL,
     collection_method VARCHAR(30) NOT NULL,
     execution_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    check_status VARCHAR(20) NOT NULL DEFAULT 'NOT_CHECKED',
+    detected_collection_method VARCHAR(30) NOT NULL DEFAULT 'UNDETERMINED',
+    http_status INTEGER,
+    content_type VARCHAR(255),
+    checked_at TIMESTAMP,
+    safe_failure_code VARCHAR(50),
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
     CONSTRAINT uk_bid_source_registration_url UNIQUE (site_url),
@@ -191,6 +197,31 @@ CREATE TABLE IF NOT EXISTS bid_source_registration (
     ),
     CONSTRAINT ck_bid_source_registration_execution CHECK (execution_enabled = FALSE),
     CONSTRAINT ck_bid_source_registration_time CHECK (updated_at >= created_at)
+);
+
+ALTER TABLE bid_source_registration ADD COLUMN IF NOT EXISTS check_status VARCHAR(20) NOT NULL DEFAULT 'NOT_CHECKED';
+ALTER TABLE bid_source_registration ADD COLUMN IF NOT EXISTS detected_collection_method VARCHAR(30) NOT NULL DEFAULT 'UNDETERMINED';
+ALTER TABLE bid_source_registration ADD COLUMN IF NOT EXISTS http_status INTEGER;
+ALTER TABLE bid_source_registration ADD COLUMN IF NOT EXISTS content_type VARCHAR(255);
+ALTER TABLE bid_source_registration ADD COLUMN IF NOT EXISTS checked_at TIMESTAMP;
+ALTER TABLE bid_source_registration ADD COLUMN IF NOT EXISTS safe_failure_code VARCHAR(50);
+ALTER TABLE bid_source_registration ADD CONSTRAINT IF NOT EXISTS ck_bid_source_registration_check_status CHECK (
+    check_status IN ('NOT_CHECKED', 'CHECKING', 'REACHABLE', 'UNREACHABLE', 'BLOCKED')
+);
+ALTER TABLE bid_source_registration ADD CONSTRAINT IF NOT EXISTS ck_bid_source_registration_detected_method CHECK (
+    detected_collection_method IN ('UNDETERMINED', 'OFFICIAL_API', 'PUBLIC_PAGE', 'RSS')
+);
+ALTER TABLE bid_source_registration ADD CONSTRAINT IF NOT EXISTS ck_bid_source_registration_http_status CHECK (
+    http_status IS NULL OR (http_status >= 100 AND http_status <= 599)
+);
+ALTER TABLE bid_source_registration ADD CONSTRAINT IF NOT EXISTS ck_bid_source_registration_check_time CHECK (
+    (check_status IN ('NOT_CHECKED', 'CHECKING') AND checked_at IS NULL)
+    OR (check_status IN ('REACHABLE', 'UNREACHABLE', 'BLOCKED') AND checked_at IS NOT NULL)
+);
+ALTER TABLE bid_source_registration ADD CONSTRAINT IF NOT EXISTS ck_bid_source_registration_check_failure CHECK (
+    (check_status = 'REACHABLE' AND safe_failure_code IS NULL)
+    OR (check_status IN ('UNREACHABLE', 'BLOCKED') AND safe_failure_code IS NOT NULL)
+    OR (check_status IN ('NOT_CHECKED', 'CHECKING') AND safe_failure_code IS NULL)
 );
 
 ALTER TABLE bid_source_registration ADD CONSTRAINT IF NOT EXISTS ck_bid_source_registration_approved_method CHECK (

@@ -2,6 +2,7 @@ package com.comhu.bidmonitor.bid.source.registration;
 
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistrationRepository;
+import com.comhu.bidmonitor.bid.persistence.BidSourceCheckResult;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,15 +18,18 @@ public class BidSourceRegistrationService {
 
     private final BidSourceRegistrationRepository repository;
     private final BidSourceUrlNormalizer urlNormalizer;
+    private final BidSourceAvailabilityChecker availabilityChecker;
     private final Clock clock;
 
     public BidSourceRegistrationService(
             BidSourceRegistrationRepository repository,
             BidSourceUrlNormalizer urlNormalizer,
+            BidSourceAvailabilityChecker availabilityChecker,
             Clock clock
     ) {
         this.repository = repository;
         this.urlNormalizer = urlNormalizer;
+        this.availabilityChecker = availabilityChecker;
         this.clock = clock;
     }
 
@@ -41,6 +45,8 @@ public class BidSourceRegistrationService {
                     .registrationStatus(BidSourceRegistration.RegistrationStatus.PENDING_REVIEW)
                     .collectionMethod(BidSourceRegistration.CollectionMethod.UNDETERMINED)
                     .executionEnabled(false)
+                    .checkStatus(BidSourceRegistration.CheckStatus.NOT_CHECKED)
+                    .detectedCollectionMethod(BidSourceRegistration.CollectionMethod.UNDETERMINED)
                     .createdAt(now)
                     .updatedAt(now)
                     .build());
@@ -56,6 +62,41 @@ public class BidSourceRegistrationService {
     public BidSourceRegistration findById(long sourceId) {
         return repository.findById(sourceId)
                 .orElseThrow(BidSourceRegistrationNotFoundException::new);
+    }
+
+    public BidSourceRegistration check(long sourceId) {
+        BidSourceRegistration current = findById(sourceId);
+        if (current.getRegistrationStatus() != BidSourceRegistration.RegistrationStatus.PENDING_REVIEW
+                && current.getRegistrationStatus() != BidSourceRegistration.RegistrationStatus.UNDER_REVIEW) {
+            throw new IllegalArgumentException(
+                    "Only pending or under-review registrations can be checked."
+            );
+        }
+        if (!repository.markCheckStarted(sourceId)) {
+            BidSourceRegistration latest = findById(sourceId);
+            if (latest.getCheckStatus() == BidSourceRegistration.CheckStatus.CHECKING) {
+                throw new IllegalArgumentException("A site availability check is already running.");
+            }
+            throw new IllegalArgumentException("The registration is no longer eligible for checking.");
+        }
+
+        BidSourceCheckResult result;
+        try {
+            result = availabilityChecker.check(current.getSiteUrl());
+        } catch (RuntimeException exception) {
+            result = new BidSourceCheckResult(
+                    BidSourceRegistration.CheckStatus.UNREACHABLE,
+                    BidSourceRegistration.CollectionMethod.UNDETERMINED,
+                    null,
+                    null,
+                    clock.instant(),
+                    BidSourceRegistration.SafeFailureCode.CHECK_FAILED
+            );
+        }
+        if (!repository.updateCheckResult(sourceId, result)) {
+            throw new IllegalStateException("The site availability check result could not be saved.");
+        }
+        return findById(sourceId);
     }
 
     @Transactional

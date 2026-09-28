@@ -2,6 +2,7 @@ package com.comhu.bidmonitor.bid.persistence.jdbc;
 
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistrationRepository;
+import com.comhu.bidmonitor.bid.persistence.BidSourceCheckResult;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -22,7 +23,8 @@ public class JdbcBidSourceRegistrationRepository implements BidSourceRegistratio
 
     private static final String COLUMNS = """
             source_id, source_name, site_url, registration_status, collection_method,
-            execution_enabled, created_at, updated_at
+            execution_enabled, check_status, detected_collection_method, http_status,
+            content_type, checked_at, safe_failure_code, created_at, updated_at
             """;
 
     private final JdbcTemplate jdbcTemplate;
@@ -39,16 +41,19 @@ public class JdbcBidSourceRegistrationRepository implements BidSourceRegistratio
             PreparedStatement statement = connection.prepareStatement("""
                     INSERT INTO bid_source_registration (
                         source_name, site_url, registration_status, collection_method,
-                        execution_enabled, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        execution_enabled, check_status, detected_collection_method,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, Statement.RETURN_GENERATED_KEYS);
             statement.setString(1, registration.getSourceName());
             statement.setString(2, registration.getSiteUrl());
             statement.setString(3, registration.getRegistrationStatus().name());
             statement.setString(4, registration.getCollectionMethod().name());
             statement.setBoolean(5, registration.isExecutionEnabled());
-            statement.setTimestamp(6, Timestamp.from(registration.getCreatedAt()));
-            statement.setTimestamp(7, Timestamp.from(registration.getUpdatedAt()));
+            statement.setString(6, registration.getCheckStatus().name());
+            statement.setString(7, registration.getDetectedCollectionMethod().name());
+            statement.setTimestamp(8, Timestamp.from(registration.getCreatedAt()));
+            statement.setTimestamp(9, Timestamp.from(registration.getUpdatedAt()));
             return statement;
         }, keyHolder);
         Number sourceId = keyHolder.getKey();
@@ -97,6 +102,40 @@ public class JdbcBidSourceRegistrationRepository implements BidSourceRegistratio
     }
 
     @Override
+    public boolean markCheckStarted(long sourceId) {
+        return jdbcTemplate.update("""
+                        UPDATE bid_source_registration
+                        SET check_status = 'CHECKING', http_status = NULL, content_type = NULL,
+                            checked_at = NULL, safe_failure_code = NULL
+                        WHERE source_id = ?
+                          AND registration_status IN ('PENDING_REVIEW', 'UNDER_REVIEW')
+                          AND check_status <> 'CHECKING'
+                          AND execution_enabled = FALSE
+                        """,
+                sourceId
+        ) == 1;
+    }
+
+    @Override
+    public boolean updateCheckResult(long sourceId, BidSourceCheckResult result) {
+        Objects.requireNonNull(result, "Bid source check result is required.");
+        return jdbcTemplate.update("""
+                        UPDATE bid_source_registration
+                        SET check_status = ?, detected_collection_method = ?, http_status = ?,
+                            content_type = ?, checked_at = ?, safe_failure_code = ?
+                        WHERE source_id = ? AND check_status = 'CHECKING' AND execution_enabled = FALSE
+                        """,
+                result.checkStatus().name(),
+                result.detectedCollectionMethod().name(),
+                result.httpStatus(),
+                result.contentType(),
+                Timestamp.from(result.checkedAt()),
+                result.safeFailureCode() == null ? null : result.safeFailureCode().name(),
+                sourceId
+        ) == 1;
+    }
+
+    @Override
     public List<BidSourceRegistration> findAllLatestFirst() {
         return jdbcTemplate.query(
                 "SELECT " + COLUMNS
@@ -112,6 +151,8 @@ public class JdbcBidSourceRegistrationRepository implements BidSourceRegistratio
                 || registration.getSiteUrl() == null || registration.getSiteUrl().isBlank()
                 || registration.getRegistrationStatus() == null
                 || registration.getCollectionMethod() == null
+                || registration.getCheckStatus() == null
+                || registration.getDetectedCollectionMethod() == null
                 || registration.getCreatedAt() == null || registration.getUpdatedAt() == null) {
             throw new IllegalArgumentException("A complete new bid source registration is required.");
         }
@@ -130,8 +171,29 @@ public class JdbcBidSourceRegistrationRepository implements BidSourceRegistratio
                 .collectionMethod(BidSourceRegistration.CollectionMethod.valueOf(
                         resultSet.getString("collection_method")))
                 .executionEnabled(resultSet.getBoolean("execution_enabled"))
+                .checkStatus(BidSourceRegistration.CheckStatus.valueOf(resultSet.getString("check_status")))
+                .detectedCollectionMethod(BidSourceRegistration.CollectionMethod.valueOf(
+                        resultSet.getString("detected_collection_method")))
+                .httpStatus(nullableInteger(resultSet, "http_status"))
+                .contentType(resultSet.getString("content_type"))
+                .checkedAt(nullableInstant(resultSet, "checked_at"))
+                .safeFailureCode(nullableFailureCode(resultSet.getString("safe_failure_code")))
                 .createdAt(resultSet.getTimestamp("created_at").toInstant())
                 .updatedAt(resultSet.getTimestamp("updated_at").toInstant())
                 .build();
+    }
+
+    private Integer nullableInteger(ResultSet resultSet, String column) throws SQLException {
+        int value = resultSet.getInt(column);
+        return resultSet.wasNull() ? null : value;
+    }
+
+    private Instant nullableInstant(ResultSet resultSet, String column) throws SQLException {
+        Timestamp value = resultSet.getTimestamp(column);
+        return value == null ? null : value.toInstant();
+    }
+
+    private BidSourceRegistration.SafeFailureCode nullableFailureCode(String value) {
+        return value == null ? null : BidSourceRegistration.SafeFailureCode.valueOf(value);
     }
 }
