@@ -1,6 +1,7 @@
 package com.comhu.bidmonitor.bid.source.kogas;
 
 import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
+import com.comhu.bidmonitor.bid.source.registration.BidSourceExecutionEligibilityService;
 import com.comhu.bidmonitor.dto.BidAttachmentDto;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +37,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.function.Predicate;
 
 /** 한국가스공사 공개 입찰공고 페이지를 fixture로 검증 가능한 후보 수집기로 변환한다. */
 @Slf4j
@@ -73,17 +75,28 @@ public class KogasBidCollector implements BidCandidateCollector {
 
     private final URI baseUri;
     private final Transport transport;
+    private final Predicate<BidCandidateCollector> executionEligibility;
 
     @Autowired
     public KogasBidCollector(
-            @Value("${bid-source.kogas.base-url:https://bid.kogas.or.kr:9443}") String baseUrl
+            @Value("${bid-source.kogas.base-url:https://bid.kogas.or.kr:9443}") String baseUrl,
+            BidSourceExecutionEligibilityService executionEligibility
     ) {
-        this(baseUrl, new SafeHttpTransport());
+        this(baseUrl, new SafeHttpTransport(), executionEligibility::isEligible);
     }
 
     KogasBidCollector(String baseUrl, Transport transport) {
+        this(baseUrl, transport, collector -> true);
+    }
+
+    KogasBidCollector(
+            String baseUrl,
+            Transport transport,
+            Predicate<BidCandidateCollector> executionEligibility
+    ) {
         this.baseUri = validateBaseUri(baseUrl);
         this.transport = transport;
+        this.executionEligibility = executionEligibility;
     }
 
     @Override
@@ -103,6 +116,9 @@ public class KogasBidCollector implements BidCandidateCollector {
 
     @Override
     public List<BidQualificationDto> collect(LocalDate startDate, LocalDate endDate) {
+        if (!executionEligibility.test(this)) {
+            throw new IllegalStateException("KOGAS collector is not eligible for execution.");
+        }
         validateRange(startDate, endDate);
         URI listUri = baseUri.resolve(LIST_PATH);
         Response listResponse = execute(listUri);

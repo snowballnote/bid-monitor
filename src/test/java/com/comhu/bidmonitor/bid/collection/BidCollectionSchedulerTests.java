@@ -67,7 +67,8 @@ class BidCollectionSchedulerTests {
         when(sourceRegistry.sources()).thenReturn(List.of(
                 source("G2B", true),
                 source("KOREA_EXPRESSWAY", true),
-                source("D2B", false)
+                source("D2B", false),
+                source("KOGAS", false)
         ));
         stateRepository.save(BidSourceState.builder()
                 .sourceCode("KOREA_EXPRESSWAY")
@@ -88,6 +89,12 @@ class BidCollectionSchedulerTests {
                 org.mockito.ArgumentMatchers.any(),
                 anySet(),
                 org.mockito.ArgumentMatchers.eq("D2B")
+        );
+        verify(coordinator, never()).collectScheduled(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                anySet(),
+                org.mockito.ArgumentMatchers.eq("KOGAS")
         );
         assertEquals(NOW.plus(Duration.ofHours(1)), state("G2B").getNextRunAt());
     }

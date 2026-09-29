@@ -2,6 +2,7 @@ package com.comhu.bidmonitor.bid.collection;
 
 import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
 import com.comhu.bidmonitor.bid.source.d2b.D2bBidCollector;
+import com.comhu.bidmonitor.bid.source.registration.BidSourceExecutionEligibilityService;
 import com.comhu.bidmonitor.service.G2bApiService;
 import org.springframework.stereotype.Component;
 
@@ -16,13 +17,16 @@ public class ManualBidCollectionSourceRegistry {
 
     private final G2bApiService g2bApiService;
     private final List<BidCandidateCollector> additionalCollectors;
+    private final BidSourceExecutionEligibilityService executionEligibility;
 
     public ManualBidCollectionSourceRegistry(
             G2bApiService g2bApiService,
-            List<BidCandidateCollector> additionalCollectors
+            List<BidCandidateCollector> additionalCollectors,
+            BidSourceExecutionEligibilityService executionEligibility
     ) {
         this.g2bApiService = g2bApiService;
         this.additionalCollectors = List.copyOf(additionalCollectors);
+        this.executionEligibility = executionEligibility;
     }
 
     public List<ManualBidCollectionSource> sources() {
@@ -45,6 +49,10 @@ public class ManualBidCollectionSourceRegistry {
             }
         });
         for (BidCandidateCollector collector : additionalCollectors) {
+            boolean registrationManaged = collector.registrationBindingSupported();
+            if (registrationManaged && !executionEligibility.isEligible(collector)) {
+                continue;
+            }
             sources.add(new ManualBidCollectionSource() {
                 @Override
                 public String sourceCode() {
@@ -53,7 +61,9 @@ public class ManualBidCollectionSourceRegistry {
 
                 @Override
                 public boolean executionEnabled() {
-                    return collector.executionEnabled();
+                    return registrationManaged
+                            ? executionEligibility.isEligible(collector)
+                            : collector.executionEnabled();
                 }
 
                 @Override
@@ -62,6 +72,9 @@ public class ManualBidCollectionSourceRegistry {
                         java.time.LocalDate endDate,
                         java.util.Set<String> allowedLicenseCodes
                 ) {
+                    if (registrationManaged) {
+                        executionEligibility.requireEligible(collector);
+                    }
                     if (collector instanceof D2bBidCollector d2bCollector) {
                         try {
                             D2bBidCollector.CollectionResult measured = d2bCollector.collectMeasured(startDate, endDate);

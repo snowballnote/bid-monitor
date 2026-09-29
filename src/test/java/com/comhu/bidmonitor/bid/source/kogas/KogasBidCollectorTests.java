@@ -89,6 +89,15 @@ class KogasBidCollectorTests {
         assertFalse(collector.executionEnabled());
     }
 
+    @Test
+    void blocksDirectCollectionWhenExecutionEligibilityRejectsIt() {
+        FixtureTransport transport = new FixtureTransport(false);
+        KogasBidCollector collector = new KogasBidCollector(BASE_URL, transport, ignored -> false);
+
+        assertThrows(IllegalStateException.class, () -> collector.collect(START, END));
+        assertTrue(transport.requestedUris.isEmpty());
+    }
+
     private static String fixture(String name) {
         try {
             return Files.readString(Path.of("src/test/resources/fixtures/kogas", name), StandardCharsets.UTF_8);
