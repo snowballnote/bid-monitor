@@ -1,10 +1,7 @@
 package com.comhu.bidmonitor.service;
 
 import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
-import com.comhu.bidmonitor.classifier.BidAwardMethodCategory;
 import com.comhu.bidmonitor.classifier.BidAwardMethodClassifier;
-import com.comhu.bidmonitor.classifier.BidAwardMethodResult;
-import com.comhu.bidmonitor.classifier.BidAwardMethodStatus;
 import com.comhu.bidmonitor.dto.BidAttachmentDto;
 import com.comhu.bidmonitor.dto.BidDocumentAnalysisDto;
 import com.comhu.bidmonitor.dto.BidDto;
@@ -87,9 +84,7 @@ public class G2bApiService {
             "ict",
             "it감리"
     );
-    private static final String REQUIRED_LICENSE_CODE = "6146";
     private static final Set<String> DEFAULT_ALLOWED_LICENSE_CODES = Set.of("6146", "1468");
-    private static final Set<String> REFERENCE_SITE_DOMAINS = Set.of("smpp.go.kr");
     private static final Set<String> PDF_ANALYSIS_DOCUMENT_TYPES =
             Set.of("공고문", "과업지시서", "제안요청서");
     private static final Set<String> HWPX_ANALYSIS_DOCUMENT_TYPES =
@@ -245,7 +240,7 @@ public class G2bApiService {
             "상호 및 대표자", "대표자 전원", "당사(공동수급체 구성원", "당사 (공동수급체 구성원"
     );
 
-    private final BidAwardMethodClassifier bidAwardMethodClassifier;
+    private final BidQualificationEvaluationService qualificationEvaluationService;
     private final List<BidCandidateCollector> additionalBidCandidateCollectors;
 
     /** 직접 생성하는 기존 단위 테스트와의 호환을 위한 기본 생성자다. */
@@ -261,11 +256,19 @@ public class G2bApiService {
     /** 나라장터에 없는 연계기관 후보 수집기를 목록으로 주입해 기존 판정 흐름에 합류시킨다. */
     @Autowired
     public G2bApiService(
+            BidQualificationEvaluationService qualificationEvaluationService,
+            List<BidCandidateCollector> additionalBidCandidateCollectors
+    ) {
+        this.qualificationEvaluationService = qualificationEvaluationService;
+        this.additionalBidCandidateCollectors = List.copyOf(additionalBidCandidateCollectors);
+    }
+
+    /** 기존 직접 생성 호출은 공통 판정 서비스를 구성해 같은 실행 경로를 사용한다. */
+    public G2bApiService(
             BidAwardMethodClassifier bidAwardMethodClassifier,
             List<BidCandidateCollector> additionalBidCandidateCollectors
     ) {
-        this.bidAwardMethodClassifier = bidAwardMethodClassifier;
-        this.additionalBidCandidateCollectors = List.copyOf(additionalBidCandidateCollectors);
+        this(new BidQualificationEvaluationService(bidAwardMethodClassifier), additionalBidCandidateCollectors);
     }
 
     // application.properties에 설정한 나라장터 API 기본 주소를 가져옴
@@ -657,11 +660,10 @@ public class G2bApiService {
             // 기존 문서분석을 먼저 수행해 구조화 상세정보가 부족한 경우 낙찰방법의 보조 근거로 재사용한다.
             applyExternalCheckResult(qualification);
 
-            // 나라장터 검색 필터와 독립적인 낙찰방법 판정 결과를 DTO에 보존한다.
-            applyAwardMethodClassification(qualification);
-
-            // 조합한 참가조건을 기준으로 자동 검토 상태와 판정 사유를 설정한다.
-            applyReviewResult(qualification, normalizeAllowedLicenseCodes(allowedLicenseCodes));
+            // 출처와 무관한 공통 판정으로 낙찰방법과 회사 참가조건 결과를 설정한다.
+            qualificationEvaluationService.evaluate(
+                    qualification, normalizeAllowedLicenseCodes(allowedLicenseCodes)
+            );
             return qualification;
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("참가조건 API 응답을 JSON으로 처리할 수 없습니다.", e);
@@ -671,10 +673,9 @@ public class G2bApiService {
     /** 분석 가능한 PDF/HWPX/HWP 첨부만 처리하고 기존 기준으로 공고 전체 결과를 계산한다. */
     private void applyExternalCheckResult(BidQualificationDto qualification) {
         List<BidAttachmentDto> attachments = qualification.getAttachments();
-        qualification.setExternalSiteUrls(new ArrayList<>());
 
         if (attachments == null || attachments.isEmpty()) {
-            setUnknownExternalCheckResult(qualification, "분석 가능한 PDF/HWPX/HWP 첨부파일이 없음");
+            qualificationEvaluationService.evaluateExternalCheck(qualification, List.of());
             return;
         }
 
@@ -695,276 +696,10 @@ public class G2bApiService {
         }
 
         if (analysisTargets.isEmpty()) {
-            setUnknownExternalCheckResult(qualification, "분석 가능한 PDF/HWPX/HWP 첨부파일이 없음");
-            return;
+            qualificationEvaluationService.evaluateExternalCheck(qualification, List.of());
+        } else {
+            qualificationEvaluationService.evaluateExternalCheck(qualification, analysisTargets);
         }
-
-        List<BidAttachmentDto> detectedAttachments = analysisTargets.stream()
-                .filter(attachment -> Boolean.TRUE.equals(attachment.getExternalReferenceDetected()))
-                .toList();
-
-        // 여러 첨부에서 같은 외부 URL이 나온 경우 공고 단위 목록에는 한 번만 보존한다.
-        Set<String> externalUrls = detectedAttachments.stream()
-                .filter(attachment -> attachment.getDetectedExternalUrls() != null)
-                .flatMap(attachment -> attachment.getDetectedExternalUrls().stream())
-                .filter(url -> !getSafeValue(url).isBlank())
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        Set<String> referenceUrls = externalUrls.stream()
-                .filter(this::isReferenceSiteUrl)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        Set<String> requiredUrls = externalUrls.stream()
-                .filter(url -> !isReferenceSiteUrl(url))
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        boolean keywordSignalDetected = detectedAttachments.stream()
-                .anyMatch(this::hasExternalReferenceKeywordSignal);
-
-        // 일반 외부 URL 또는 직접 제출 등의 키워드가 하나라도 있으면 참고사이트 포함 여부와 관계없이 REQUIRED다.
-        if (!requiredUrls.isEmpty() || keywordSignalDetected) {
-            List<String> detectedReasons = detectedAttachments.stream()
-                    .map(this::createAttachmentExternalReason)
-                    .filter(reason -> !reason.isBlank())
-                    .distinct()
-                    .toList();
-            qualification.setExternalCheckStatus("REQUIRED");
-            qualification.setExternalSiteCheckRequired(true);
-            qualification.setExternalSiteUrls(new ArrayList<>(externalUrls));
-            qualification.setExternalCheckReason(detectedReasons.isEmpty()
-                    ? "첨부문서에서 외부사이트 확인 신호가 탐지됨"
-                    : String.join(" | ", detectedReasons));
-            return;
-        }
-
-        List<String> failedFileNames = analysisTargets.stream()
-                .filter(attachment -> "FAILED".equals(attachment.getAnalysisStatus()))
-                .map(attachment -> getSafeValue(attachment.getFileName()).trim())
-                .filter(fileName -> !fileName.isEmpty())
-                .distinct()
-                .toList();
-
-        // 일부라도 분석에 실패하면 실패한 문서에 외부 신호가 있을 수 있어 UNKNOWN으로 둔다.
-        if (!failedFileNames.isEmpty()) {
-            setUnknownExternalCheckResult(
-                    qualification,
-                    "첨부파일 분석 실패로 외부 확인 필요 여부를 판단할 수 없음: "
-                            + String.join(", ", failedFileNames)
-            );
-            return;
-        }
-
-        // smpp.go.kr처럼 자격·제도 확인 목적의 사이트만 있으면 추가 공고 확인 대상으로 보지 않는다.
-        if (!referenceUrls.isEmpty()) {
-            qualification.setExternalCheckStatus("REFERENCE");
-            qualification.setExternalSiteCheckRequired(false);
-            qualification.setExternalSiteUrls(new ArrayList<>(referenceUrls));
-            qualification.setExternalCheckReason(
-                    "자격·제도 확인용 참고사이트가 포함되어 있음: " + String.join(", ", referenceUrls)
-            );
-            return;
-        }
-
-        boolean analyzedAttachmentExists = analysisTargets.stream()
-                .anyMatch(attachment -> "ANALYZED".equals(attachment.getAnalysisStatus()));
-        if (analyzedAttachmentExists) {
-            qualification.setExternalCheckStatus("NOT_DETECTED");
-            qualification.setExternalSiteCheckRequired(false);
-            qualification.setExternalCheckReason("분석된 첨부파일에서 외부 홈페이지 확인 신호가 탐지되지 않음");
-            return;
-        }
-
-        setUnknownExternalCheckResult(qualification, "첨부파일 분석 결과를 확인할 수 없음");
-    }
-
-    /** REQUIRED 사유에 첨부파일명과 해당 파일의 분석 사유를 함께 표시한다. */
-    private String createAttachmentExternalReason(BidAttachmentDto attachment) {
-        String fileName = getSafeValue(attachment.getFileName()).trim();
-        String analysisReason = getSafeValue(attachment.getAnalysisReason()).trim();
-        if (fileName.isEmpty()) {
-            return analysisReason;
-        }
-        return analysisReason.isEmpty() ? fileName : fileName + ": " + analysisReason;
-    }
-
-    /** 첨부 분석 사유에 URL 이외의 외부 확인 키워드가 포함되었는지 확인한다. */
-    private boolean hasExternalReferenceKeywordSignal(BidAttachmentDto attachment) {
-        return getSafeValue(attachment.getAnalysisReason()).contains("탐지 키워드:");
-    }
-
-    /** 지정한 URL이 자격·제도 안내용 참고사이트 또는 그 하위 도메인인지 확인한다. */
-    private boolean isReferenceSiteUrl(String url) {
-        try {
-            String host = getSafeValue(URI.create(url).getHost()).toLowerCase(Locale.ROOT);
-            return REFERENCE_SITE_DOMAINS.stream()
-                    .anyMatch(domain -> domain.equals(host) || host.endsWith("." + domain));
-        } catch (IllegalArgumentException ignored) {
-            return false;
-        }
-    }
-
-    /** 외부사이트 확인 여부를 판단할 수 없는 공고의 공통 결과를 설정한다. */
-    private void setUnknownExternalCheckResult(BidQualificationDto qualification, String reason) {
-        qualification.setExternalCheckStatus("UNKNOWN");
-        qualification.setExternalSiteCheckRequired(null);
-        qualification.setExternalSiteUrls(new ArrayList<>());
-        qualification.setExternalCheckReason(reason);
-    }
-
-    /** 별도 classifier의 결과를 기존 API DTO에 문자열로 보존해 화면과 후속 판단에서 함께 사용한다. */
-    private void applyAwardMethodClassification(BidQualificationDto qualification) {
-        BidAwardMethodResult result = bidAwardMethodClassifier.classify(qualification);
-        qualification.setAwardMethodCategory(result.category().name());
-        qualification.setAwardMethodStatus(result.status().name());
-        qualification.setAwardMethodReason(result.reason());
-        qualification.setAwardMethodSource(result.source().name());
-    }
-
-    /**
-     * 참가조건을 기준으로 공고의 자동 검토 상태와 사람이 확인할 판정 사유를 설정한다.
-     */
-    private void applyReviewResult(BidQualificationDto qualification, Set<String> allowedLicenseCodes) {
-        String sucsfbidMthdCd = getSafeValue(qualification.getSucsfbidMthdCd());
-        String sucsfbidMthdNm = getSafeValue(qualification.getSucsfbidMthdNm());
-
-        // 직접 호출하는 기존 테스트와 상세 판정 흐름 모두 동일한 자체 분류 결과를 사용한다.
-        if (getSafeValue(qualification.getAwardMethodReason()).isEmpty()) {
-            applyAwardMethodClassification(qualification);
-        }
-        BidAwardMethodCategory awardMethodCategory = BidAwardMethodCategory.valueOf(
-                getSafeValue(qualification.getAwardMethodCategory())
-        );
-        BidAwardMethodStatus awardMethodStatus = BidAwardMethodStatus.valueOf(
-                getSafeValue(qualification.getAwardMethodStatus())
-        );
-
-        // 협상에 의한 계약은 다른 조건과 관계없이 검토 대상에서 제외한다.
-        if ("낙030005".equals(sucsfbidMthdCd) || sucsfbidMthdNm.contains("협상")) {
-            qualification.setReviewStatus("제외");
-            qualification.setReviewReason("협상에 의한 계약으로 대상 제외");
-            return;
-        }
-
-        boolean smallAmountEstimate = awardMethodCategory == BidAwardMethodCategory.SMALL_AMOUNT_ESTIMATE;
-        boolean qualificationReview = awardMethodCategory == BidAwardMethodCategory.QUALIFICATION_REVIEW;
-
-        // 소액수의견적 또는 적격심사제에 해당하지 않으면 자동 판정만으로는 검토 여부를 확정할 수 없다.
-        if (!smallAmountEstimate && !qualificationReview) {
-            if (awardMethodCategory == BidAwardMethodCategory.OTHER) {
-                qualification.setReviewStatus("제외");
-                qualification.setReviewReason("낙찰방법이 적격심사 또는 소액수의견적 대상이 아님");
-            } else {
-                qualification.setReviewStatus("추가확인필요");
-                qualification.setReviewReason("낙찰방법이 검토대상 기준에 해당하는지 확인 필요");
-            }
-            return;
-        }
-
-        List<String> additionalCheckReasons = new ArrayList<>();
-        String participationRegion = getSafeValue(qualification.getParticipationRegion());
-
-        // 첨부문서만으로 추정한 경우 후보에서는 유지하되 최종 확인이 필요함을 명시한다.
-        if (qualificationReview && awardMethodStatus == BidAwardMethodStatus.LIKELY) {
-            additionalCheckReasons.add("첨부문서 근거의 적격심사 여부 확인 필요");
-        }
-
-        // 검토대상 공고라도 면허, 지역 및 심사 조건이 있으면 추가 확인이 필요하다.
-        LicenseReviewResult licenseReviewResult = reviewLicenseGroups(
-                qualification.getLicenseGroups(),
-                allowedLicenseCodes
-        );
-        if (!licenseReviewResult.satisfied()) {
-            additionalCheckReasons.add(licenseReviewResult.reason());
-        }
-        if (!"제한없음".equals(participationRegion)) {
-            additionalCheckReasons.add(participationRegion.isEmpty()
-                    ? "지역제한 조건 확인 필요"
-                    : "지역제한 조건 확인 필요: " + participationRegion);
-        }
-        if ("Y".equals(getSafeValue(qualification.getArsltCmptYn()))) {
-            additionalCheckReasons.add("실적경쟁 조건 확인 필요");
-        }
-        if ("Y".equals(getSafeValue(qualification.getPqEvalYn()))) {
-            additionalCheckReasons.add("PQ심사 조건 확인 필요");
-        }
-        if ("Y".equals(getSafeValue(qualification.getTpEvalYn()))) {
-            additionalCheckReasons.add("TP심사 조건 확인 필요");
-        }
-
-        if (!additionalCheckReasons.isEmpty()) {
-            qualification.setReviewStatus("추가확인필요");
-            qualification.setReviewReason(String.join(", ", additionalCheckReasons));
-            return;
-        }
-
-        qualification.setReviewStatus("검토대상");
-        qualification.setReviewReason((smallAmountEstimate ? "소액수의견적" : "적격심사제")
-                + ", 허용 면허조건 충족, 지역제한 없음");
-    }
-
-    /**
-     * 같은 그룹의 면허는 모두 충족(AND), 여러 그룹 중 하나만 충족하면 통과(OR)하도록 판정한다.
-     * 감리 대상 판정이므로 통과 그룹에는 필수 업종코드 6146이 반드시 포함되어야 한다.
-     */
-    private LicenseReviewResult reviewLicenseGroups(
-            List<LicenseRequirementGroup> licenseGroups,
-            Set<String> allowedLicenseCodes
-    ) {
-        List<LicenseRequirementGroup> safeGroups = licenseGroups == null ? List.of() : licenseGroups;
-        List<String> closestMissingCodes = null;
-        boolean hasRequiredLicense = false;
-        boolean hasUnknownLicenseCode = false;
-
-        for (LicenseRequirementGroup group : safeGroups) {
-            List<LicenseRequirement> requirements = group == null || group.getRequirements() == null
-                    ? List.of()
-                    : group.getRequirements();
-            boolean groupHasRequiredLicense = requirements.stream()
-                    .filter(requirement -> requirement != null)
-                    .map(LicenseRequirement::getLicenseCode)
-                    .map(this::getSafeValue)
-                    .anyMatch(REQUIRED_LICENSE_CODE::equals);
-
-            hasRequiredLicense |= groupHasRequiredLicense;
-            if (!groupHasRequiredLicense || requirements.isEmpty()) {
-                continue;
-            }
-
-            // 한 그룹 안에서 허용되지 않은 코드를 모두 모아 AND 조건 충족 여부를 확인한다.
-            LinkedHashSet<String> missingCodes = new LinkedHashSet<>();
-            boolean groupHasUnknownLicenseCode = false;
-            for (LicenseRequirement requirement : requirements) {
-                String licenseCode = requirement == null
-                        ? ""
-                        : getSafeValue(requirement.getLicenseCode()).trim();
-                if (licenseCode.isEmpty()) {
-                    groupHasUnknownLicenseCode = true;
-                } else if (!allowedLicenseCodes.contains(licenseCode)) {
-                    missingCodes.add(licenseCode);
-                }
-            }
-
-            if (missingCodes.isEmpty() && !groupHasUnknownLicenseCode) {
-                return new LicenseReviewResult(true, "");
-            }
-
-            hasUnknownLicenseCode |= groupHasUnknownLicenseCode;
-            if (!missingCodes.isEmpty()
-                    && (closestMissingCodes == null || missingCodes.size() < closestMissingCodes.size())) {
-                closestMissingCodes = new ArrayList<>(missingCodes);
-            }
-        }
-
-        if (!hasRequiredLicense) {
-            return new LicenseReviewResult(false, "6146 면허조건 확인 필요");
-        }
-        if (closestMissingCodes != null) {
-            return new LicenseReviewResult(
-                    false,
-                    "추가 면허조건 확인 필요: " + String.join(", ", closestMissingCodes)
-            );
-        }
-        if (hasUnknownLicenseCode) {
-            return new LicenseReviewResult(false, "면허조건 코드 확인 필요");
-        }
-        return new LicenseReviewResult(false, "허용 면허조건 확인 필요");
     }
 
     /**
@@ -2433,8 +2168,7 @@ public class G2bApiService {
         for (BidQualificationDto candidate : candidates) {
             applySourceIdentity(candidate, sourceCode);
             applyExternalCheckResult(candidate);
-            applyAwardMethodClassification(candidate);
-            applyReviewResult(candidate, normalizedCodes);
+            qualificationEvaluationService.evaluate(candidate, normalizedCodes);
             addUniqueCandidate(collectedCandidates, candidate, false);
         }
         return new ArrayList<>(collectedCandidates.values());
@@ -2493,8 +2227,6 @@ public class G2bApiService {
     }
 
     /** 면허 그룹 판정 결과와 추가 확인 사유를 함께 보관한다. */
-    private record LicenseReviewResult(boolean satisfied, String reason) {
-    }
 
     /** 공고 직접조회에서 변환한 기본정보와 첨부파일 목록을 함께 보관한다. */
     private record BidDetail(BidDto bidDto, List<BidAttachmentDto> attachments) {

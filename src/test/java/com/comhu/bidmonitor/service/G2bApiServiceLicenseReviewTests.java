@@ -1,11 +1,11 @@
 package com.comhu.bidmonitor.service;
 
+import com.comhu.bidmonitor.classifier.BidAwardMethodClassifier;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
 import com.comhu.bidmonitor.dto.LicenseRequirement;
 import com.comhu.bidmonitor.dto.LicenseRequirementGroup;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -17,7 +17,8 @@ class G2bApiServiceLicenseReviewTests {
 
     private static final Set<String> DEFAULT_ALLOWED_CODES = Set.of("6146", "1468");
 
-    private final G2bApiService service = new G2bApiService();
+    private final BidQualificationEvaluationService service =
+            new BidQualificationEvaluationService(new BidAwardMethodClassifier());
 
     @Test
     void defaultAllowedCodesAllowSingle6146Requirement() throws Exception {
@@ -109,13 +110,7 @@ class G2bApiServiceLicenseReviewTests {
         return new LicenseRequirementGroup(groupNo, requirements);
     }
 
-    private void applyReview(BidQualificationDto qualification, Set<String> allowedCodes) throws Exception {
-        Method method = G2bApiService.class.getDeclaredMethod(
-                "applyReviewResult",
-                BidQualificationDto.class,
-                Set.class
-        );
-        method.setAccessible(true);
-        method.invoke(service, qualification, allowedCodes);
+    private void applyReview(BidQualificationDto qualification, Set<String> allowedCodes) {
+        service.evaluate(qualification, allowedCodes);
     }
 }

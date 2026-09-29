@@ -112,6 +112,27 @@ class G2bApiServiceAdditionalSourceTests {
     }
 
     @Test
+    void expresswayAndKogasUseTheSameCommonQualificationEvaluation() {
+        G2bApiService service = new EmptyG2bFixtureService(List.of());
+        BidQualificationDto expressway = eligibleCandidate("EX-ELIGIBLE");
+        BidQualificationDto kogas = eligibleCandidate("KOGAS-ELIGIBLE");
+
+        BidQualificationDto expresswayResult = service.processAdditionalBidQualificationList(
+                collector("KOREA_EXPRESSWAY", List.of()), List.of(expressway), Set.of("6146", "1468")
+        ).getFirst();
+        BidQualificationDto kogasResult = service.processAdditionalBidQualificationList(
+                collector("KOGAS", List.of()), List.of(kogas), Set.of("6146", "1468")
+        ).getFirst();
+
+        assertEquals("KOREA_EXPRESSWAY", expresswayResult.getSourceCode());
+        assertEquals("KOGAS", kogasResult.getSourceCode());
+        assertEquals("검토대상", expresswayResult.getReviewStatus());
+        assertEquals(expresswayResult.getReviewStatus(), kogasResult.getReviewStatus());
+        assertEquals(expresswayResult.getReviewReason(), kogasResult.getReviewReason());
+        assertEquals(expresswayResult.getAwardMethodCategory(), kogasResult.getAwardMethodCategory());
+    }
+
+    @Test
     void sameSourceAndNoticeIdAreDeduplicatedButDifferentSourcesDoNotCollide() {
         G2bApiService service = new EmptyG2bFixtureService(List.of(
                 collector("D2B", List.of(
@@ -221,6 +242,22 @@ class G2bApiServiceAdditionalSourceTests {
         candidate.setBidNtceNo(bidNtceNo);
         candidate.setSourceNoticeId(sourceNoticeId);
         candidate.setRevision(revision);
+        return candidate;
+    }
+
+    private static BidQualificationDto eligibleCandidate(String noticeId) {
+        BidQualificationDto candidate = candidate(noticeId, noticeId, null);
+        candidate.setSucsfbidMthdNm("소액수의견적");
+        candidate.setSucsfbidMthdCd("낙030029");
+        candidate.setParticipationRegion("제한없음");
+        candidate.setArsltCmptYn("N");
+        candidate.setPqEvalYn("N");
+        candidate.setTpEvalYn("N");
+        candidate.setLicenseGroups(List.of(new com.comhu.bidmonitor.dto.LicenseRequirementGroup("1", List.of(
+                new com.comhu.bidmonitor.dto.LicenseRequirement(
+                        "1", "6146", "정보시스템 감리법인", "정보시스템 감리법인/6146"
+                )
+        ))));
         return candidate;
     }
 
