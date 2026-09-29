@@ -499,7 +499,7 @@ CREATE TABLE IF NOT EXISTS performance_project (
 CREATE TABLE IF NOT EXISTS performance_entry (
     id VARCHAR(36) PRIMARY KEY,
     project_id VARCHAR(36) NOT NULL REFERENCES performance_project(id),
-    ppt_number VARCHAR(100) NOT NULL,
+    ppt_number VARCHAR(100),
     business_name VARCHAR(1000) NOT NULL,
     business_period VARCHAR(500) NOT NULL,
     contract_amount VARCHAR(200) NOT NULL,
@@ -512,7 +512,6 @@ CREATE TABLE IF NOT EXISTS performance_entry (
     kitc_status VARCHAR(30) NOT NULL,
     requested_at DATE,
     replied_at DATE,
-    CONSTRAINT uk_performance_ppt_number UNIQUE(project_id, ppt_number),
     CONSTRAINT ck_performance_business_status CHECK(business_status IN ('COMPLETED', 'IN_PROGRESS')),
     CONSTRAINT ck_performance_evidence_type CHECK(evidence_type IN ('CERTIFICATE', 'CONTRACT')),
     CONSTRAINT ck_performance_kitc_status CHECK(kitc_status IN ('NEEDED', 'REQUESTED', 'RECEIVED')),
@@ -524,6 +523,8 @@ CREATE TABLE IF NOT EXISTS performance_entry (
         OR (kitc_status = 'REQUESTED' AND requested_at IS NOT NULL AND replied_at IS NULL)
         OR (kitc_status = 'RECEIVED' AND requested_at IS NOT NULL AND replied_at >= requested_at AND replied_at IS NOT NULL))
 );
+ALTER TABLE performance_entry DROP CONSTRAINT IF EXISTS uk_performance_ppt_number;
+ALTER TABLE performance_entry ALTER COLUMN ppt_number DROP NOT NULL;
 
 -- Private Drive references stay in primary H2. Existing company file selections are preserved.
 CREATE TABLE IF NOT EXISTS performance_drive_file (

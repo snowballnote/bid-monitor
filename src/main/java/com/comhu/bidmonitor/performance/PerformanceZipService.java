@@ -31,7 +31,7 @@ public class PerformanceZipService {
         var names = new HashSet<String>();
         for (Entry entry : entries) {
             if (!names.add(filename(entry).toLowerCase(Locale.ROOT))) {
-                throw new IllegalArgumentException("ZIP 파일명이 중복됩니다. PPT 번호나 사업명을 수정하세요.");
+                throw new IllegalArgumentException("ZIP 파일명이 중복됩니다. 사업명이나 발주기관을 확인하세요.");
             }
         }
         var output = new ByteArrayOutputStream();
@@ -64,11 +64,15 @@ public class PerformanceZipService {
         }
         ext = ext.replaceFirst("^\\.", "");
         if (!ext.matches("[a-zA-Z0-9]{0,16}")) ext = "";
-        return safe(info.pptNumber()) + "_" + info.evidenceType().label + "_("
+        String numberPrefix = info.pptNumber() == null || info.pptNumber().isBlank()
+                ? ""
+                : safe(info.pptNumber()) + "_";
+        return numberPrefix + info.evidenceType().label + "_("
                 + safe(info.client()) + ") " + safe(info.businessName()) + (ext.isEmpty() ? "" : "." + ext);
     }
 
     private static String safe(String value) {
+        if (value == null) return "_";
         String result = value.replaceAll("[\\p{Cntrl}\\\\/:*?\"<>|]", "_")
                 .replaceAll("\\.{2,}", "_").replaceAll("[. ]+$", "").strip();
         if (result.isEmpty()) result = "_";

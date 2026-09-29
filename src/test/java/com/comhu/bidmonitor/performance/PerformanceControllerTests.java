@@ -125,7 +125,7 @@ class PerformanceControllerTests {
                 .content("{\"text\":\"007\\t사업A\\t2024.01 ~ 2025.12\\t100\\t발주처\\n8\\t사업B\\t오류\\t100\\t발주처\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.saved.length()").value(1))
                 .andExpect(jsonPath("$.errors.length()").value(1))
-                .andExpect(jsonPath("$.saved[0].info.pptNumber").value("007"))
+                .andExpect(jsonPath("$.saved[0].info.pptNumber").doesNotExist())
                 .andExpect(jsonPath("$.saved[0].info.selectedFileId").isEmpty());
         mvc.perform(get("/api/performance-projects/" + project + "/entries"))
                 .andExpect(status().isOk()).andExpect(content().string(allOf(

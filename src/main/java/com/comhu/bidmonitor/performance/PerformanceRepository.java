@@ -48,13 +48,23 @@ public class PerformanceRepository {
 
     public List<Entry> entries(String projectId) {
         project(projectId);
-        return jdbc.query("SELECT * FROM performance_entry WHERE project_id = ? ORDER BY ppt_number, id",
+        return jdbc.query("SELECT * FROM performance_entry WHERE project_id = ? ORDER BY business_name, id",
                 this::map, projectId);
     }
 
     public Entry entry(String projectId, String id) {
         return jdbc.query("SELECT * FROM performance_entry WHERE project_id = ? AND id = ?",
                 this::map, projectId, id).stream().findFirst().orElseThrow(() -> new PerformanceNotFoundException());
+    }
+
+    public boolean existsByPerformanceFields(String projectId, EntryInput input) {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM performance_entry
+                WHERE project_id = ? AND business_name = ? AND client = ?
+                  AND business_period = ? AND contract_amount = ?
+                """, Integer.class, projectId, input.businessName(), input.client(),
+                input.businessPeriod(), input.contractAmount());
+        return count != null && count > 0;
     }
 
     public Entry insert(String projectId, EntryInput input) {

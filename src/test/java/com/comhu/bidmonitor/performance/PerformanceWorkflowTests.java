@@ -60,15 +60,17 @@ class PerformanceWorkflowTests {
     }
 
     @Test
-    void htmlPreservesCellNewlinesAndOriginalPptNumberAndSkipsHeader() {
+    void htmlIgnoresNumberAndMapsTheFourPerformanceFieldsFromHeaders() {
         var result = service.paste(project, new PasteInput("", """
                 <table><tr><th>번호</th><th>사업명</th><th>사업기간</th><th>계약금액</th><th>발주처</th></tr>
                 <tr><td>007</td><td>통합<br>시스템 사업</td><td>2024.01<br>~ 2025.12</td><td>1,000만원</td><td>발주처</td></tr></table>
                 """));
         assertThat(result.errors()).isEmpty();
         assertThat(result.saved()).singleElement().satisfies(e -> {
-            assertThat(e.info().pptNumber()).isEqualTo("007");
+            assertThat(e.info().pptNumber()).isNull();
             assertThat(e.info().businessName()).isEqualTo("통합 시스템 사업");
+            assertThat(e.info().client()).isEqualTo("발주처");
+            assertThat(e.info().businessPeriod()).isEqualTo("2024.01 ~ 2025.12");
             assertThat(e.info().contractAmount()).isEqualTo("1,000만원");
             assertThat(e.info().selectedFileId()).isNull();
         });
@@ -81,20 +83,58 @@ class PerformanceWorkflowTests {
                 + "01\t\"통합\n사업\"\t2024.01 ~ 2025.12\t100\t발주처\n"
                 + "02\t불량\t날짜 오류\t100\t발주처\n"
                 + "03\t사업B\t2024.01 ~ 수행중\t200\t발주처");
-        assertThat(result.saved()).extracting(e -> e.info().pptNumber()).containsExactly("01", "03");
+        assertThat(result.saved()).extracting(e -> e.info().pptNumber()).containsOnlyNulls();
         assertThat(result.saved().getFirst().info().businessName()).isEqualTo("통합 사업");
         assertThat(result.errors()).singleElement().satisfies(e -> assertThat(e.row()).isEqualTo(3));
     }
 
     @Test
-    void duplicateNumberIsPerProjectAndDoesNotBlockOtherRows() {
+    void duplicateNumbersAreIgnoredAndDoNotControlEntryCreation() {
         var result = importRows("5\t사업A\t2024.01 ~ 2025.12\t100\t발주처\n"
                 + "5\t사업B\t2024.01 ~ 2025.12\t100\t발주처\n"
                 + "9\t사업C\t2024.01 ~ 2025.12\t100\t발주처");
-        assertThat(result.saved()).hasSize(2);
-        assertThat(result.errors()).hasSize(1);
+        assertThat(result.saved()).hasSize(3);
+        assertThat(result.errors()).isEmpty();
         var other = service.create(new ProjectInput("다른 프로젝트", LocalDate.now()));
         assertThat(service.paste(other.id(), new PasteInput("5\t사업A\t2024.01 ~ 2025.12\t100\t발주처", null)).saved()).hasSize(1);
+    }
+
+    @Test
+    void duplicateImportUsesOnlyTheFourPerformanceFields() {
+        var result = importRows("1\t사업A\t2024.01 ~ 2025.12\t100\t발주처\n"
+                + "999\t사업A\t2024.01 ~ 2025.12\t100\t발주처");
+
+        assertThat(result.saved()).hasSize(1);
+        assertThat(result.errors()).singleElement().satisfies(error ->
+                assertThat(error.message()).contains("동일한 수행실적"));
+        assertThat(result.saved().getFirst().info().pptNumber()).isNull();
+    }
+
+    @Test
+    void parsesFourColumnsWithoutANumberAndKeepsHeaderMapping() {
+        var result = importRows("사업금액\t발주기관\t사업명\t사업기간\n"
+                + "2,500,000원\t한국가스공사\t공급설비 감리용역\t2026.01 ~ 2026.12");
+
+        assertThat(result.errors()).isEmpty();
+        assertThat(result.saved()).singleElement().satisfies(entry -> {
+            assertThat(entry.info().pptNumber()).isNull();
+            assertThat(entry.info().businessName()).isEqualTo("공급설비 감리용역");
+            assertThat(entry.info().client()).isEqualTo("한국가스공사");
+            assertThat(entry.info().businessPeriod()).isEqualTo("2026.01 ~ 2026.12");
+            assertThat(entry.info().contractAmount()).isEqualTo("2,500,000원");
+        });
+
+        var withoutHeader = importRows(
+                "무번호 사업\t무번호 발주기관\t2025.01 ~ 2025.12\t3,000원"
+        );
+        assertThat(withoutHeader.errors()).isEmpty();
+        assertThat(withoutHeader.saved()).singleElement().satisfies(entry -> {
+            assertThat(entry.info().pptNumber()).isNull();
+            assertThat(entry.info().businessName()).isEqualTo("무번호 사업");
+            assertThat(entry.info().client()).isEqualTo("무번호 발주기관");
+            assertThat(entry.info().businessPeriod()).isEqualTo("2025.01 ~ 2025.12");
+            assertThat(entry.info().contractAmount()).isEqualTo("3,000원");
+        });
     }
 
     @Test
@@ -150,9 +190,9 @@ class PerformanceWorkflowTests {
         when(content.open(7L)).thenAnswer(invocation -> new ByteArrayInputStream("contents".getBytes(StandardCharsets.UTF_8)));
         byte[] archive = new PerformanceZipService(repository, content, drive).download(project);
         try (var zip = new ZipInputStream(new ByteArrayInputStream(archive))) {
-            assertThat(zip.getNextEntry().getName()).isEqualTo("007_실적증명서_(발주처) 사업A.pdf");
+            assertThat(zip.getNextEntry().getName()).isEqualTo("실적증명서_(발주처) 사업A.pdf");
             assertThat(new String(zip.readAllBytes(), StandardCharsets.UTF_8)).isEqualTo("contents");
-            assertThat(zip.getNextEntry().getName()).isEqualTo("008_실적증명서_(발주처) 사업B.pdf");
+            assertThat(zip.getNextEntry().getName()).isEqualTo("실적증명서_(발주처) 사업B.pdf");
             assertThat(new String(zip.readAllBytes(), StandardCharsets.UTF_8)).isEqualTo("contents");
             assertThat(zip.getNextEntry()).isNull();
         }
@@ -213,7 +253,7 @@ class PerformanceWorkflowTests {
         assertThat(result.errors()).singleElement().satisfies(error ->
                 assertThat(error.message()).contains("따옴표"));
         assertThat(result.saved()).singleElement().satisfies(entry -> {
-            assertThat(entry.info().pptNumber()).isEqualTo("2");
+            assertThat(entry.info().pptNumber()).isNull();
             assertThat(entry.info().businessName()).isEqualTo("통합 시스템");
         });
     }
@@ -232,7 +272,7 @@ class PerformanceWorkflowTests {
     @Test
     void unsafeZipNamesCannotTraverseDirectoriesAndCollisionsAreReported() throws Exception {
         var entries = importRows("1/\t../사업A\t2024.01 ~ 2025.12\t100\t발주처\n"
-                + "1?\t../사업A\t2024.01 ~ 2025.12\t100\t발주처").saved();
+                + "1?\t..\\사업A\t2024.01 ~ 2025.12\t100\t발주처").saved();
         when(files.findActiveFileById(7L)).thenReturn(Optional.of(file(7, "파일.pdf")));
         for (var entry : entries) {
             var updated = service.update(project, entry.id(),

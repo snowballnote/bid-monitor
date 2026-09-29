@@ -19,7 +19,7 @@ public class PerformanceApiExceptionHandler {
     @ExceptionHandler(PerformanceNotFoundException.class)
     ResponseEntity<?> missing() { return error(404, "프로젝트 또는 실적을 찾을 수 없습니다."); }
     @ExceptionHandler(DuplicateKeyException.class)
-    ResponseEntity<?> duplicate() { return error(409, "이미 저장된 PPT 번호입니다."); }
+    ResponseEntity<?> duplicate() { return error(409, "이미 저장된 데이터입니다."); }
     @ExceptionHandler({CompanyDatabaseUnavailableException.class, DataAccessException.class})
     ResponseEntity<?> unavailable() { return error(503, "데이터 조회 또는 저장을 완료하지 못했습니다. 연결 상태를 확인하세요."); }
     @ExceptionHandler(FmsDriveException.class)

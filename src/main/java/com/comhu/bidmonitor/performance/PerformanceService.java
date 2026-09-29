@@ -1,7 +1,6 @@
 package com.comhu.bidmonitor.performance;
 
 import com.comhu.bidmonitor.submission.port.CompanyFileSearchPort;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
@@ -49,15 +48,18 @@ public class PerformanceService {
         for (ParsedRow row : parser.parse(paste)) {
             try {
                 if (row.error() != null) throw new IllegalArgumentException(row.error());
-                if (row.cells().size() != 5) throw new IllegalArgumentException("번호 / 사업명 / 사업기간 / 계약금액 / 발주처의 5개 셀이 필요합니다.");
+                if (row.cells().size() != 4) throw new IllegalArgumentException(
+                        "사업명 / 발주기관 / 사업기간 / 사업금액의 4개 셀이 필요합니다."
+                );
                 var c = row.cells();
-                EntryInput input = normalize(new EntryInput(c.get(0), c.get(1), c.get(2), c.get(3), c.get(4),
+                EntryInput input = normalize(new EntryInput(null, c.get(0), c.get(2), c.get(3), c.get(1),
                         null, null, null, KitcStatus.NEEDED, null, null));
+                if (repository.existsByPerformanceFields(projectId, input)) {
+                    throw new IllegalArgumentException("동일한 수행실적이 이미 저장되어 있습니다.");
+                }
                 saved.add(repository.insert(projectId, input));
             } catch (IllegalArgumentException exception) {
                 errors.add(new RowError(row.row(), row.cells(), exception.getMessage()));
-            } catch (DuplicateKeyException exception) {
-                errors.add(new RowError(row.row(), row.cells(), "이미 저장된 PPT 번호입니다. 기존 실적을 수정하세요."));
             }
         }
         return new ImportResult(saved, errors);
@@ -135,7 +137,7 @@ public class PerformanceService {
 
     private EntryInput normalize(EntryInput input) {
         if (input == null) throw new IllegalArgumentException("실적정보가 필요합니다.");
-        String number = required(input.pptNumber(), 100, "PPT 번호");
+        String number = optional(input.pptNumber(), 100, "PPT 번호");
         String name = required(input.businessName(), 1000, "사업명");
         String period = required(input.businessPeriod(), 500, "사업기간");
         String amount = required(input.contractAmount(), 200, "계약금액");
@@ -173,6 +175,12 @@ public class PerformanceService {
     }
     private String required(String value, int max, String label) {
         if (value == null || value.isBlank() || value.length() > max) throw new IllegalArgumentException(label + "을(를) 확인하세요.");
+        return value.strip().replaceAll("\\s+", " ");
+    }
+
+    private String optional(String value, int max, String label) {
+        if (value == null || value.isBlank()) return null;
+        if (value.length() > max) throw new IllegalArgumentException(label + "를 확인하세요.");
         return value.strip().replaceAll("\\s+", " ");
     }
 }
