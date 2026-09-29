@@ -6,6 +6,7 @@ import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceAvailabilityChecker;
 import com.comhu.bidmonitor.bid.source.d2b.D2bBidCollector;
 import com.comhu.bidmonitor.bid.source.koreaexpressway.KoreaExpresswayBidCollector;
+import com.comhu.bidmonitor.bid.source.kogas.KogasBidCollector;
 import com.comhu.bidmonitor.service.G2bApiService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,6 +32,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -73,11 +76,17 @@ class BidSourceRegistrationControllerTests {
     private D2bBidCollector d2bBidCollector;
 
     @MockitoBean
+    private KogasBidCollector kogasBidCollector;
+
+    @MockitoBean
     private BidSourceAvailabilityChecker availabilityChecker;
 
     @BeforeEach
     void clearRegistrations() {
         jdbcTemplate.update("DELETE FROM bid_source_registration");
+        when(kogasBidCollector.sourceCode()).thenReturn("KOGAS");
+        when(kogasBidCollector.registrationBindingSupported()).thenReturn(true);
+        when(kogasBidCollector.executionEnabled()).thenReturn(false);
     }
 
     @Test
@@ -94,6 +103,7 @@ class BidSourceRegistrationControllerTests {
                 .andExpect(jsonPath("$.sourceId").isNumber())
                 .andExpect(jsonPath("$.sourceName").value("Example Tenders"))
                 .andExpect(jsonPath("$.siteUrl").value("https://example.com/bids"))
+                .andExpect(jsonPath("$.sourceCode").doesNotExist())
                 .andExpect(jsonPath("$.registrationStatus").value("PENDING_REVIEW"))
                 .andExpect(jsonPath("$.collectionMethod").value("UNDETERMINED"))
                 .andExpect(jsonPath("$.executionEnabled").value(false))
@@ -112,6 +122,109 @@ class BidSourceRegistrationControllerTests {
                 "SELECT COUNT(*) FROM bid_source_state WHERE source_code = 'EXAMPLE_TENDERS'",
                 Integer.class
         ));
+        org.junit.jupiter.api.Assertions.assertEquals(0, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM bid_source_registration WHERE source_code IS NOT NULL",
+                Integer.class
+        ));
+    }
+
+    @Test
+    void rejectsBindingBeforeApprovalAndForRejectedRegistrations() throws Exception {
+        register("Pending Binding", "https://pending-binding.example/notices");
+        long pendingId = sourceId("Pending Binding");
+        bind(pendingId, "KOGAS")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        review(pendingId, Map.of("registrationStatus", "UNDER_REVIEW"))
+                .andExpect(status().isOk());
+        bind(pendingId, "KOGAS")
+                .andExpect(status().isBadRequest());
+
+        register("Rejected Binding", "https://rejected-binding.example/notices");
+        long rejectedId = sourceId("Rejected Binding");
+        review(rejectedId, Map.of(
+                "registrationStatus", "UNDER_REVIEW",
+                "collectionMethod", "PUBLIC_PAGE"
+        )).andExpect(status().isOk());
+        review(rejectedId, Map.of("registrationStatus", "REJECTED"))
+                .andExpect(status().isOk());
+        bind(rejectedId, "KOGAS")
+                .andExpect(status().isBadRequest());
+
+        assertEquals(0, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM bid_source_registration WHERE source_code IS NOT NULL",
+                Integer.class
+        ));
+        verify(kogasBidCollector, never()).collect(any(), any());
+    }
+
+    @Test
+    void bindsApprovedCompatibleRegistrationToKogasWithoutEnablingExecution() throws Exception {
+        register("Unrelated", "https://unrelated-binding.example/notices");
+        register("KOGAS Binding", "https://kogas-binding.example/notices");
+        long sourceId = sourceId("KOGAS Binding");
+        approveWithDetectedMethod(sourceId, "https://kogas-binding.example/notices", "PUBLIC_PAGE");
+
+        bind(sourceId, "kogas")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceId").value(sourceId))
+                .andExpect(jsonPath("$.sourceCode").value("KOGAS"))
+                .andExpect(jsonPath("$.registrationStatus").value("APPROVED"))
+                .andExpect(jsonPath("$.collectionMethod").value("PUBLIC_PAGE"))
+                .andExpect(jsonPath("$.detectedCollectionMethod").value("PUBLIC_PAGE"))
+                .andExpect(jsonPath("$.executionEnabled").value(false));
+
+        Map<String, Object> stored = jdbcTemplate.queryForMap("""
+                SELECT source_code, execution_enabled FROM bid_source_registration WHERE source_id = ?
+                """, sourceId);
+        assertEquals("KOGAS", stored.get("SOURCE_CODE"));
+        assertEquals(false, stored.get("EXECUTION_ENABLED"));
+        verify(kogasBidCollector, never()).collect(any(), any());
+        verifyNoInteractions(coordinator);
+    }
+
+    @Test
+    void rejectsUnknownIncompatibleAndDuplicateSourceCodeBindings() throws Exception {
+        register("Unknown Binding", "https://unknown-binding.example/notices");
+        long unknownId = sourceId("Unknown Binding");
+        approveWithDetectedMethod(unknownId, "https://unknown-binding.example/notices", "PUBLIC_PAGE");
+        bind(unknownId, "D2B")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("sourceCode is not supported for registration binding."));
+
+        register("Incompatible Binding", "https://incompatible-binding.example/notices");
+        long incompatibleId = sourceId("Incompatible Binding");
+        checkAs(incompatibleId, "https://incompatible-binding.example/notices", "PUBLIC_PAGE");
+        review(incompatibleId, Map.of("registrationStatus", "UNDER_REVIEW"))
+                .andExpect(status().isOk());
+        review(incompatibleId, Map.of(
+                "registrationStatus", "APPROVED",
+                "collectionMethod", "RSS"
+        )).andExpect(status().isOk());
+        bind(incompatibleId, "KOGAS")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value("The confirmed and detected collection methods must match before binding."));
+
+        register("First KOGAS Binding", "https://first-kogas-binding.example/notices");
+        long firstId = sourceId("First KOGAS Binding");
+        approveWithDetectedMethod(firstId, "https://first-kogas-binding.example/notices", "PUBLIC_PAGE");
+        bind(firstId, "KOGAS").andExpect(status().isOk());
+
+        register("Second KOGAS Binding", "https://second-kogas-binding.example/notices");
+        long secondId = sourceId("Second KOGAS Binding");
+        approveWithDetectedMethod(secondId, "https://second-kogas-binding.example/notices", "PUBLIC_PAGE");
+        bind(secondId, "KOGAS")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SOURCE_CODE_ALREADY_BOUND"));
+
+        assertEquals(1, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM bid_source_registration WHERE source_code = 'KOGAS'",
+                Integer.class
+        ));
+        verify(kogasBidCollector, never()).collect(any(), any());
+        verifyNoInteractions(coordinator);
     }
 
     @Test
@@ -532,6 +645,36 @@ class BidSourceRegistrationControllerTests {
         return mockMvc.perform(patch("/api/bid-source-registrations/{sourceId}/review", sourceId)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json(request)));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions bind(long sourceId, String sourceCode)
+            throws Exception {
+        return mockMvc.perform(patch("/api/bid-source-registrations/{sourceId}/binding", sourceId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(Map.of("sourceCode", sourceCode))));
+    }
+
+    private void approveWithDetectedMethod(long sourceId, String siteUrl, String method) throws Exception {
+        checkAs(sourceId, siteUrl, method);
+        review(sourceId, Map.of("registrationStatus", "UNDER_REVIEW"))
+                .andExpect(status().isOk());
+        review(sourceId, Map.of(
+                "registrationStatus", "APPROVED",
+                "collectionMethod", method
+        )).andExpect(status().isOk());
+    }
+
+    private void checkAs(long sourceId, String siteUrl, String method) throws Exception {
+        when(availabilityChecker.check(siteUrl)).thenReturn(new BidSourceCheckResult(
+                BidSourceRegistration.CheckStatus.REACHABLE,
+                BidSourceRegistration.CollectionMethod.valueOf(method),
+                200,
+                "text/html",
+                Instant.parse("2026-09-29T00:00:00Z"),
+                null
+        ));
+        mockMvc.perform(post("/api/bid-source-registrations/{sourceId}/check", sourceId))
+                .andExpect(status().isOk());
     }
 
     private String json(Map<String, ?> value) throws Exception {

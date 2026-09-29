@@ -10,7 +10,6 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
@@ -41,7 +40,6 @@ import java.util.regex.Pattern;
 /** 한국가스공사 공개 입찰공고 페이지를 fixture로 검증 가능한 후보 수집기로 변환한다. */
 @Slf4j
 @Component
-@ConditionalOnProperty(name = "bid-source.kogas.enabled", havingValue = "true")
 public class KogasBidCollector implements BidCandidateCollector {
 
     static final String SOURCE_CODE = "KOGAS";
@@ -96,6 +94,11 @@ public class KogasBidCollector implements BidCandidateCollector {
     @Override
     public boolean executionEnabled() {
         return false;
+    }
+
+    @Override
+    public boolean registrationBindingSupported() {
+        return true;
     }
 
     @Override

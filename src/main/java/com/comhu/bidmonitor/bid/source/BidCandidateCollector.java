@@ -19,5 +19,10 @@ public interface BidCandidateCollector {
         return true;
     }
 
+    /** 등록 검토가 끝난 수집처와 명시적으로 연결할 수 있는 collector만 true를 반환한다. */
+    default boolean registrationBindingSupported() {
+        return false;
+    }
+
     List<BidQualificationDto> collect(LocalDate startDate, LocalDate endDate);
 }

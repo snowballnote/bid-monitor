@@ -23,7 +23,7 @@ import java.util.Optional;
 public class JdbcBidSourceRegistrationRepository implements BidSourceRegistrationRepository {
 
     private static final String COLUMNS = """
-            source_id, source_name, site_url, registration_status, collection_method,
+            source_id, source_name, site_url, source_code, registration_status, collection_method,
             execution_enabled, check_status, detected_collection_method, http_status,
             content_type, checked_at, safe_failure_code, created_at, updated_at
             """;
@@ -75,6 +75,43 @@ public class JdbcBidSourceRegistrationRepository implements BidSourceRegistratio
                 this::map,
                 sourceId
         ).stream().findFirst();
+    }
+
+    @Override
+    public Optional<BidSourceRegistration> findBySourceCode(String sourceCode) {
+        if (sourceCode == null || sourceCode.isBlank()) {
+            return Optional.empty();
+        }
+        return jdbcTemplate.query(
+                "SELECT " + COLUMNS + " FROM bid_source_registration WHERE source_code = ?",
+                this::map,
+                sourceCode
+        ).stream().findFirst();
+    }
+
+    @Override
+    public boolean bindSourceCode(
+            long sourceId,
+            BidSourceRegistration.RegistrationStatus expectedStatus,
+            String sourceCode,
+            Instant updatedAt
+    ) {
+        Objects.requireNonNull(expectedStatus, "Expected registration status is required.");
+        if (sourceCode == null || sourceCode.isBlank()) {
+            throw new IllegalArgumentException("Source code is required.");
+        }
+        Objects.requireNonNull(updatedAt, "Binding update time is required.");
+        return jdbcTemplate.update("""
+                        UPDATE bid_source_registration
+                        SET source_code = ?, updated_at = ?
+                        WHERE source_id = ? AND registration_status = ?
+                          AND source_code IS NULL AND execution_enabled = FALSE
+                        """,
+                sourceCode,
+                Timestamp.from(updatedAt),
+                sourceId,
+                expectedStatus.name()
+        ) == 1;
     }
 
     @Override
@@ -196,6 +233,7 @@ public class JdbcBidSourceRegistrationRepository implements BidSourceRegistratio
     private void validateNew(BidSourceRegistration registration) {
         Objects.requireNonNull(registration, "Bid source registration is required.");
         if (registration.getSourceId() != null
+                || registration.getSourceCode() != null
                 || registration.getSourceName() == null || registration.getSourceName().isBlank()
                 || registration.getSiteUrl() == null || registration.getSiteUrl().isBlank()
                 || registration.getRegistrationStatus() == null
@@ -215,6 +253,7 @@ public class JdbcBidSourceRegistrationRepository implements BidSourceRegistratio
                 .sourceId(resultSet.getLong("source_id"))
                 .sourceName(resultSet.getString("source_name"))
                 .siteUrl(resultSet.getString("site_url"))
+                .sourceCode(resultSet.getString("source_code"))
                 .registrationStatus(BidSourceRegistration.RegistrationStatus.valueOf(
                         resultSet.getString("registration_status")))
                 .collectionMethod(BidSourceRegistration.CollectionMethod.valueOf(

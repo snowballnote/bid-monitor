@@ -10,6 +10,15 @@ public interface BidSourceRegistrationRepository {
 
     Optional<BidSourceRegistration> findById(long sourceId);
 
+    Optional<BidSourceRegistration> findBySourceCode(String sourceCode);
+
+    boolean bindSourceCode(
+            long sourceId,
+            BidSourceRegistration.RegistrationStatus expectedStatus,
+            String sourceCode,
+            Instant updatedAt
+    );
+
     boolean updateReview(
             long sourceId,
             BidSourceRegistration.RegistrationStatus expectedStatus,

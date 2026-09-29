@@ -3,6 +3,7 @@ package com.comhu.bidmonitor.bid.api;
 import com.comhu.bidmonitor.bid.api.dto.BidApiErrorResponse;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceRegistrationNotFoundException;
 import com.comhu.bidmonitor.bid.source.registration.DuplicateBidSourceUrlException;
+import com.comhu.bidmonitor.bid.source.registration.DuplicateBidSourceCodeBindingException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -18,6 +19,15 @@ public class BidSourceRegistrationApiExceptionHandler {
                 HttpStatus.CONFLICT,
                 "SOURCE_URL_ALREADY_REGISTERED",
                 "The bid source URL is already registered."
+        );
+    }
+
+    @ExceptionHandler(DuplicateBidSourceCodeBindingException.class)
+    public ResponseEntity<BidApiErrorResponse> handleDuplicateBinding() {
+        return error(
+                HttpStatus.CONFLICT,
+                "SOURCE_CODE_ALREADY_BOUND",
+                "The collector sourceCode is already bound to another registration."
         );
     }
 

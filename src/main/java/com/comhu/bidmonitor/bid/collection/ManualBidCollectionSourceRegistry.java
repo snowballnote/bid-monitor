@@ -7,6 +7,8 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /** Builds source executors without changing the existing live aggregation API. */
 @Component
@@ -80,5 +82,14 @@ public class ManualBidCollectionSourceRegistry {
             });
         }
         return List.copyOf(sources);
+    }
+
+    /** Collector 실행 없이 등록 레코드에 연결할 수 있는 명시적 sourceCode 목록을 반환한다. */
+    public Set<String> registrationBindingSourceCodes() {
+        return additionalCollectors.stream()
+                .filter(BidCandidateCollector::registrationBindingSupported)
+                .map(BidCandidateCollector::sourceCode)
+                .filter(code -> code != null && !code.isBlank())
+                .collect(Collectors.toUnmodifiableSet());
     }
 }

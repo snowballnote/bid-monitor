@@ -12,6 +12,7 @@ public class BidSourceRegistration {
     Long sourceId;
     String sourceName;
     String siteUrl;
+    String sourceCode;
     RegistrationStatus registrationStatus;
     CollectionMethod collectionMethod;
     boolean executionEnabled;

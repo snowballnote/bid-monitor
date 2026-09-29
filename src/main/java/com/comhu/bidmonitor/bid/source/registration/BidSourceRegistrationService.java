@@ -3,6 +3,7 @@ package com.comhu.bidmonitor.bid.source.registration;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistrationRepository;
 import com.comhu.bidmonitor.bid.persistence.BidSourceCheckResult;
+import com.comhu.bidmonitor.bid.collection.ManualBidCollectionSourceRegistry;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -12,6 +13,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 @Service
@@ -22,6 +24,7 @@ public class BidSourceRegistrationService {
     private final BidSourceRegistrationRepository repository;
     private final BidSourceUrlNormalizer urlNormalizer;
     private final BidSourceAvailabilityChecker availabilityChecker;
+    private final ManualBidCollectionSourceRegistry sourceRegistry;
     private final Clock clock;
     private final Duration checkTimeout;
 
@@ -29,12 +32,14 @@ public class BidSourceRegistrationService {
             BidSourceRegistrationRepository repository,
             BidSourceUrlNormalizer urlNormalizer,
             BidSourceAvailabilityChecker availabilityChecker,
+            ManualBidCollectionSourceRegistry sourceRegistry,
             Clock clock,
             @Value("${bid-source.registration.check-timeout:PT10M}") Duration checkTimeout
     ) {
         this.repository = repository;
         this.urlNormalizer = urlNormalizer;
         this.availabilityChecker = availabilityChecker;
+        this.sourceRegistry = sourceRegistry;
         this.clock = clock;
         if (checkTimeout == null || checkTimeout.isZero() || checkTimeout.isNegative()) {
             throw new IllegalArgumentException("Bid source check timeout must be positive.");
@@ -106,6 +111,46 @@ public class BidSourceRegistrationService {
         }
         if (!repository.updateCheckResult(sourceId, attemptId, result)) {
             throw new IllegalStateException("The site availability check result could not be saved.");
+        }
+        return findById(sourceId);
+    }
+
+    @Transactional
+    public BidSourceRegistration bind(long sourceId, String sourceCode) {
+        String normalizedCode = normalizeSourceCode(sourceCode);
+        BidSourceRegistration current = findById(sourceId);
+        if (current.getRegistrationStatus() != BidSourceRegistration.RegistrationStatus.APPROVED) {
+            throw new IllegalArgumentException("Only approved registrations can be bound to a collector.");
+        }
+        if (current.getCollectionMethod() == BidSourceRegistration.CollectionMethod.UNDETERMINED
+                || current.getCollectionMethod() != current.getDetectedCollectionMethod()) {
+            throw new IllegalArgumentException(
+                    "The confirmed and detected collection methods must match before binding."
+            );
+        }
+        if (!sourceRegistry.registrationBindingSourceCodes().contains(normalizedCode)) {
+            throw new IllegalArgumentException("sourceCode is not supported for registration binding.");
+        }
+        if (current.getSourceCode() != null) {
+            throw new IllegalArgumentException("The registration is already bound to a collector.");
+        }
+        if (repository.findBySourceCode(normalizedCode).isPresent()) {
+            throw new DuplicateBidSourceCodeBindingException();
+        }
+        try {
+            boolean updated = repository.bindSourceCode(
+                    sourceId,
+                    BidSourceRegistration.RegistrationStatus.APPROVED,
+                    normalizedCode,
+                    clock.instant()
+            );
+            if (!updated) {
+                repository.findById(sourceId)
+                        .orElseThrow(BidSourceRegistrationNotFoundException::new);
+                throw new IllegalArgumentException("The registration binding state changed.");
+            }
+        } catch (DuplicateKeyException exception) {
+            throw new DuplicateBidSourceCodeBindingException();
         }
         return findById(sourceId);
     }
@@ -190,6 +235,17 @@ public class BidSourceRegistrationService {
         String normalized = sourceName.trim();
         if (normalized.length() > MAX_SOURCE_NAME_LENGTH) {
             throw new IllegalArgumentException("sourceName must not exceed 200 characters.");
+        }
+        return normalized;
+    }
+
+    private String normalizeSourceCode(String sourceCode) {
+        if (sourceCode == null || sourceCode.isBlank()) {
+            throw new IllegalArgumentException("sourceCode is required.");
+        }
+        String normalized = sourceCode.trim().toUpperCase(Locale.ROOT);
+        if (normalized.length() > 100) {
+            throw new IllegalArgumentException("sourceCode must not exceed 100 characters.");
         }
         return normalized;
     }
