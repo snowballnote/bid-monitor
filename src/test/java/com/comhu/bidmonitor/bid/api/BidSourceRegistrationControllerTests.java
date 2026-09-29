@@ -3,6 +3,7 @@ package com.comhu.bidmonitor.bid.api;
 import com.comhu.bidmonitor.bid.collection.ManualBidCollectionCoordinator;
 import com.comhu.bidmonitor.bid.persistence.BidSourceCheckResult;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
+import com.comhu.bidmonitor.bid.persistence.BidSourceRegistrationAuditRepository;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceAvailabilityChecker;
 import com.comhu.bidmonitor.bid.source.d2b.D2bBidCollector;
 import com.comhu.bidmonitor.bid.source.koreaexpressway.KoreaExpresswayBidCollector;
@@ -19,9 +20,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -30,16 +33,19 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -83,12 +89,143 @@ class BidSourceRegistrationControllerTests {
     @MockitoBean
     private BidSourceAvailabilityChecker availabilityChecker;
 
+    @MockitoSpyBean
+    private BidSourceRegistrationAuditRepository auditRepository;
+
     @BeforeEach
     void clearRegistrations() {
+        jdbcTemplate.update("DELETE FROM bid_source_registration_audit");
         jdbcTemplate.update("DELETE FROM bid_source_registration");
         when(kogasBidCollector.sourceCode()).thenReturn("KOGAS");
         when(kogasBidCollector.registrationBindingSupported()).thenReturn(true);
         when(kogasBidCollector.executionEnabled()).thenReturn(false);
+    }
+
+    @Test
+    void rejectsUnauthenticatedManagementRequests() throws Exception {
+        mockMvc.perform(patch("/api/bid-source-registrations/1/review")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("registrationStatus", "UNDER_REVIEW"))))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
+        mockMvc.perform(patch("/api/bid-source-registrations/1/binding")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("sourceCode", "KOGAS"))))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
+        mockMvc.perform(patch("/api/bid-source-registrations/1/activation")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("executionEnabled", true))))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
+    }
+
+    @Test
+    void rejectsManagementRequestsWithoutAdministratorRole() throws Exception {
+        mockMvc.perform(patch("/api/bid-source-registrations/1/review")
+                        .with(user("reviewer").roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("registrationStatus", "UNDER_REVIEW"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ADMIN_ROLE_REQUIRED"));
+        mockMvc.perform(patch("/api/bid-source-registrations/1/binding")
+                        .with(user("reviewer").roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("sourceCode", "KOGAS"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ADMIN_ROLE_REQUIRED"));
+        mockMvc.perform(patch("/api/bid-source-registrations/1/activation")
+                        .with(user("reviewer").roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("executionEnabled", true))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ADMIN_ROLE_REQUIRED"));
+    }
+
+    @Test
+    void recordsAdministratorAndStateChangesWithoutSensitiveColumns() throws Exception {
+        when(kogasBidCollector.executionEnabled()).thenReturn(true);
+        register("Audited KOGAS", "https://audited-kogas.example/notices");
+        long sourceId = sourceId("Audited KOGAS");
+        approveWithDetectedMethod(sourceId, "https://audited-kogas.example/notices", "PUBLIC_PAGE");
+        bind(sourceId, "KOGAS").andExpect(status().isOk());
+        activate(sourceId, true).andExpect(status().isOk());
+        activate(sourceId, false).andExpect(status().isOk());
+
+        List<Map<String, Object>> audits = jdbcTemplate.queryForList("""
+                SELECT action, previous_status, new_status,
+                       previous_source_code, new_source_code,
+                       previous_execution_enabled, new_execution_enabled, actor
+                FROM bid_source_registration_audit
+                WHERE source_id = ? ORDER BY audit_id
+                """, sourceId);
+        assertEquals(List.of(
+                "REVIEW_STATUS_CHANGED", "REVIEW_STATUS_CHANGED", "SOURCE_BOUND",
+                "ACTIVATED", "DEACTIVATED"
+        ), audits.stream().map(row -> row.get("ACTION")).toList());
+        assertEquals("PENDING_REVIEW", audits.get(0).get("PREVIOUS_STATUS"));
+        assertEquals("UNDER_REVIEW", audits.get(0).get("NEW_STATUS"));
+        assertEquals(null, audits.get(2).get("PREVIOUS_SOURCE_CODE"));
+        assertEquals("KOGAS", audits.get(2).get("NEW_SOURCE_CODE"));
+        assertEquals(false, audits.get(3).get("PREVIOUS_EXECUTION_ENABLED"));
+        assertEquals(true, audits.get(3).get("NEW_EXECUTION_ENABLED"));
+        assertEquals(true, audits.get(4).get("PREVIOUS_EXECUTION_ENABLED"));
+        assertEquals(false, audits.get(4).get("NEW_EXECUTION_ENABLED"));
+        audits.forEach(row -> assertEquals("bid-admin", row.get("ACTOR")));
+
+        List<String> columns = jdbcTemplate.queryForList("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'BID_SOURCE_REGISTRATION_AUDIT'
+                """, String.class);
+        assertFalse(columns.stream().anyMatch(column -> {
+            String normalized = column.toUpperCase();
+            return normalized.contains("PASSWORD") || normalized.contains("TOKEN")
+                    || normalized.contains("API_KEY");
+        }));
+        verify(kogasBidCollector, never()).collect(any(), any());
+        verifyNoInteractions(coordinator);
+    }
+
+    @Test
+    void failedManagementChangeDoesNotCreateAudit() throws Exception {
+        when(kogasBidCollector.executionEnabled()).thenReturn(true);
+        register("Failed Audit", "https://failed-audit.example/notices");
+        long sourceId = sourceId("Failed Audit");
+
+        activate(sourceId, true).andExpect(status().isBadRequest());
+
+        assertEquals(0, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM bid_source_registration_audit WHERE source_id = ?",
+                Integer.class,
+                sourceId
+        ));
+        assertFalse(jdbcTemplate.queryForObject(
+                "SELECT execution_enabled FROM bid_source_registration WHERE source_id = ?",
+                Boolean.class,
+                sourceId
+        ));
+    }
+
+    @Test
+    void auditFailureRollsBackManagementChange() throws Exception {
+        register("Audit Rollback", "https://audit-rollback.example/notices");
+        long sourceId = sourceId("Audit Rollback");
+        doThrow(new IllegalStateException("audit unavailable"))
+                .when(auditRepository).save(any());
+
+        review(sourceId, Map.of("registrationStatus", "UNDER_REVIEW"))
+                .andExpect(status().isServiceUnavailable());
+
+        assertEquals("PENDING_REVIEW", jdbcTemplate.queryForObject(
+                "SELECT registration_status FROM bid_source_registration WHERE source_id = ?",
+                String.class,
+                sourceId
+        ));
+        assertEquals(0, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM bid_source_registration_audit WHERE source_id = ?",
+                Integer.class,
+                sourceId
+        ));
     }
 
     @Test
@@ -769,6 +906,7 @@ class BidSourceRegistrationControllerTests {
             Map<String, ?> request
     ) throws Exception {
         return mockMvc.perform(patch("/api/bid-source-registrations/{sourceId}/review", sourceId)
+                .with(user("bid-admin").roles("ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json(request)));
     }
@@ -776,6 +914,7 @@ class BidSourceRegistrationControllerTests {
     private org.springframework.test.web.servlet.ResultActions bind(long sourceId, String sourceCode)
             throws Exception {
         return mockMvc.perform(patch("/api/bid-source-registrations/{sourceId}/binding", sourceId)
+                .with(user("bid-admin").roles("ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json(Map.of("sourceCode", sourceCode))));
     }
@@ -783,6 +922,7 @@ class BidSourceRegistrationControllerTests {
     private org.springframework.test.web.servlet.ResultActions activate(long sourceId, boolean enabled)
             throws Exception {
         return mockMvc.perform(patch("/api/bid-source-registrations/{sourceId}/activation", sourceId)
+                .with(user("bid-admin").roles("ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json(Map.of("executionEnabled", enabled))));
     }

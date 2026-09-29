@@ -1,6 +1,8 @@
 package com.comhu.bidmonitor.bid.source.registration;
 
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
+import com.comhu.bidmonitor.bid.persistence.BidSourceRegistrationAudit;
+import com.comhu.bidmonitor.bid.persistence.BidSourceRegistrationAuditRepository;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistrationRepository;
 import com.comhu.bidmonitor.bid.persistence.BidSourceCheckResult;
 import com.comhu.bidmonitor.bid.collection.ManualBidCollectionSourceRegistry;
@@ -23,6 +25,7 @@ public class BidSourceRegistrationService {
     private static final int MAX_SOURCE_NAME_LENGTH = 200;
 
     private final BidSourceRegistrationRepository repository;
+    private final BidSourceRegistrationAuditRepository auditRepository;
     private final BidSourceUrlNormalizer urlNormalizer;
     private final BidSourceAvailabilityChecker availabilityChecker;
     private final ManualBidCollectionSourceRegistry sourceRegistry;
@@ -33,6 +36,7 @@ public class BidSourceRegistrationService {
 
     public BidSourceRegistrationService(
             BidSourceRegistrationRepository repository,
+            BidSourceRegistrationAuditRepository auditRepository,
             BidSourceUrlNormalizer urlNormalizer,
             BidSourceAvailabilityChecker availabilityChecker,
             ManualBidCollectionSourceRegistry sourceRegistry,
@@ -42,6 +46,7 @@ public class BidSourceRegistrationService {
             @Value("${bid-source.registration.check-timeout:PT10M}") Duration checkTimeout
     ) {
         this.repository = repository;
+        this.auditRepository = auditRepository;
         this.urlNormalizer = urlNormalizer;
         this.availabilityChecker = availabilityChecker;
         this.sourceRegistry = sourceRegistry;
@@ -123,7 +128,7 @@ public class BidSourceRegistrationService {
     }
 
     @Transactional
-    public BidSourceRegistration bind(long sourceId, String sourceCode) {
+    public BidSourceRegistration bind(long sourceId, String sourceCode, String actor) {
         String normalizedCode = normalizeSourceCode(sourceCode);
         BidSourceRegistration current = findById(sourceId);
         if (current.getRegistrationStatus() != BidSourceRegistration.RegistrationStatus.APPROVED) {
@@ -144,12 +149,13 @@ public class BidSourceRegistrationService {
         if (repository.findBySourceCode(normalizedCode).isPresent()) {
             throw new DuplicateBidSourceCodeBindingException();
         }
+        Instant changedAt = clock.instant();
         try {
             boolean updated = repository.bindSourceCode(
                     sourceId,
                     BidSourceRegistration.RegistrationStatus.APPROVED,
                     normalizedCode,
-                    clock.instant()
+                    changedAt
             );
             if (!updated) {
                 repository.findById(sourceId)
@@ -159,11 +165,13 @@ public class BidSourceRegistrationService {
         } catch (DuplicateKeyException exception) {
             throw new DuplicateBidSourceCodeBindingException();
         }
-        return findById(sourceId);
+        BidSourceRegistration updated = findById(sourceId);
+        audit(BidSourceRegistrationAudit.Action.SOURCE_BOUND, current, updated, actor, changedAt);
+        return updated;
     }
 
     @Transactional
-    public BidSourceRegistration activate(long sourceId, boolean executionEnabled) {
+    public BidSourceRegistration activate(long sourceId, boolean executionEnabled, String actor) {
         BidSourceRegistration current = findById(sourceId);
         if (executionEnabled) {
             executionEligibility.activationFailure(current, collectors)
@@ -174,19 +182,31 @@ public class BidSourceRegistrationService {
         if (current.isExecutionEnabled() == executionEnabled) {
             return current;
         }
-        if (!repository.updateExecutionEnabled(sourceId, executionEnabled, clock.instant())) {
+        Instant changedAt = clock.instant();
+        if (!repository.updateExecutionEnabled(sourceId, executionEnabled, changedAt)) {
             repository.findById(sourceId)
                     .orElseThrow(BidSourceRegistrationNotFoundException::new);
             throw new IllegalArgumentException("The registration activation state changed.");
         }
-        return findById(sourceId);
+        BidSourceRegistration updated = findById(sourceId);
+        audit(
+                executionEnabled
+                        ? BidSourceRegistrationAudit.Action.ACTIVATED
+                        : BidSourceRegistrationAudit.Action.DEACTIVATED,
+                current,
+                updated,
+                actor,
+                changedAt
+        );
+        return updated;
     }
 
     @Transactional
     public BidSourceRegistration review(
             long sourceId,
             String registrationStatus,
-            String collectionMethod
+            String collectionMethod,
+            String actor
     ) {
         BidSourceRegistration current = findById(sourceId);
         BidSourceRegistration.RegistrationStatus targetStatus = parseRegistrationStatus(registrationStatus);
@@ -202,19 +222,53 @@ public class BidSourceRegistrationService {
             );
         }
 
+        Instant changedAt = clock.instant();
         boolean updated = repository.updateReview(
                 sourceId,
                 current.getRegistrationStatus(),
                 targetStatus,
                 targetMethod,
-                clock.instant()
+                changedAt
         );
         if (!updated) {
             repository.findById(sourceId)
                     .orElseThrow(BidSourceRegistrationNotFoundException::new);
             throw new IllegalArgumentException("Registration status changed during review.");
         }
-        return findById(sourceId);
+        BidSourceRegistration updatedRegistration = findById(sourceId);
+        audit(
+                BidSourceRegistrationAudit.Action.REVIEW_STATUS_CHANGED,
+                current,
+                updatedRegistration,
+                actor,
+                changedAt
+        );
+        return updatedRegistration;
+    }
+
+    private void audit(
+            BidSourceRegistrationAudit.Action action,
+            BidSourceRegistration previous,
+            BidSourceRegistration updated,
+            String actor,
+            Instant createdAt
+    ) {
+        if (actor == null || actor.isBlank()) {
+            throw new IllegalArgumentException("Audit actor is required.");
+        }
+        auditRepository.save(new BidSourceRegistrationAudit(
+                null,
+                previous.getSourceId(),
+                action,
+                previous.getRegistrationStatus(),
+                updated.getRegistrationStatus(),
+                previous.getSourceCode(),
+                updated.getSourceCode(),
+                previous.isExecutionEnabled(),
+                updated.isExecutionEnabled(),
+                actor.trim(),
+                createdAt
+        ));
     }
 
     private BidSourceRegistration.RegistrationStatus parseRegistrationStatus(String value) {

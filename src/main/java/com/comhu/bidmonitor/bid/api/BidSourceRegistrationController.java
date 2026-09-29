@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
+import java.security.Principal;
 import java.util.List;
 
 @RestController
@@ -56,7 +57,8 @@ public class BidSourceRegistrationController {
     @PatchMapping("/{sourceId}/review")
     public BidSourceRegistrationResponse review(
             @PathVariable long sourceId,
-            @RequestBody BidSourceReviewRequest request
+            @RequestBody BidSourceReviewRequest request,
+            Principal principal
     ) {
         if (request == null) {
             throw new IllegalArgumentException("Request body is required.");
@@ -65,7 +67,8 @@ public class BidSourceRegistrationController {
         return BidSourceRegistrationResponse.from(service.review(
                 sourceId,
                 request.registrationStatus(),
-                request.collectionMethod()
+                request.collectionMethod(),
+                actor(principal)
         ));
     }
 
@@ -77,25 +80,35 @@ public class BidSourceRegistrationController {
     @PatchMapping("/{sourceId}/binding")
     public BidSourceRegistrationResponse bind(
             @PathVariable long sourceId,
-            @RequestBody BidSourceBindingRequest request
-    ) {
-        if (request == null) {
-            throw new IllegalArgumentException("Request body is required.");
-        }
-        return BidSourceRegistrationResponse.from(service.bind(sourceId, request.sourceCode()));
-    }
-
-    /** 내부 관리용 계약이며 관리자 인증은 별도 보안 단계에서 적용한다. */
-    @PatchMapping("/{sourceId}/activation")
-    public BidSourceRegistrationResponse activate(
-            @PathVariable long sourceId,
-            @RequestBody BidSourceActivationRequest request
+            @RequestBody BidSourceBindingRequest request,
+            Principal principal
     ) {
         if (request == null) {
             throw new IllegalArgumentException("Request body is required.");
         }
         return BidSourceRegistrationResponse.from(
-                service.activate(sourceId, request.requiredExecutionEnabled())
+                service.bind(sourceId, request.sourceCode(), actor(principal))
         );
+    }
+
+    @PatchMapping("/{sourceId}/activation")
+    public BidSourceRegistrationResponse activate(
+            @PathVariable long sourceId,
+            @RequestBody BidSourceActivationRequest request,
+            Principal principal
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException("Request body is required.");
+        }
+        return BidSourceRegistrationResponse.from(
+                service.activate(sourceId, request.requiredExecutionEnabled(), actor(principal))
+        );
+    }
+
+    private String actor(Principal principal) {
+        if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
+            throw new IllegalStateException("Authenticated administrator identity is required.");
+        }
+        return principal.getName();
     }
 }
