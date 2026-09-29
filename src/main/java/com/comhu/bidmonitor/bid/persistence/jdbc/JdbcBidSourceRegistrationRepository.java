@@ -115,6 +115,31 @@ public class JdbcBidSourceRegistrationRepository implements BidSourceRegistratio
     }
 
     @Override
+    public boolean updateExecutionEnabled(long sourceId, boolean executionEnabled, Instant updatedAt) {
+        Objects.requireNonNull(updatedAt, "Activation update time is required.");
+        if (!executionEnabled) {
+            return jdbcTemplate.update("""
+                            UPDATE bid_source_registration
+                            SET execution_enabled = FALSE, updated_at = ?
+                            WHERE source_id = ?
+                            """,
+                    Timestamp.from(updatedAt), sourceId
+            ) == 1;
+        }
+        return jdbcTemplate.update("""
+                        UPDATE bid_source_registration
+                        SET execution_enabled = TRUE, updated_at = ?
+                        WHERE source_id = ?
+                          AND registration_status = 'APPROVED'
+                          AND source_code IS NOT NULL
+                          AND collection_method <> 'UNDETERMINED'
+                          AND collection_method = detected_collection_method
+                        """,
+                Timestamp.from(updatedAt), sourceId
+        ) == 1;
+    }
+
+    @Override
     public boolean updateReview(
             long sourceId,
             BidSourceRegistration.RegistrationStatus expectedStatus,

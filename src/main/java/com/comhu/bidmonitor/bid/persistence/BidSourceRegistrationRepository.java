@@ -19,6 +19,8 @@ public interface BidSourceRegistrationRepository {
             Instant updatedAt
     );
 
+    boolean updateExecutionEnabled(long sourceId, boolean executionEnabled, Instant updatedAt);
+
     boolean updateReview(
             long sourceId,
             BidSourceRegistration.RegistrationStatus expectedStatus,

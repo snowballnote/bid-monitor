@@ -4,6 +4,7 @@ import com.comhu.bidmonitor.bid.api.dto.BidSourceRegistrationRequest;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceRegistrationResponse;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceReviewRequest;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceBindingRequest;
+import com.comhu.bidmonitor.bid.api.dto.BidSourceActivationRequest;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceRegistrationService;
 import org.springframework.http.ResponseEntity;
@@ -82,5 +83,19 @@ public class BidSourceRegistrationController {
             throw new IllegalArgumentException("Request body is required.");
         }
         return BidSourceRegistrationResponse.from(service.bind(sourceId, request.sourceCode()));
+    }
+
+    /** 내부 관리용 계약이며 관리자 인증은 별도 보안 단계에서 적용한다. */
+    @PatchMapping("/{sourceId}/activation")
+    public BidSourceRegistrationResponse activate(
+            @PathVariable long sourceId,
+            @RequestBody BidSourceActivationRequest request
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException("Request body is required.");
+        }
+        return BidSourceRegistrationResponse.from(
+                service.activate(sourceId, request.requiredExecutionEnabled())
+        );
     }
 }

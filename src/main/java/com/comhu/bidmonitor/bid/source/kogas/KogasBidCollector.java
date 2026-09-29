@@ -76,17 +76,19 @@ public class KogasBidCollector implements BidCandidateCollector {
     private final URI baseUri;
     private final Transport transport;
     private final Predicate<BidCandidateCollector> executionEligibility;
+    private final boolean configuredExecutionEnabled;
 
     @Autowired
     public KogasBidCollector(
             @Value("${bid-source.kogas.base-url:https://bid.kogas.or.kr:9443}") String baseUrl,
+            @Value("${bid-source.kogas.enabled:false}") boolean configuredExecutionEnabled,
             BidSourceExecutionEligibilityService executionEligibility
     ) {
-        this(baseUrl, new SafeHttpTransport(), executionEligibility::isEligible);
+        this(baseUrl, new SafeHttpTransport(), executionEligibility::isEligible, configuredExecutionEnabled);
     }
 
     KogasBidCollector(String baseUrl, Transport transport) {
-        this(baseUrl, transport, collector -> true);
+        this(baseUrl, transport, collector -> true, false);
     }
 
     KogasBidCollector(
@@ -94,9 +96,19 @@ public class KogasBidCollector implements BidCandidateCollector {
             Transport transport,
             Predicate<BidCandidateCollector> executionEligibility
     ) {
+        this(baseUrl, transport, executionEligibility, false);
+    }
+
+    KogasBidCollector(
+            String baseUrl,
+            Transport transport,
+            Predicate<BidCandidateCollector> executionEligibility,
+            boolean configuredExecutionEnabled
+    ) {
         this.baseUri = validateBaseUri(baseUrl);
         this.transport = transport;
         this.executionEligibility = executionEligibility;
+        this.configuredExecutionEnabled = configuredExecutionEnabled;
     }
 
     @Override
@@ -106,7 +118,7 @@ public class KogasBidCollector implements BidCandidateCollector {
 
     @Override
     public boolean executionEnabled() {
-        return false;
+        return configuredExecutionEnabled;
     }
 
     @Override

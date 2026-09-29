@@ -198,7 +198,13 @@ CREATE TABLE IF NOT EXISTS bid_source_registration (
     CONSTRAINT ck_bid_source_registration_method CHECK (
         collection_method IN ('UNDETERMINED', 'OFFICIAL_API', 'PUBLIC_PAGE', 'RSS')
     ),
-    CONSTRAINT ck_bid_source_registration_execution CHECK (execution_enabled = FALSE),
+    CONSTRAINT ck_bid_source_registration_execution CHECK (
+        execution_enabled = FALSE OR (
+            registration_status = 'APPROVED'
+            AND source_code IS NOT NULL
+            AND collection_method <> 'UNDETERMINED'
+        )
+    ),
     CONSTRAINT ck_bid_source_registration_time CHECK (updated_at >= created_at)
 );
 
@@ -220,8 +226,17 @@ ALTER TABLE bid_source_registration ADD CONSTRAINT IF NOT EXISTS ck_bid_source_r
 ALTER TABLE bid_source_registration ADD CONSTRAINT IF NOT EXISTS ck_bid_source_registration_http_status CHECK (
     http_status IS NULL OR (http_status >= 100 AND http_status <= 599)
 );
-ALTER TABLE bid_source_registration ADD CONSTRAINT IF NOT EXISTS ck_bid_source_registration_binding CHECK (
-    source_code IS NULL OR (registration_status = 'APPROVED' AND execution_enabled = FALSE)
+ALTER TABLE bid_source_registration DROP CONSTRAINT IF EXISTS ck_bid_source_registration_execution;
+ALTER TABLE bid_source_registration ADD CONSTRAINT ck_bid_source_registration_execution CHECK (
+    execution_enabled = FALSE OR (
+        registration_status = 'APPROVED'
+        AND source_code IS NOT NULL
+        AND collection_method <> 'UNDETERMINED'
+    )
+);
+ALTER TABLE bid_source_registration DROP CONSTRAINT IF EXISTS ck_bid_source_registration_binding;
+ALTER TABLE bid_source_registration ADD CONSTRAINT ck_bid_source_registration_binding CHECK (
+    source_code IS NULL OR registration_status = 'APPROVED'
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uk_bid_source_registration_source_code
     ON bid_source_registration (source_code);

@@ -16,6 +16,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -30,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.never;
@@ -225,6 +227,130 @@ class BidSourceRegistrationControllerTests {
         ));
         verify(kogasBidCollector, never()).collect(any(), any());
         verifyNoInteractions(coordinator);
+    }
+
+    @Test
+    void activatesApprovedBoundCompatibleKogasAndCanDisableItAgain() throws Exception {
+        when(kogasBidCollector.executionEnabled()).thenReturn(true);
+        register("Activated KOGAS", "https://activated-kogas.example/notices");
+        long sourceId = sourceId("Activated KOGAS");
+        approveWithDetectedMethod(sourceId, "https://activated-kogas.example/notices", "PUBLIC_PAGE");
+        bind(sourceId, "KOGAS").andExpect(status().isOk());
+
+        activate(sourceId, true)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceCode").value("KOGAS"))
+                .andExpect(jsonPath("$.executionEnabled").value(true));
+        assertEquals(true, jdbcTemplate.queryForObject(
+                "SELECT execution_enabled FROM bid_source_registration WHERE source_id = ?",
+                Boolean.class,
+                sourceId
+        ));
+
+        activate(sourceId, false)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.executionEnabled").value(false));
+        assertEquals(false, jdbcTemplate.queryForObject(
+                "SELECT execution_enabled FROM bid_source_registration WHERE source_id = ?",
+                Boolean.class,
+                sourceId
+        ));
+        verify(kogasBidCollector, never()).collect(any(), any());
+        verifyNoInteractions(coordinator);
+    }
+
+    @Test
+    void rejectsActivationBeforeApprovalAndWithoutBinding() throws Exception {
+        when(kogasBidCollector.executionEnabled()).thenReturn(true);
+        register("Pending Activation", "https://pending-activation.example/notices");
+        long pendingId = sourceId("Pending Activation");
+        activate(pendingId, true)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Only approved registrations can be activated."));
+
+        review(pendingId, Map.of("registrationStatus", "UNDER_REVIEW"))
+                .andExpect(status().isOk());
+        activate(pendingId, true)
+                .andExpect(status().isBadRequest());
+
+        register("Rejected Activation", "https://rejected-activation.example/notices");
+        long rejectedId = sourceId("Rejected Activation");
+        review(rejectedId, Map.of(
+                "registrationStatus", "UNDER_REVIEW",
+                "collectionMethod", "PUBLIC_PAGE"
+        )).andExpect(status().isOk());
+        review(rejectedId, Map.of("registrationStatus", "REJECTED"))
+                .andExpect(status().isOk());
+        activate(rejectedId, true)
+                .andExpect(status().isBadRequest());
+
+        register("Unbound Activation", "https://unbound-activation.example/notices");
+        long unboundId = sourceId("Unbound Activation");
+        approveWithDetectedMethod(unboundId, "https://unbound-activation.example/notices", "PUBLIC_PAGE");
+        activate(unboundId, true)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("A collector binding is required before activation."));
+        verify(kogasBidCollector, never()).collect(any(), any());
+        verifyNoInteractions(coordinator);
+    }
+
+    @Test
+    void rejectsActivationForMethodMismatchUnknownCollectorAndDisabledConfiguration() throws Exception {
+        when(kogasBidCollector.executionEnabled()).thenReturn(true);
+        register("Mismatched Activation", "https://mismatch-activation.example/notices");
+        long mismatchId = sourceId("Mismatched Activation");
+        approveWithDetectedMethod(mismatchId, "https://mismatch-activation.example/notices", "PUBLIC_PAGE");
+        bind(mismatchId, "KOGAS").andExpect(status().isOk());
+        jdbcTemplate.update("""
+                UPDATE bid_source_registration SET detected_collection_method = 'RSS' WHERE source_id = ?
+                """, mismatchId);
+        activate(mismatchId, true)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value("The confirmed and detected collection methods must match before activation."));
+
+        register("Unknown Activation", "https://unknown-activation.example/notices");
+        long unknownId = sourceId("Unknown Activation");
+        approveWithDetectedMethod(unknownId, "https://unknown-activation.example/notices", "PUBLIC_PAGE");
+        jdbcTemplate.update("""
+                UPDATE bid_source_registration SET source_code = 'UNKNOWN' WHERE source_id = ?
+                """, unknownId);
+        activate(unknownId, true)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value("No registration-binding collector supports sourceCode."));
+
+        when(kogasBidCollector.executionEnabled()).thenReturn(false);
+        jdbcTemplate.update("""
+                UPDATE bid_source_registration SET detected_collection_method = 'PUBLIC_PAGE' WHERE source_id = ?
+                """, mismatchId);
+        activate(mismatchId, true)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("The collector is disabled by configuration."));
+        verify(kogasBidCollector, never()).collect(any(), any());
+        verifyNoInteractions(coordinator);
+    }
+
+    @Test
+    void databaseRejectsExecutionWithoutApprovedBoundDeterminedRegistration() throws Exception {
+        register("DB Invariant", "https://db-invariant.example/notices");
+        long sourceId = sourceId("DB Invariant");
+
+        assertThrows(DataIntegrityViolationException.class, () -> jdbcTemplate.update("""
+                UPDATE bid_source_registration SET execution_enabled = TRUE WHERE source_id = ?
+                """, sourceId));
+
+        jdbcTemplate.update("""
+                UPDATE bid_source_registration
+                SET registration_status = 'UNDER_REVIEW', collection_method = 'PUBLIC_PAGE'
+                WHERE source_id = ?
+                """, sourceId);
+        jdbcTemplate.update("""
+                UPDATE bid_source_registration SET registration_status = 'APPROVED' WHERE source_id = ?
+                """, sourceId);
+        assertThrows(DataIntegrityViolationException.class, () -> jdbcTemplate.update("""
+                UPDATE bid_source_registration SET execution_enabled = TRUE WHERE source_id = ?
+                """, sourceId));
     }
 
     @Test
@@ -652,6 +778,13 @@ class BidSourceRegistrationControllerTests {
         return mockMvc.perform(patch("/api/bid-source-registrations/{sourceId}/binding", sourceId)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json(Map.of("sourceCode", sourceCode))));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions activate(long sourceId, boolean enabled)
+            throws Exception {
+        return mockMvc.perform(patch("/api/bid-source-registrations/{sourceId}/activation", sourceId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(Map.of("executionEnabled", enabled))));
     }
 
     private void approveWithDetectedMethod(long sourceId, String siteUrl, String method) throws Exception {

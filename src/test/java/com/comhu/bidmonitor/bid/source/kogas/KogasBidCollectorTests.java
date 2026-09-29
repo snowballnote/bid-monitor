@@ -2,6 +2,9 @@ package com.comhu.bidmonitor.bid.source.kogas;
 
 import com.comhu.bidmonitor.dto.BidAttachmentDto;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
+import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
+import com.comhu.bidmonitor.bid.persistence.BidSourceRegistrationRepository;
+import com.comhu.bidmonitor.bid.source.registration.BidSourceExecutionEligibilityService;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -15,11 +18,14 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class KogasBidCollectorTests {
 
@@ -96,6 +102,37 @@ class KogasBidCollectorTests {
 
         assertThrows(IllegalStateException.class, () -> collector.collect(START, END));
         assertTrue(transport.requestedUris.isEmpty());
+    }
+
+    @Test
+    void requiresBothKogasConfigurationAndRegistrationActivationForEligibility() {
+        BidSourceRegistrationRepository repository = mock(BidSourceRegistrationRepository.class);
+        when(repository.findBySourceCode("KOGAS")).thenReturn(Optional.of(
+                BidSourceRegistration.builder()
+                        .sourceCode("KOGAS")
+                        .registrationStatus(BidSourceRegistration.RegistrationStatus.APPROVED)
+                        .collectionMethod(BidSourceRegistration.CollectionMethod.PUBLIC_PAGE)
+                        .detectedCollectionMethod(BidSourceRegistration.CollectionMethod.PUBLIC_PAGE)
+                        .executionEnabled(true)
+                        .build()
+        ));
+        BidSourceExecutionEligibilityService eligibility =
+                new BidSourceExecutionEligibilityService(repository);
+        KogasBidCollector.Transport transport = uri -> {
+            throw new AssertionError("Eligibility checks must not access KOGAS.");
+        };
+
+        KogasBidCollector disabled = new KogasBidCollector(
+                BASE_URL, transport, eligibility::isEligible, false
+        );
+        KogasBidCollector enabled = new KogasBidCollector(
+                BASE_URL, transport, eligibility::isEligible, true
+        );
+
+        assertFalse(disabled.executionEnabled());
+        assertFalse(eligibility.isEligible(disabled));
+        assertTrue(enabled.executionEnabled());
+        assertTrue(eligibility.isEligible(enabled));
     }
 
     private static String fixture(String name) {

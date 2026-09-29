@@ -4,6 +4,7 @@ import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistrationRepository;
 import com.comhu.bidmonitor.bid.persistence.BidSourceCheckResult;
 import com.comhu.bidmonitor.bid.collection.ManualBidCollectionSourceRegistry;
+import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -25,6 +26,8 @@ public class BidSourceRegistrationService {
     private final BidSourceUrlNormalizer urlNormalizer;
     private final BidSourceAvailabilityChecker availabilityChecker;
     private final ManualBidCollectionSourceRegistry sourceRegistry;
+    private final BidSourceExecutionEligibilityService executionEligibility;
+    private final List<BidCandidateCollector> collectors;
     private final Clock clock;
     private final Duration checkTimeout;
 
@@ -33,6 +36,8 @@ public class BidSourceRegistrationService {
             BidSourceUrlNormalizer urlNormalizer,
             BidSourceAvailabilityChecker availabilityChecker,
             ManualBidCollectionSourceRegistry sourceRegistry,
+            BidSourceExecutionEligibilityService executionEligibility,
+            List<BidCandidateCollector> collectors,
             Clock clock,
             @Value("${bid-source.registration.check-timeout:PT10M}") Duration checkTimeout
     ) {
@@ -40,6 +45,8 @@ public class BidSourceRegistrationService {
         this.urlNormalizer = urlNormalizer;
         this.availabilityChecker = availabilityChecker;
         this.sourceRegistry = sourceRegistry;
+        this.executionEligibility = executionEligibility;
+        this.collectors = List.copyOf(collectors);
         this.clock = clock;
         if (checkTimeout == null || checkTimeout.isZero() || checkTimeout.isNegative()) {
             throw new IllegalArgumentException("Bid source check timeout must be positive.");
@@ -151,6 +158,26 @@ public class BidSourceRegistrationService {
             }
         } catch (DuplicateKeyException exception) {
             throw new DuplicateBidSourceCodeBindingException();
+        }
+        return findById(sourceId);
+    }
+
+    @Transactional
+    public BidSourceRegistration activate(long sourceId, boolean executionEnabled) {
+        BidSourceRegistration current = findById(sourceId);
+        if (executionEnabled) {
+            executionEligibility.activationFailure(current, collectors)
+                    .ifPresent(message -> {
+                        throw new IllegalArgumentException(message);
+                    });
+        }
+        if (current.isExecutionEnabled() == executionEnabled) {
+            return current;
+        }
+        if (!repository.updateExecutionEnabled(sourceId, executionEnabled, clock.instant())) {
+            repository.findById(sourceId)
+                    .orElseThrow(BidSourceRegistrationNotFoundException::new);
+            throw new IllegalArgumentException("The registration activation state changed.");
         }
         return findById(sourceId);
     }
