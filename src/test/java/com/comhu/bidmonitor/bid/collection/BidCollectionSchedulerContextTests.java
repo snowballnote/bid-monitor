@@ -29,11 +29,19 @@ class BidCollectionSchedulerContextTests {
                 .withPropertyValues(
                         "bid.collection.scheduler.enabled=true",
                         "bid.collection.scheduler.initial-delay-ms=7200000",
-                        "bid.collection.scheduler.scan-interval-ms=7200000"
+                        "bid.collection.scheduler.scan-interval-ms=7200000",
+                        "bid.collection.scheduler.kogas.interval-seconds=43200",
+                        "bid.collection.scheduler.kogas.lookback-days=3"
                 )
                 .run(context -> {
                     assertThat(context).hasSingleBean(BidCollectionScheduler.class);
-                    assertThat(context).getBeans(BidCollectionSourceSchedule.class).hasSize(2);
+                    assertThat(context).getBeans(BidCollectionSourceSchedule.class).hasSize(3);
+                    assertThat(context.getBean(
+                            "kogasBidCollectionSourceSchedule",
+                            BidCollectionSourceSchedule.class
+                    )).isEqualTo(new BidCollectionSourceSchedule(
+                            "KOGAS", java.time.Duration.ofHours(12), 3
+                    ));
                 });
     }
 }

@@ -34,4 +34,16 @@ public class BidCollectionSchedulingConfiguration {
                 lookbackDays
         );
     }
+
+    @Bean
+    BidCollectionSourceSchedule kogasBidCollectionSourceSchedule(
+            @Value("${bid.collection.scheduler.kogas.interval-seconds:86400}") long intervalSeconds,
+            @Value("${bid.collection.scheduler.kogas.lookback-days:7}") int lookbackDays
+    ) {
+        return new BidCollectionSourceSchedule(
+                "KOGAS",
+                Duration.ofSeconds(intervalSeconds),
+                lookbackDays
+        );
+    }
 }

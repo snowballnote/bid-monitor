@@ -54,6 +54,7 @@ class BidCollectionSchedulerTests {
                 List.of(
                         new BidCollectionSourceSchedule("G2B", Duration.ofHours(1), 1),
                         new BidCollectionSourceSchedule("KOREA_EXPRESSWAY", Duration.ofHours(6), 7),
+                        new BidCollectionSourceSchedule("KOGAS", Duration.ofHours(24), 7),
                         new BidCollectionSourceSchedule("D2B", Duration.ofHours(1), 1)
                 ),
                 "Asia/Seoul",
@@ -103,7 +104,8 @@ class BidCollectionSchedulerTests {
     void sourcesRunIndependentlyAndFailureUsesBackoff() {
         when(sourceRegistry.sources()).thenReturn(List.of(
                 source("G2B", true),
-                source("KOREA_EXPRESSWAY", true)
+                source("KOREA_EXPRESSWAY", true),
+                source("KOGAS", true)
         ));
         doThrow(new IllegalStateException("fixture failure"))
                 .when(coordinator)
@@ -114,12 +116,16 @@ class BidCollectionSchedulerTests {
         verify(coordinator).collectScheduled(
                 TODAY.minusDays(6), TODAY, Set.of("6146", "1468"), "KOREA_EXPRESSWAY"
         );
+        verify(coordinator).collectScheduled(
+                TODAY.minusDays(6), TODAY, Set.of("6146", "1468"), "KOGAS"
+        );
         BidSourceState failed = state("G2B");
         assertEquals(1, failed.getConsecutiveFailures());
         assertEquals(NOW.plusSeconds(300), failed.getNextRunAt());
         assertEquals(NOW.plusSeconds(300), failed.getCooldownUntil());
         assertEquals("SCHEDULED_COLLECTION_FAILED", failed.getLastErrorCode());
         assertEquals(NOW.plus(Duration.ofHours(6)), state("KOREA_EXPRESSWAY").getNextRunAt());
+        assertEquals(NOW.plus(Duration.ofHours(24)), state("KOGAS").getNextRunAt());
 
         scheduler.runDueCollections();
 
@@ -128,6 +134,9 @@ class BidCollectionSchedulerTests {
         );
         verify(coordinator, times(1)).collectScheduled(
                 TODAY.minusDays(6), TODAY, Set.of("6146", "1468"), "KOREA_EXPRESSWAY"
+        );
+        verify(coordinator, times(1)).collectScheduled(
+                TODAY.minusDays(6), TODAY, Set.of("6146", "1468"), "KOGAS"
         );
     }
 

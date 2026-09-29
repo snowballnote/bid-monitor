@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.Locale;
+import java.util.function.Supplier;
 
 @Slf4j
 @Service
@@ -35,7 +36,7 @@ public class ManualBidCollectionCoordinator {
     private final BidSourceStateRepository stateRepository;
     private final BidCollectionExecutionLockService lockService;
     private final Clock clock;
-    private final List<ManualBidCollectionSource> sources;
+    private final Supplier<List<ManualBidCollectionSource>> sourceProvider;
 
     @Autowired
     public ManualBidCollectionCoordinator(
@@ -45,7 +46,7 @@ public class ManualBidCollectionCoordinator {
             Clock clock,
             ManualBidCollectionSourceRegistry sourceRegistry
     ) {
-        this(persistenceService, stateRepository, lockService, clock, sourceRegistry.sources());
+        this(persistenceService, stateRepository, lockService, clock, sourceRegistry::sources);
     }
 
     ManualBidCollectionCoordinator(
@@ -55,11 +56,21 @@ public class ManualBidCollectionCoordinator {
             Clock clock,
             List<ManualBidCollectionSource> sources
     ) {
+        this(persistenceService, stateRepository, lockService, clock, () -> sources);
+    }
+
+    private ManualBidCollectionCoordinator(
+            BidCollectionPersistenceService persistenceService,
+            BidSourceStateRepository stateRepository,
+            BidCollectionExecutionLockService lockService,
+            Clock clock,
+            Supplier<List<ManualBidCollectionSource>> sourceProvider
+    ) {
         this.persistenceService = persistenceService;
         this.stateRepository = stateRepository;
         this.lockService = lockService;
         this.clock = clock;
-        this.sources = validateSources(sources);
+        this.sourceProvider = sourceProvider;
     }
 
     public ManualBidCollectionResult collect(
@@ -110,7 +121,8 @@ public class ManualBidCollectionCoordinator {
         validateRange(startDate, endDate);
         Set<String> normalizedCodes = allowedLicenseCodes == null ? Set.of() : Set.copyOf(allowedLicenseCodes);
         Set<String> normalizedSources = normalizeRequestedSources(requestedSourceCodes);
-        validateRequestedSources(normalizedSources);
+        List<ManualBidCollectionSource> sources = validateSources(sourceProvider.get());
+        validateRequestedSources(normalizedSources, sources);
         List<String> skippedSources = new ArrayList<>();
         List<BidSourceCollectionResult> collectedResults = new ArrayList<>();
         Map<String, ExecutionContext> executions = new LinkedHashMap<>();
@@ -289,7 +301,10 @@ public class ManualBidCollectionCoordinator {
         return Set.copyOf(normalized);
     }
 
-    private void validateRequestedSources(Set<String> requestedSourceCodes) {
+    private void validateRequestedSources(
+            Set<String> requestedSourceCodes,
+            List<ManualBidCollectionSource> sources
+    ) {
         if (requestedSourceCodes.isEmpty()) {
             return;
         }

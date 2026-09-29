@@ -32,6 +32,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest
 @TestPropertySource(properties = {
@@ -112,6 +116,47 @@ class ManualBidCollectionCoordinatorTests {
 
         assertTrue(noticeRepository.findByIdentity("KOREA_EXPRESSWAY", "EX-1", "2").isPresent());
         assertNull(latestRun("KOREA_EXPRESSWAY").getApiCallCount());
+    }
+
+    @Test
+    void storesFixtureKogasResultThroughTheExistingCoordinatorPersistencePath() {
+        ManualBidCollectionCoordinator coordinator = coordinator(source(
+                "KOGAS", true,
+                List.of(candidate("KOGAS", "NC001:BC777", "2", "KOGAS 감리 용역")), null
+        ));
+
+        coordinator.collectScheduled(START, END, LICENSE_CODES, "KOGAS");
+
+        assertTrue(noticeRepository.findByIdentity("KOGAS", "NC001:BC777", "2").isPresent());
+        BidCollectionRun run = latestRun("KOGAS");
+        assertEquals(BidCollectionRun.TriggerType.SCHEDULED, run.getTriggerType());
+        assertEquals(BidCollectionRun.Status.SUCCESS, run.getStatus());
+        assertEquals(1, run.getCollectedCount());
+        assertEquals(NOW, stateRepository.findBySourceCode("KOGAS").orElseThrow().getLastSuccessAt());
+        assertEquals(0, activeLockCount());
+    }
+
+    @Test
+    void refreshesRegistryAtExecutionTimeWhenKogasBecomesEligible() {
+        ManualBidCollectionSourceRegistry dynamicRegistry = mock(ManualBidCollectionSourceRegistry.class);
+        ManualBidCollectionSource kogas = source(
+                "KOGAS", true,
+                List.of(candidate("KOGAS", "DYNAMIC:KOGAS", "1", "동적 활성화 공고")), null
+        );
+        when(dynamicRegistry.sources())
+                .thenReturn(List.<ManualBidCollectionSource>of())
+                .thenReturn(List.of(kogas));
+        ManualBidCollectionCoordinator coordinator = new ManualBidCollectionCoordinator(
+                persistenceService, stateRepository, lockService, clock, dynamicRegistry
+        );
+
+        assertThrows(IllegalArgumentException.class, () -> coordinator.collectScheduled(
+                START, END, LICENSE_CODES, "KOGAS"
+        ));
+        coordinator.collectScheduled(START, END, LICENSE_CODES, "KOGAS");
+
+        verify(dynamicRegistry, times(2)).sources();
+        assertTrue(noticeRepository.findByIdentity("KOGAS", "DYNAMIC:KOGAS", "1").isPresent());
     }
 
     @Test
@@ -236,6 +281,21 @@ class ManualBidCollectionCoordinatorTests {
         assertEquals(0, succeeded.getConsecutiveFailures());
         assertEquals(NOW, succeeded.getLastSuccessAt());
         assertNull(succeeded.getLastFailureAt());
+    }
+
+    @Test
+    void kogasFailureDoesNotBlockExistingSources() {
+        ManualBidCollectionCoordinator coordinator = coordinator(
+                failingSource("KOGAS"),
+                source("G2B", true, List.of(candidate("G2B", "AFTER-KOGAS", null, "정상 공고")), 1)
+        );
+
+        ManualBidCollectionResult result = coordinator.collect(START, END, LICENSE_CODES);
+
+        assertEquals(ManualBidCollectionResult.Status.PARTIAL_SUCCESS, result.status());
+        assertEquals(BidCollectionRun.Status.FAILED, latestRun("KOGAS").getStatus());
+        assertEquals(BidCollectionRun.Status.SUCCESS, latestRun("G2B").getStatus());
+        assertTrue(noticeRepository.findByIdentity("G2B", "AFTER-KOGAS", null).isPresent());
     }
 
     @Test
