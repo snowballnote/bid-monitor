@@ -12,7 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -45,7 +44,7 @@ public class JdbcBidSourceRegistrationRepository implements BidSourceRegistratio
                         execution_enabled, check_status, detected_collection_method,
                         created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, Statement.RETURN_GENERATED_KEYS);
+                    """, new String[]{"source_id"});
             statement.setString(1, registration.getSourceName());
             statement.setString(2, registration.getSiteUrl());
             statement.setString(3, registration.getRegistrationStatus().name());
@@ -57,11 +56,11 @@ public class JdbcBidSourceRegistrationRepository implements BidSourceRegistratio
             statement.setTimestamp(9, Timestamp.from(registration.getUpdatedAt()));
             return statement;
         }, keyHolder);
-        Number sourceId = keyHolder.getKey();
+        Long sourceId = keyHolder.getKeyAs(Long.class);
         if (sourceId == null) {
             throw new IllegalStateException("Created bid source registration has no identifier.");
         }
-        return findById(sourceId.longValue())
+        return findById(sourceId)
                 .orElseThrow(() -> new IllegalStateException("Created bid source registration was not found."));
     }
 

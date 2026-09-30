@@ -12,7 +12,6 @@ import org.springframework.stereotype.Repository;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.util.List;
@@ -46,7 +45,7 @@ public class JdbcSubmissionCaseRepository implements SubmissionCaseRepository {
                                     project_name, bid_notice_no, status, created_at, updated_at
                                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 """,
-                        Statement.RETURN_GENERATED_KEYS
+                        new String[]{"id"}
                 );
                 if (submissionCase.getProjectId() == null) {
                     statement.setNull(1, Types.BIGINT);

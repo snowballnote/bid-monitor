@@ -1,5 +1,6 @@
 package com.comhu.bidmonitor.performance;
 
+import com.comhu.bidmonitor.persistence.jdbc.JdbcDatabaseDialect;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -9,13 +10,17 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Only primary H2 keeps the private Drive locator; API clients receive an opaque UUID. */
+/** The primary datasource keeps the private Drive locator; API clients receive an opaque UUID. */
 @Repository
 public class PerformanceDriveFileRepository {
     public record Reference(String id, String origin, String company, String path, String filename, String ext,
                             long size, Instant modified) { }
     private final JdbcTemplate jdbc;
-    public PerformanceDriveFileRepository(@Qualifier("jdbcTemplate") JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    private final JdbcDatabaseDialect dialect;
+    public PerformanceDriveFileRepository(@Qualifier("jdbcTemplate") JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
+        this.dialect = new JdbcDatabaseDialect(jdbc);
+    }
 
     public Reference register(String origin, String company, FmsDrivePort.Item item) {
         return register(origin, company, item, UUID.randomUUID().toString());
@@ -25,7 +30,19 @@ public class PerformanceDriveFileRepository {
         String id = preferredId;
         int dot = item.name().lastIndexOf('.');
         String ext = dot < 0 ? "" : item.name().substring(dot + 1);
-        try {
+        if (dialect.isPostgresql()) {
+            int inserted = jdbc.update("""
+                    INSERT INTO performance_drive_file(id, origin, company, drive_path, filename, file_ext, file_size, modified_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT DO NOTHING
+                    """, id, origin, company, item.path(), item.name(), ext, item.size(),
+                    item.lastModified() == null ? null : Timestamp.from(item.lastModified()));
+            if (inserted == 0) {
+                id = findByLocation(origin, company, item.path()).map(Reference::id)
+                        .orElseThrow(() -> new DuplicateKeyException("Drive locator hash conflicts with a different locator."));
+                update(id, item, ext);
+            }
+        } else try {
             jdbc.update("""
                     INSERT INTO performance_drive_file(id, origin, company, drive_path, filename, file_ext, file_size, modified_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -33,10 +50,14 @@ public class PerformanceDriveFileRepository {
                     item.lastModified() == null ? null : Timestamp.from(item.lastModified()));
         } catch (DuplicateKeyException existing) {
             id = findByLocation(origin, company, item.path()).map(Reference::id).orElseThrow(() -> existing);
-            jdbc.update("UPDATE performance_drive_file SET filename = ?, file_ext = ?, file_size = ?, modified_at = ? WHERE id = ?",
-                    item.name(), ext, item.size(), item.lastModified() == null ? null : Timestamp.from(item.lastModified()), id);
+            update(id, item, ext);
         }
         return find(id);
+    }
+
+    private void update(String id, FmsDrivePort.Item item, String ext) {
+        jdbc.update("UPDATE performance_drive_file SET filename = ?, file_ext = ?, file_size = ?, modified_at = ? WHERE id = ?",
+                item.name(), ext, item.size(), item.lastModified() == null ? null : Timestamp.from(item.lastModified()), id);
     }
 
     public Reference find(String id) {

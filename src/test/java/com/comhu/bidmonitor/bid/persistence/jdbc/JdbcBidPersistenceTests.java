@@ -19,6 +19,10 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -112,6 +116,29 @@ class JdbcBidPersistenceTests {
         assertEquals(first.getId(), repeated.notice().getId());
         assertEquals(1, noticeRepository.findAll().size());
         assertTrue(noticeRepository.findByIdentity("G2B", "no-revision", null).isPresent());
+    }
+
+    @Test
+    void concurrentFirstNoticeInsertProducesOneIdentity() throws Exception {
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            CountDownLatch ready = new CountDownLatch(2);
+            CountDownLatch start = new CountDownLatch(1);
+            Future<BidNoticeSaveResult> first = executor.submit(() -> saveAfterSignal(
+                    notice("G2B", "concurrent-first", "000", '7'), ready, start));
+            Future<BidNoticeSaveResult> second = executor.submit(() -> saveAfterSignal(
+                    notice("G2B", "concurrent-first", "000", '7'), ready, start));
+
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            List<BidNoticeSaveResult.ChangeType> outcomes = List.of(
+                    first.get(10, TimeUnit.SECONDS).changeType(),
+                    second.get(10, TimeUnit.SECONDS).changeType()
+            );
+
+            assertEquals(1, outcomes.stream().filter(type -> type == BidNoticeSaveResult.ChangeType.NEW).count());
+            assertEquals(1, outcomes.stream().filter(type -> type == BidNoticeSaveResult.ChangeType.UNCHANGED).count());
+            assertEquals(1, noticeRepository.findAll().size());
+        }
     }
 
     @Test
@@ -218,6 +245,24 @@ class JdbcBidPersistenceTests {
     }
 
     @Test
+    void concurrentFirstSourceStateSaveKeepsOneRow() throws Exception {
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            CountDownLatch ready = new CountDownLatch(2);
+            CountDownLatch start = new CountDownLatch(1);
+            Future<BidSourceState> first = executor.submit(() -> saveAfterSignal(sourceState(1, 100), ready, start));
+            Future<BidSourceState> second = executor.submit(() -> saveAfterSignal(sourceState(2, 100), ready, start));
+
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            first.get(10, TimeUnit.SECONDS);
+            second.get(10, TimeUnit.SECONDS);
+
+            assertEquals(1, stateRepository.findAll().size());
+            assertTrue(List.of(1, 2).contains(stateRepository.findBySourceCode("D2B").orElseThrow().getUsedCalls()));
+        }
+    }
+
+    @Test
     void initializesBidTablesTogetherWithExistingSchema() {
         List<String> tables = jdbcTemplate.queryForList("""
                 SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
@@ -267,6 +312,26 @@ class JdbcBidPersistenceTests {
                 .cooldownUntil(FIRST_SEEN.plusSeconds(1800))
                 .cooldownSeconds(1800)
                 .build();
+    }
+
+    private BidNoticeSaveResult saveAfterSignal(
+            BidNotice notice,
+            CountDownLatch ready,
+            CountDownLatch start
+    ) throws InterruptedException {
+        ready.countDown();
+        start.await();
+        return noticeRepository.save(notice);
+    }
+
+    private BidSourceState saveAfterSignal(
+            BidSourceState state,
+            CountDownLatch ready,
+            CountDownLatch start
+    ) throws InterruptedException {
+        ready.countDown();
+        start.await();
+        return stateRepository.save(state);
     }
 
     private String hash(char value) {

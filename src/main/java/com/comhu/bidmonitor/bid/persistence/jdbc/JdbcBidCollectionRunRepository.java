@@ -11,7 +11,6 @@ import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Instant;
@@ -44,7 +43,7 @@ public class JdbcBidCollectionRunRepository implements BidCollectionRunRepositor
                         finished_at, status, api_call_count, collected_count, new_count,
                         changed_count, failure_count, error_code
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, Statement.RETURN_GENERATED_KEYS);
+                    """, new String[]{"id"});
             statement.setString(1, run.getSourceCode().trim());
             statement.setString(2, run.getTriggerType().name());
             statement.setDate(3, Date.valueOf(run.getQueryStartDate()));

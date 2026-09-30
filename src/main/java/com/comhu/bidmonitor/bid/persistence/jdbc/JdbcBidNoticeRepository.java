@@ -4,6 +4,8 @@ import com.comhu.bidmonitor.bid.persistence.BidNotice;
 import com.comhu.bidmonitor.bid.persistence.BidNoticeRepository;
 import com.comhu.bidmonitor.bid.persistence.BidNoticeSaveResult;
 import com.comhu.bidmonitor.bid.persistence.BidNoticeVersion;
+import com.comhu.bidmonitor.persistence.jdbc.JdbcDatabaseDialect;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -13,7 +15,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Instant;
@@ -45,9 +46,11 @@ public class JdbcBidNoticeRepository implements BidNoticeRepository {
             """;
 
     private final JdbcTemplate jdbcTemplate;
+    private final JdbcDatabaseDialect dialect;
 
     public JdbcBidNoticeRepository(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
+        this.dialect = new JdbcDatabaseDialect(jdbcTemplate);
     }
 
     @Override
@@ -60,8 +63,22 @@ public class JdbcBidNoticeRepository implements BidNoticeRepository {
                 normalized.getRevisionKey()
         );
         if (found.isEmpty()) {
-            BidNotice inserted = insert(normalized);
-            return new BidNoticeSaveResult(BidNoticeSaveResult.ChangeType.NEW, inserted, null);
+            try {
+                Optional<BidNotice> inserted = insert(normalized);
+                if (inserted.isPresent()) {
+                    return new BidNoticeSaveResult(BidNoticeSaveResult.ChangeType.NEW, inserted.get(), null);
+                }
+            } catch (DuplicateKeyException concurrentInsert) {
+                if (dialect.isPostgresql()) {
+                    throw concurrentInsert;
+                }
+            }
+            found = findByIdentityForUpdate(
+                    normalized.getSourceCode(), normalized.getSourceNoticeId(), normalized.getRevisionKey()
+            );
+            if (found.isEmpty()) {
+                throw new IllegalStateException("Concurrent bid notice insert was not found.");
+            }
         }
 
         BidNotice existing = found.get();
@@ -187,25 +204,33 @@ public class JdbcBidNoticeRepository implements BidNoticeRepository {
                 .stream().findFirst();
     }
 
-    private BidNotice insert(BidNotice notice) {
+    private Optional<BidNotice> insert(BidNotice notice) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
-        jdbcTemplate.update(connection -> {
-            PreparedStatement statement = connection.prepareStatement("""
+        boolean postgresql = dialect.isPostgresql();
+        int inserted = jdbcTemplate.update(connection -> {
+            String sql = """
                     INSERT INTO bid_notice (
                         source_code, source_notice_id, revision_key, notice_number, title,
                         ordering_organization, published_at, submission_deadline_at, bid_opening_at,
                         contract_method, bid_method, notice_status, notice_status_code, detail_url,
                         relevant, analysis_status, analysis_result, content_hash, first_seen_at, last_seen_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, Statement.RETURN_GENERATED_KEYS);
+                    """ + (postgresql
+                    ? " ON CONFLICT (source_code, source_notice_id, revision_key) DO NOTHING"
+                    : "");
+            PreparedStatement statement = connection.prepareStatement(sql, new String[]{"id"});
             setCurrentValues(statement, notice, notice.getFirstSeenAt(), notice.getLastSeenAt());
             return statement;
         }, keyHolder);
+        if (inserted == 0) {
+            return Optional.empty();
+        }
         Long id = keyHolder.getKeyAs(Long.class);
         if (id == null) {
             throw new IllegalStateException("Saved bid notice id was not returned.");
         }
-        return findById(id).orElseThrow(() -> new IllegalStateException("Saved bid notice was not found."));
+        return Optional.of(findById(id)
+                .orElseThrow(() -> new IllegalStateException("Saved bid notice was not found.")));
     }
 
     private void preserveCurrentVersion(BidNotice existing, Instant capturedAt) {

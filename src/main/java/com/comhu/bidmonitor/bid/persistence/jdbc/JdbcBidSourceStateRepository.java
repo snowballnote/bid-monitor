@@ -2,6 +2,8 @@ package com.comhu.bidmonitor.bid.persistence.jdbc;
 
 import com.comhu.bidmonitor.bid.persistence.BidSourceState;
 import com.comhu.bidmonitor.bid.persistence.BidSourceStateRepository;
+import com.comhu.bidmonitor.persistence.jdbc.JdbcDatabaseDialect;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,9 +30,11 @@ public class JdbcBidSourceStateRepository implements BidSourceStateRepository {
             """;
 
     private final JdbcTemplate jdbcTemplate;
+    private final JdbcDatabaseDialect dialect;
 
     public JdbcBidSourceStateRepository(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
+        this.dialect = new JdbcDatabaseDialect(jdbcTemplate);
     }
 
     @Override
@@ -38,7 +42,23 @@ public class JdbcBidSourceStateRepository implements BidSourceStateRepository {
     public BidSourceState save(BidSourceState state) {
         validate(state);
         String sourceCode = state.getSourceCode().trim();
-        int updated = jdbcTemplate.update(connection -> {
+        if (dialect.isPostgresql()) {
+            upsertPostgresql(state, sourceCode);
+        } else if (update(state, sourceCode) == 0) {
+            try {
+                insert(state, sourceCode);
+            } catch (DuplicateKeyException concurrentInsert) {
+                if (update(state, sourceCode) != 1) {
+                    throw concurrentInsert;
+                }
+            }
+        }
+        return findBySourceCode(sourceCode)
+                .orElseThrow(() -> new IllegalStateException("Saved bid source state was not found."));
+    }
+
+    private int update(BidSourceState state, String sourceCode) {
+        return jdbcTemplate.update(connection -> {
             PreparedStatement statement = connection.prepareStatement("""
                     UPDATE bid_source_state SET
                         last_attempt_at = ?, last_success_at = ?, last_failure_at = ?,
@@ -50,8 +70,10 @@ public class JdbcBidSourceStateRepository implements BidSourceStateRepository {
             statement.setString(12, sourceCode);
             return statement;
         });
-        if (updated == 0) {
-            jdbcTemplate.update(connection -> {
+    }
+
+    private void insert(BidSourceState state, String sourceCode) {
+        jdbcTemplate.update(connection -> {
                 PreparedStatement statement = connection.prepareStatement("""
                         INSERT INTO bid_source_state (
                             last_attempt_at, last_success_at, last_failure_at, consecutive_failures,
@@ -62,10 +84,34 @@ public class JdbcBidSourceStateRepository implements BidSourceStateRepository {
                 setStateValues(statement, state);
                 statement.setString(12, sourceCode);
                 return statement;
-            });
-        }
-        return findBySourceCode(sourceCode)
-                .orElseThrow(() -> new IllegalStateException("Saved bid source state was not found."));
+        });
+    }
+
+    private void upsertPostgresql(BidSourceState state, String sourceCode) {
+        jdbcTemplate.update(connection -> {
+            PreparedStatement statement = connection.prepareStatement("""
+                    INSERT INTO bid_source_state (
+                        last_attempt_at, last_success_at, last_failure_at, consecutive_failures,
+                        next_run_at, daily_limit, used_calls, quota_date, cooldown_until,
+                        cooldown_seconds, last_error_code, source_code
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (source_code) DO UPDATE SET
+                        last_attempt_at = EXCLUDED.last_attempt_at,
+                        last_success_at = EXCLUDED.last_success_at,
+                        last_failure_at = EXCLUDED.last_failure_at,
+                        consecutive_failures = EXCLUDED.consecutive_failures,
+                        next_run_at = EXCLUDED.next_run_at,
+                        daily_limit = EXCLUDED.daily_limit,
+                        used_calls = EXCLUDED.used_calls,
+                        quota_date = EXCLUDED.quota_date,
+                        cooldown_until = EXCLUDED.cooldown_until,
+                        cooldown_seconds = EXCLUDED.cooldown_seconds,
+                        last_error_code = EXCLUDED.last_error_code
+                    """);
+            setStateValues(statement, state);
+            statement.setString(12, sourceCode);
+            return statement;
+        });
     }
 
     @Override

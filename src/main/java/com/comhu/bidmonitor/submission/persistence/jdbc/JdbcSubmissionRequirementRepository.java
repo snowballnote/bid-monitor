@@ -12,7 +12,6 @@ import org.springframework.stereotype.Repository;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
@@ -56,7 +55,7 @@ public class JdbcSubmissionRequirementRepository implements SubmissionRequiremen
                                 evidence_text, source_type, source_reference, created_at
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                             """,
-                    Statement.RETURN_GENERATED_KEYS
+                    new String[]{"id"}
             );
             statement.setLong(1, requirement.getSubmissionCaseId());
             statement.setString(2, requirement.getCategory().name());

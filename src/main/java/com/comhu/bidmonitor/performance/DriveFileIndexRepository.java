@@ -1,5 +1,6 @@
 package com.comhu.bidmonitor.performance;
 
+import com.comhu.bidmonitor.persistence.jdbc.JdbcDatabaseDialect;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -9,15 +10,17 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 
-/** Private metadata cache in Biz Assist H2 only. */
+/** Private metadata cache for the primary Biz Assist datasource. */
 @Repository
 public class DriveFileIndexRepository {
     public record State(String status, Instant lastAttemptAt, Instant lastSuccessAt,
                         long folderCount, long fileCount, String errorCode) { }
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transaction;
+    private final JdbcDatabaseDialect dialect;
     public DriveFileIndexRepository(@Qualifier("jdbcTemplate") JdbcTemplate jdbc) {
         this.jdbc = jdbc;
+        this.dialect = new JdbcDatabaseDialect(jdbc);
         transaction = new TransactionTemplate(new DataSourceTransactionManager(jdbc.getDataSource()));
         transaction.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_REPEATABLE_READ);
     }
@@ -30,10 +33,18 @@ public class DriveFileIndexRepository {
     }
     public void started(String source, String company, String root) {
         transaction.executeWithoutResult(tx -> {
-            if (jdbc.update("UPDATE drive_index_root_state SET status='REFRESHING', last_attempt_at=?, error_code=NULL WHERE source=? AND company=? AND root=?",
-                    Timestamp.from(Instant.now()), source, company, root) == 0) {
+            Timestamp now = Timestamp.from(Instant.now());
+            if (dialect.isPostgresql()) {
+                jdbc.update("""
+                        INSERT INTO drive_index_root_state(source,company,root,status,last_attempt_at,folder_count,file_count)
+                        VALUES(?,?,?,'REFRESHING',?,0,0)
+                        ON CONFLICT ON CONSTRAINT pk_drive_index_root_state_hash DO UPDATE SET
+                            status='REFRESHING', last_attempt_at=EXCLUDED.last_attempt_at, error_code=NULL
+                        """, source, company, root, now);
+            } else if (jdbc.update("UPDATE drive_index_root_state SET status='REFRESHING', last_attempt_at=?, error_code=NULL WHERE source=? AND company=? AND root=?",
+                    now, source, company, root) == 0) {
                 jdbc.update("INSERT INTO drive_index_root_state(source,company,root,status,last_attempt_at,folder_count,file_count) VALUES(?,?,?,'REFRESHING',?,0,0)",
-                        source, company, root, Timestamp.from(Instant.now()));
+                        source, company, root, now);
             }
         });
     }
