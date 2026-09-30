@@ -4,6 +4,8 @@ import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceExecutionEligibilityService;
 import com.comhu.bidmonitor.dto.BidAttachmentDto;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
+import com.comhu.bidmonitor.dto.LicenseRequirement;
+import com.comhu.bidmonitor.dto.LicenseRequirementGroup;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -59,6 +61,7 @@ public class KogasBidCollector implements BidCandidateCollector {
     private static final Pattern NAMED_PARAMETER_PATTERN = Pattern.compile(
             "(?i)(notice_code|bid_code|round)\\s*[=:,]\\s*[\\\"']?([^\\\"'&,)\\s]+)"
     );
+    private static final Pattern LICENSE_CODE_PATTERN = Pattern.compile("(?<!\\d)(6146|1468)(?!\\d)");
     private static final List<DateTimeFormatter> SOURCE_DATE_TIMES = List.of(
             DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm"),
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"),
@@ -252,15 +255,35 @@ public class KogasBidCollector implements BidCandidateCollector {
         value.setNoticeStatus(firstNonBlank(field(detail.fields(), "공고상태", "상태"), notice.status()));
         value.setAsignBdgtAmt(field(detail.fields(), "배정예산", "추정가격", "예정금액", "예산금액"));
         value.setAttachments(detail.attachments());
-        value.setLicenseLimit(field(detail.fields(), "입찰참가자격", "참가자격", "면허제한"));
-        value.setLicenseGroups(List.of());
+        String licenseLimit = field(detail.fields(), "입찰참가자격", "참가자격", "면허제한");
+        value.setLicenseLimit(licenseLimit);
+        value.setLicenseGroups(parsePublishedLicenseCodes(licenseLimit));
         value.setParticipationRegion(field(detail.fields(), "지역제한", "참가지역"));
         value.setSucsfbidMthdNm(field(detail.fields(), "낙찰자결정방법", "낙찰방법"));
         value.setSucsfbidMthdAppStd(field(detail.fields(), "적격심사기준", "낙찰자결정기준"));
+        value.setArsltCmptYn(field(detail.fields(), "실적경쟁여부", "실적경쟁"));
         value.setPqEvalYn(field(detail.fields(), "PQ심사여부", "PQ심사"));
         value.setTpEvalYn(field(detail.fields(), "TP심사여부", "TP심사"));
         value.setCmmnSpldmdAgrmntRcptdocMethd(field(detail.fields(), "공동수급협정서접수방식", "공동수급"));
         return value;
+    }
+
+    private List<LicenseRequirementGroup> parsePublishedLicenseCodes(String licenseLimit) {
+        Matcher matcher = LICENSE_CODE_PATTERN.matcher(licenseLimit == null ? "" : licenseLimit);
+        List<LicenseRequirement> requirements = new ArrayList<>();
+        while (matcher.find()) {
+            String code = matcher.group(1);
+            boolean alreadyAdded = requirements.stream()
+                    .anyMatch(requirement -> code.equals(requirement.getLicenseCode()));
+            if (!alreadyAdded) {
+                requirements.add(new LicenseRequirement(
+                        Integer.toString(requirements.size() + 1), code, "", licenseLimit
+                ));
+            }
+        }
+        return requirements.isEmpty()
+                ? List.of()
+                : List.of(new LicenseRequirementGroup("1", requirements));
     }
 
     private ListNotice parseListRow(Elements cells, Map<String, Integer> headings, URI listUri) {

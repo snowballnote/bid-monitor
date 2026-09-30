@@ -5,6 +5,8 @@ import com.comhu.bidmonitor.dto.BidQualificationDto;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistrationRepository;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceExecutionEligibilityService;
+import com.comhu.bidmonitor.classifier.BidAwardMethodClassifier;
+import com.comhu.bidmonitor.service.BidQualificationEvaluationService;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -19,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -51,8 +54,14 @@ class KogasBidCollectorTests {
         assertEquals("2026-09-30 17:00", candidate.getBidClseDt());
         assertEquals("공고중", candidate.getNoticeStatus());
         assertEquals("제한경쟁", candidate.getContractMethod());
-        assertEquals("공고문 참조", candidate.getLicenseLimit());
+        assertEquals("정보시스템 감리법인(6146), 소프트웨어사업자(1468)", candidate.getLicenseLimit());
+        assertEquals(List.of("6146", "1468"), candidate.getLicenseGroups().getFirst().getRequirements().stream()
+                .map(requirement -> requirement.getLicenseCode()).toList());
+        assertEquals("제한없음", candidate.getParticipationRegion());
         assertEquals("협상에 의한 계약", candidate.getSucsfbidMthdNm());
+        assertEquals("Y", candidate.getArsltCmptYn());
+        assertEquals("Y", candidate.getPqEvalYn());
+        assertEquals("Y", candidate.getTpEvalYn());
         assertEquals(
                 BASE_URL + "/supplier/contents/bid/bid_detail_view_notice.jsp"
                         + "?notice_code=NC001&bid_code=BC777&round=2",
@@ -73,6 +82,12 @@ class KogasBidCollectorTests {
         assertEquals(1, transport.detailRequests("NC001"));
         assertEquals(1, transport.detailRequests("NC-BAD"));
         assertFalse(transport.requestedUris.stream().anyMatch(uri -> uri.toString().contains("NC002")));
+
+        new BidQualificationEvaluationService(new BidAwardMethodClassifier())
+                .evaluate(candidate, Set.of("6146", "1468"));
+        assertEquals("OTHER", candidate.getAwardMethodCategory());
+        assertEquals("제외", candidate.getReviewStatus());
+        assertEquals("UNKNOWN", candidate.getExternalCheckStatus());
     }
 
     @Test

@@ -120,6 +120,35 @@ class BidQualificationEvaluationServiceTests {
         assertNull(notice.getExternalSiteCheckRequired());
     }
 
+    @Test
+    void publishedPqTpAndPerformanceConditionsRequireConfirmation() {
+        BidQualificationDto notice = eligibleNotice("정보시스템 감리 용역");
+        notice.setArsltCmptYn("Y");
+        notice.setPqEvalYn("Y");
+        notice.setTpEvalYn("Y");
+
+        service.evaluate(notice, ALLOWED_LICENSE_CODES);
+
+        assertEquals("추가확인필요", notice.getReviewStatus());
+        assertTrue(notice.getReviewReason().contains("실적경쟁 조건 확인 필요"));
+        assertTrue(notice.getReviewReason().contains("PQ심사 조건 확인 필요"));
+        assertTrue(notice.getReviewReason().contains("TP심사 조건 확인 필요"));
+    }
+
+    @Test
+    void failedAttachmentAnalysisRemainsUnknown() {
+        BidQualificationDto notice = eligibleNotice("정보시스템 감리 용역");
+        BidAttachmentDto failed = new BidAttachmentDto();
+        failed.setFileName("공고문.hwp");
+        failed.setAnalysisStatus("FAILED");
+
+        service.evaluateExternalCheck(notice, List.of(failed));
+
+        assertEquals("UNKNOWN", notice.getExternalCheckStatus());
+        assertNull(notice.getExternalSiteCheckRequired());
+        assertTrue(notice.getExternalCheckReason().contains("공고문.hwp"));
+    }
+
     private BidQualificationDto eligibleNotice(String title) {
         BidQualificationDto notice = new BidQualificationDto();
         notice.setBidNtceNm(title);
