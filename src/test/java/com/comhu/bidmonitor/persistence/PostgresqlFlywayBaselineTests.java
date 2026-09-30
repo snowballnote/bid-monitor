@@ -1,11 +1,26 @@
 package com.comhu.bidmonitor.persistence;
 
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.HashSet;
 import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -91,6 +106,226 @@ class PostgresqlFlywayBaselineTests {
         assertTrue(postgres.contains("${DB_PASSWORD}"));
         assertFalse(postgres.matches("(?s).*spring\\.datasource\\.password=[^$\\r\\n].*"));
         assertTrue(postgres.contains("SET TIME ZONE 'UTC'"));
+    }
+
+    @Test
+    void composePinsSupportedPostgresqlAndRequiresASecret() throws IOException {
+        String compose = Files.readString(Path.of("compose.yaml"));
+        String example = Files.readString(Path.of(".env.example"));
+
+        assertTrue(compose.contains("image: postgres:16.15-bookworm"));
+        assertTrue(compose.contains("POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?"));
+        assertTrue(compose.contains("bid-monitor-postgres-data:/var/lib/postgresql/data"));
+        assertTrue(compose.contains("pg_isready"));
+        assertTrue(example.contains("POSTGRES_PASSWORD="));
+        assertTrue(example.contains("DB_PASSWORD="));
+        assertFalse(Pattern.compile("(?m)^[A-Z_]*PASSWORD=.+$").matcher(example).find());
+    }
+
+    @Test
+    @EnabledIfEnvironmentVariable(named = "BIZ_ASSIST_POSTGRES_TEST_ENABLED", matches = "(?i)true")
+    void migratesEmptyPostgresqlAndRoundTripsDatesTimesAndLocatorHashes() throws Exception {
+        String url = "jdbc:postgresql://" + env("DB_HOST") + ":" + env("DB_PORT") + "/" + env("DB_NAME");
+        String user = env("DB_USER");
+        String password = env("DB_PASSWORD");
+
+        Flyway.configure()
+                .dataSource(url, user, password)
+                .locations("classpath:db/migration/postgresql")
+                .load()
+                .migrate();
+
+        try (Connection connection = DriverManager.getConnection(url, user, password)) {
+            assertPostgresqlSchema(connection);
+            assertPostgresqlRoundTrips(connection);
+        }
+    }
+
+    private void assertPostgresqlSchema(Connection connection) throws SQLException {
+        assertEquals(28, queryInt(connection, """
+                SELECT COUNT(*) FROM pg_tables
+                WHERE schemaname = 'public' AND tablename <> 'flyway_schema_history'
+                """));
+        assertEquals(1, queryInt(connection, """
+                SELECT COUNT(*) FROM flyway_schema_history
+                WHERE version = '1' AND success = TRUE
+                """));
+        assertEquals(1, queryInt(connection, "SELECT COUNT(*) FROM pg_extension WHERE extname = 'pgcrypto'"));
+        assertEquals(1, queryInt(connection, "SELECT COUNT(*) FROM bid_source_state WHERE source_code = 'D2B'"));
+        assertEquals(12, queryInt(connection, "SELECT COUNT(*) FROM submission_common_document"));
+        assertEquals(17, queryInt(connection, "SELECT COUNT(*) FROM submission_document_master"));
+
+        Set<String> constraints = queryStrings(connection, """
+                SELECT conname FROM pg_constraint WHERE connamespace = 'public'::regnamespace
+                """);
+        assertTrue(constraints.containsAll(Set.of(
+                "uk_bid_notice_source_identity", "uk_bid_notice_version_hash",
+                "pk_bid_collection_lock", "fk_bid_source_registration_audit_source",
+                "ck_performance_file", "ck_submission_selection_source",
+                "uk_bid_source_registration_url_hash", "uk_performance_drive_locator_hash",
+                "uk_drive_index_locator_hash", "pk_drive_index_root_state_hash"
+        )));
+
+        Set<String> indexes = queryStrings(connection, """
+                SELECT indexname FROM pg_indexes WHERE schemaname = 'public'
+                """);
+        assertTrue(indexes.containsAll(Set.of(
+                "ix_bid_notice_published_at", "ix_bid_notice_last_seen_at",
+                "ix_bid_collection_run_source_started", "uk_bid_source_registration_source_code",
+                "ix_bid_source_registration_audit_source_created",
+                "ix_submission_requirement_case", "ix_submission_selection_case"
+        )));
+    }
+
+    private void assertPostgresqlRoundTrips(Connection connection) throws SQLException {
+        connection.setAutoCommit(false);
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("SET LOCAL TIME ZONE 'UTC'");
+        }
+        try {
+            String suffix = UUID.randomUUID().toString();
+            LocalDate date = LocalDate.of(2026, 9, 30);
+            LocalDateTime localDateTime = LocalDateTime.of(2026, 9, 30, 12, 34, 56, 123_456_000);
+            Instant instant = Instant.parse("2026-09-30T03:34:56.123456Z");
+            OffsetDateTime utc = instant.atOffset(ZoneOffset.UTC);
+
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    INSERT INTO bid_notice (
+                        source_code, source_notice_id, revision_key, title, published_at,
+                        relevant, content_hash, first_seen_at, last_seen_at
+                    ) VALUES (?, ?, '', ?, ?, TRUE, ?, ?, ?)
+                    """)) {
+                statement.setString(1, "PG_TEST");
+                statement.setString(2, suffix);
+                statement.setString(3, "PostgreSQL timestamp fixture");
+                statement.setObject(4, localDateTime);
+                statement.setString(5, "a".repeat(64));
+                statement.setObject(6, utc);
+                statement.setObject(7, utc);
+                statement.executeUpdate();
+            }
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    SELECT published_at, first_seen_at FROM bid_notice
+                    WHERE source_code = 'PG_TEST' AND source_notice_id = ?
+                    """)) {
+                statement.setString(1, suffix);
+                try (ResultSet result = statement.executeQuery()) {
+                    assertTrue(result.next());
+                    assertEquals(localDateTime, result.getObject("published_at", LocalDateTime.class));
+                    assertEquals(instant, result.getObject("first_seen_at", OffsetDateTime.class).toInstant());
+                }
+            }
+
+            String projectId = UUID.randomUUID().toString();
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "INSERT INTO performance_project(id, name, deadline) VALUES (?, ?, ?)")) {
+                statement.setString(1, projectId);
+                statement.setString(2, "PostgreSQL date fixture");
+                statement.setObject(3, date);
+                statement.executeUpdate();
+            }
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "SELECT deadline FROM performance_project WHERE id = ?")) {
+                statement.setString(1, projectId);
+                try (ResultSet result = statement.executeQuery()) {
+                    assertTrue(result.next());
+                    assertEquals(date, result.getObject("deadline", LocalDate.class));
+                }
+            }
+
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    INSERT INTO submission_case(project_name, status, created_at, updated_at)
+                    VALUES (?, 'DRAFT', ?, ?)
+                    """)) {
+                statement.setString(1, "PostgreSQL submission fixture");
+                statement.setObject(2, utc);
+                statement.setObject(3, utc);
+                statement.executeUpdate();
+            }
+
+            assertGeneratedHash(connection, """
+                    INSERT INTO bid_source_registration (
+                        source_name, site_url, registration_status, collection_method,
+                        execution_enabled, check_status, detected_collection_method, created_at, updated_at
+                    ) VALUES (?, ?, 'PENDING_REVIEW', 'UNDETERMINED', FALSE,
+                        'NOT_CHECKED', 'UNDETERMINED', ?, ?)
+                    """, "SELECT site_url, octet_length(site_url_sha256) FROM bid_source_registration WHERE site_url = ?",
+                    "PostgreSQL source", "https://example.test/" + suffix, utc, utc);
+
+            String driveId = UUID.randomUUID().toString();
+            assertGeneratedHash(connection, """
+                    INSERT INTO performance_drive_file (
+                        id, origin, company, drive_path, filename, file_size
+                    ) VALUES (?, ?, ?, ?, 'evidence.pdf', 1)
+                    """, "SELECT drive_path, octet_length(drive_path_sha256) FROM performance_drive_file WHERE id = ?",
+                    driveId, "fixture", "CNH", "/long/path/" + suffix, driveId);
+
+            assertGeneratedHash(connection, """
+                    INSERT INTO drive_file_index (
+                        source, company, root, name, path, size, indexed_at
+                    ) VALUES (?, ?, ?, 'evidence.pdf', ?, 1, ?)
+                    """, "SELECT path, octet_length(path_sha256) FROM drive_file_index WHERE path = ?",
+                    "fixture", "CNH", "/root/" + suffix, "/root/" + suffix + "/evidence.pdf", utc,
+                    "/root/" + suffix + "/evidence.pdf");
+
+            assertGeneratedHash(connection, """
+                    INSERT INTO drive_index_root_state (
+                        source, company, root, status
+                    ) VALUES (?, ?, ?, 'SUCCESS')
+                    """, "SELECT root, octet_length(root_sha256) FROM drive_index_root_state WHERE root = ?",
+                    "fixture", "CNH", "/root-state/" + suffix, "/root-state/" + suffix);
+        } finally {
+            connection.rollback();
+            connection.setAutoCommit(true);
+        }
+    }
+
+    private void assertGeneratedHash(
+            Connection connection,
+            String insertSql,
+            String selectSql,
+            Object... parameters
+    ) throws SQLException {
+        int insertParameterCount = parameters.length - 1;
+        try (PreparedStatement statement = connection.prepareStatement(insertSql)) {
+            for (int index = 0; index < insertParameterCount; index++) {
+                statement.setObject(index + 1, parameters[index]);
+            }
+            statement.executeUpdate();
+        }
+        try (PreparedStatement statement = connection.prepareStatement(selectSql)) {
+            statement.setObject(1, parameters[parameters.length - 1]);
+            try (ResultSet result = statement.executeQuery()) {
+                assertTrue(result.next());
+                assertFalse(result.getString(1).isBlank());
+                assertEquals(32, result.getInt(2));
+            }
+        }
+    }
+
+    private int queryInt(Connection connection, String sql) throws SQLException {
+        try (Statement statement = connection.createStatement(); ResultSet result = statement.executeQuery(sql)) {
+            assertTrue(result.next());
+            return result.getInt(1);
+        }
+    }
+
+    private Set<String> queryStrings(Connection connection, String sql) throws SQLException {
+        Set<String> values = new HashSet<>();
+        try (Statement statement = connection.createStatement(); ResultSet result = statement.executeQuery(sql)) {
+            while (result.next()) {
+                values.add(result.getString(1));
+            }
+        }
+        return values;
+    }
+
+    private String env(String name) {
+        String value = System.getenv(name);
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException(name + " is required for PostgreSQL integration tests.");
+        }
+        return value;
     }
 
     private Set<String> tableNames(String sql) {
