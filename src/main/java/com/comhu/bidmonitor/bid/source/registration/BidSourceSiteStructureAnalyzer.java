@@ -98,9 +98,13 @@ class BidSourceSiteStructureAnalyzer {
         ).isEmpty();
         reasons.add(pagination ? "PAGINATION_DETECTED" : "PAGINATION_NOT_DETECTED");
 
-        boolean agencyDetected = hasHeader(document, "기관", "organization", "agency");
-        boolean publishedDateDetected = hasHeader(document, "게시", "공고일", "published", "date");
-        boolean statusDetected = hasHeader(document, "상태", "status");
+        String agencyMapping = columnMapping(document, "기관", "발주", "부서", "organization", "agency");
+        String publishedDateMapping = columnMapping(document, "게시", "공고일", "published", "date");
+        String deadlineMapping = columnMapping(document, "마감", "deadline", "closing");
+        String statusMapping = columnMapping(document, "상태", "status");
+        boolean agencyDetected = agencyMapping != null;
+        boolean publishedDateDetected = publishedDateMapping != null;
+        boolean statusDetected = statusMapping != null;
         if (agencyDetected) reasons.add("ORDERING_ORGANIZATION_DETECTED");
         if (publishedDateDetected) reasons.add("PUBLISHED_DATE_DETECTED");
         if (statusDetected) reasons.add("NOTICE_STATUS_DETECTED");
@@ -120,10 +124,10 @@ class BidSourceSiteStructureAnalyzer {
                 uri.toString(), detailPattern, detailCandidate,
                 identifier == BidSourceDiscoveryResult.Confidence.NONE ? null : "a[href]@href::{key}",
                 title == BidSourceDiscoveryResult.Confidence.NONE ? null : "a[href]::text",
-                agencyDetected ? "table::column(agency)" : null,
-                publishedDateDetected ? "table::column(publishedDate)" : null,
-                deadline == BidSourceDiscoveryResult.Confidence.NONE ? null : "table::column(deadline)",
-                statusDetected ? "table::column(status)" : null,
+                agencyMapping,
+                publishedDateMapping,
+                deadline == BidSourceDiscoveryResult.Confidence.NONE ? null : deadlineMapping,
+                statusMapping,
                 null,
                 pagination ? "a[href*=page],input[name*=page],select[name*=page]" : null,
                 identifier, title, deadline, false, pagination, reasons
@@ -222,14 +226,27 @@ class BidSourceSiteStructureAnalyzer {
         if (uri.getRawQuery() == null) return uri.getScheme() + "://" + uri.getAuthority() + path;
         List<String> keys = Pattern.compile("&").splitAsStream(uri.getRawQuery())
                 .map(part -> part.contains("=") ? part.substring(0, part.indexOf('=')) : part)
-                .sorted().map(key -> key + "={value}").toList();
+                .map(key -> key + "={value}").toList();
         return uri.getScheme() + "://" + uri.getAuthority() + path + "?" + String.join("&", keys);
     }
 
-    private boolean hasHeader(Document document, String... labels) {
-        String headers = document.select("th").text().toLowerCase(Locale.ROOT);
-        for (String label : labels) if (headers.contains(label)) return true;
-        return false;
+    private String columnMapping(Document document, String... labels) {
+        for (Element table : document.select("table")) {
+            List<Element> headers = table.select("thead th");
+            if (headers.isEmpty()) {
+                Element headerRow = table.selectFirst("tr:has(th)");
+                if (headerRow != null) headers = headerRow.select("th");
+            }
+            for (int index = 0; index < headers.size(); index++) {
+                String header = headers.get(index).text().toLowerCase(Locale.ROOT);
+                for (String label : labels) {
+                    if (header.contains(label.toLowerCase(Locale.ROOT))) {
+                        return "table::column(" + index + ")";
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private List<JsonNode> largestArray(JsonNode node) {
