@@ -15,6 +15,14 @@ public class BidSourceDiscoveryResult {
     BidSourceRegistration.CollectionMethod detectedCollectionMethod;
     String listPageUrl;
     String detailUrlPattern;
+    String identifierMapping;
+    String titleMapping;
+    String agencyMapping;
+    String publishedDateMapping;
+    String deadlineMapping;
+    String statusMapping;
+    String attachmentMapping;
+    String paginationMapping;
     Confidence identifierConfidence;
     Confidence titleConfidence;
     Confidence deadlineConfidence;

@@ -3,12 +3,15 @@ package com.comhu.bidmonitor.bid.api;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceRegistrationRequest;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceRegistrationResponse;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceDiscoveryResponse;
+import com.comhu.bidmonitor.bid.api.dto.BidSourceDiscoveryReviewRequest;
+import com.comhu.bidmonitor.bid.api.dto.BidSourceDiscoveryReviewResponse;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceReviewRequest;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceBindingRequest;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceActivationRequest;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceRegistrationService;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceDiscoveryService;
+import com.comhu.bidmonitor.bid.source.registration.BidSourceDiscoveryReviewService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -28,13 +31,16 @@ public class BidSourceRegistrationController {
 
     private final BidSourceRegistrationService service;
     private final BidSourceDiscoveryService discoveryService;
+    private final BidSourceDiscoveryReviewService discoveryReviewService;
 
     public BidSourceRegistrationController(
             BidSourceRegistrationService service,
-            BidSourceDiscoveryService discoveryService
+            BidSourceDiscoveryService discoveryService,
+            BidSourceDiscoveryReviewService discoveryReviewService
     ) {
         this.service = service;
         this.discoveryService = discoveryService;
+        this.discoveryReviewService = discoveryReviewService;
     }
 
     @PostMapping
@@ -92,6 +98,28 @@ public class BidSourceRegistrationController {
     @GetMapping("/{sourceId}/discovery")
     public BidSourceDiscoveryResponse discovery(@PathVariable long sourceId) {
         return BidSourceDiscoveryResponse.from(discoveryService.find(sourceId));
+    }
+
+    @GetMapping("/{sourceId}/discovery/review")
+    public BidSourceDiscoveryReviewResponse discoveryReview(@PathVariable long sourceId) {
+        return BidSourceDiscoveryReviewResponse.from(
+                discoveryService.find(sourceId), discoveryReviewService.find(sourceId)
+        );
+    }
+
+    @PatchMapping("/{sourceId}/discovery/review")
+    public BidSourceDiscoveryReviewResponse reviewDiscovery(
+            @PathVariable long sourceId,
+            @RequestBody BidSourceDiscoveryReviewRequest request,
+            Principal principal
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException("Request body is required.");
+        }
+        return BidSourceDiscoveryReviewResponse.from(
+                discoveryService.find(sourceId),
+                discoveryReviewService.review(sourceId, request.toUpdate(), actor(principal))
+        );
     }
 
     @PatchMapping("/{sourceId}/binding")

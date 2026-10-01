@@ -26,6 +26,7 @@ public class ApiSecurityConfig {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(HttpMethod.PATCH,
                                 "/api/bid-source-registrations/*/review",
+                                "/api/bid-source-registrations/*/discovery/review",
                                 "/api/bid-source-registrations/*/binding",
                                 "/api/bid-source-registrations/*/activation")
                         .hasRole("ADMIN")

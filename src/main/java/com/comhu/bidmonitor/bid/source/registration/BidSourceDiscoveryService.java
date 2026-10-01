@@ -18,6 +18,7 @@ public class BidSourceDiscoveryService {
     private final BidSourceDiscoveryResultRepository discoveryRepository;
     private final BidSourceAvailabilityChecker availabilityChecker;
     private final BidSourceSiteStructureAnalyzer analyzer;
+    private final BidSourceDiscoveryReviewService reviewService;
     private final Clock clock;
 
     public BidSourceDiscoveryService(
@@ -25,12 +26,14 @@ public class BidSourceDiscoveryService {
             BidSourceDiscoveryResultRepository discoveryRepository,
             BidSourceAvailabilityChecker availabilityChecker,
             BidSourceSiteStructureAnalyzer analyzer,
+            BidSourceDiscoveryReviewService reviewService,
             Clock clock
     ) {
         this.registrationRepository = registrationRepository;
         this.discoveryRepository = discoveryRepository;
         this.availabilityChecker = availabilityChecker;
         this.analyzer = analyzer;
+        this.reviewService = reviewService;
         this.clock = clock;
     }
 
@@ -70,7 +73,11 @@ public class BidSourceDiscoveryService {
                         ? analyzer.withDetail(analysis, detail.contentType(), detail.body())
                         : analysis.withDetailFailure("DETAIL_FETCH_" + detail.failureCode().name());
             }
-            return discoveryRepository.save(toResult(sourceId, analysis, clock.instant()));
+            BidSourceDiscoveryResult result = discoveryRepository.save(toResult(sourceId, analysis, clock.instant()));
+            if (result.getDiscoveryStatus() == BidSourceDiscoveryResult.DiscoveryStatus.READY) {
+                reviewService.initialize(result);
+            }
+            return result;
         } catch (RuntimeException exception) {
             return discoveryRepository.save(base(registration, BidSourceDiscoveryResult.DiscoveryStatus.FAILED,
                     BidSourceRegistration.CollectionMethod.UNDETERMINED, clock.instant(),
@@ -89,6 +96,14 @@ public class BidSourceDiscoveryService {
                 .detectedCollectionMethod(analysis.method())
                 .listPageUrl(analysis.listPageUrl())
                 .detailUrlPattern(analysis.detailUrlPattern())
+                .identifierMapping(analysis.identifierMapping())
+                .titleMapping(analysis.titleMapping())
+                .agencyMapping(analysis.agencyMapping())
+                .publishedDateMapping(analysis.publishedDateMapping())
+                .deadlineMapping(analysis.deadlineMapping())
+                .statusMapping(analysis.statusMapping())
+                .attachmentMapping(analysis.attachmentMapping())
+                .paginationMapping(analysis.paginationMapping())
                 .identifierConfidence(analysis.identifierConfidence())
                 .titleConfidence(analysis.titleConfidence())
                 .deadlineConfidence(analysis.deadlineConfidence())

@@ -20,7 +20,9 @@ public class JdbcBidSourceDiscoveryResultRepository implements BidSourceDiscover
 
     private static final String COLUMNS = """
             source_id, discovery_status, detected_collection_method, list_page_url,
-            detail_url_pattern, identifier_confidence, title_confidence, deadline_confidence,
+            detail_url_pattern, identifier_mapping, title_mapping, agency_mapping,
+            published_date_mapping, deadline_mapping, status_mapping, attachment_mapping,
+            pagination_mapping, identifier_confidence, title_confidence, deadline_confidence,
             attachment_detected, pagination_detected, reason_codes, analyzed_at
             """;
 
@@ -40,14 +42,24 @@ public class JdbcBidSourceDiscoveryResultRepository implements BidSourceDiscover
             jdbcTemplate.update("""
                     INSERT INTO bid_source_discovery_result (
                         source_id, discovery_status, detected_collection_method, list_page_url,
-                        detail_url_pattern, identifier_confidence, title_confidence, deadline_confidence,
+                        detail_url_pattern, identifier_mapping, title_mapping, agency_mapping,
+                        published_date_mapping, deadline_mapping, status_mapping, attachment_mapping,
+                        pagination_mapping, identifier_confidence, title_confidence, deadline_confidence,
                         attachment_detected, pagination_detected, reason_codes, analyzed_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (source_id) DO UPDATE SET
                         discovery_status = EXCLUDED.discovery_status,
                         detected_collection_method = EXCLUDED.detected_collection_method,
                         list_page_url = EXCLUDED.list_page_url,
                         detail_url_pattern = EXCLUDED.detail_url_pattern,
+                        identifier_mapping = EXCLUDED.identifier_mapping,
+                        title_mapping = EXCLUDED.title_mapping,
+                        agency_mapping = EXCLUDED.agency_mapping,
+                        published_date_mapping = EXCLUDED.published_date_mapping,
+                        deadline_mapping = EXCLUDED.deadline_mapping,
+                        status_mapping = EXCLUDED.status_mapping,
+                        attachment_mapping = EXCLUDED.attachment_mapping,
+                        pagination_mapping = EXCLUDED.pagination_mapping,
                         identifier_confidence = EXCLUDED.identifier_confidence,
                         title_confidence = EXCLUDED.title_confidence,
                         deadline_confidence = EXCLUDED.deadline_confidence,
@@ -60,7 +72,9 @@ public class JdbcBidSourceDiscoveryResultRepository implements BidSourceDiscover
             int updated = jdbcTemplate.update("""
                     UPDATE bid_source_discovery_result SET
                         discovery_status = ?, detected_collection_method = ?, list_page_url = ?,
-                        detail_url_pattern = ?, identifier_confidence = ?, title_confidence = ?,
+                        detail_url_pattern = ?, identifier_mapping = ?, title_mapping = ?, agency_mapping = ?,
+                        published_date_mapping = ?, deadline_mapping = ?, status_mapping = ?,
+                        attachment_mapping = ?, pagination_mapping = ?, identifier_confidence = ?, title_confidence = ?,
                         deadline_confidence = ?, attachment_detected = ?, pagination_detected = ?,
                         reason_codes = ?, analyzed_at = ?
                     WHERE source_id = ?
@@ -69,9 +83,11 @@ public class JdbcBidSourceDiscoveryResultRepository implements BidSourceDiscover
                 jdbcTemplate.update("""
                         INSERT INTO bid_source_discovery_result (
                             source_id, discovery_status, detected_collection_method, list_page_url,
-                            detail_url_pattern, identifier_confidence, title_confidence, deadline_confidence,
+                            detail_url_pattern, identifier_mapping, title_mapping, agency_mapping,
+                            published_date_mapping, deadline_mapping, status_mapping, attachment_mapping,
+                            pagination_mapping, identifier_confidence, title_confidence, deadline_confidence,
                             attachment_detected, pagination_detected, reason_codes, analyzed_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, values);
             }
         }
@@ -91,7 +107,10 @@ public class JdbcBidSourceDiscoveryResultRepository implements BidSourceDiscover
         return new Object[]{
                 result.getSourceId(), result.getDiscoveryStatus().name(),
                 result.getDetectedCollectionMethod().name(), result.getListPageUrl(),
-                result.getDetailUrlPattern(), result.getIdentifierConfidence().name(),
+                result.getDetailUrlPattern(), result.getIdentifierMapping(), result.getTitleMapping(),
+                result.getAgencyMapping(), result.getPublishedDateMapping(), result.getDeadlineMapping(),
+                result.getStatusMapping(), result.getAttachmentMapping(), result.getPaginationMapping(),
+                result.getIdentifierConfidence().name(),
                 result.getTitleConfidence().name(), result.getDeadlineConfidence().name(),
                 result.isAttachmentDetected(), result.isPaginationDetected(),
                 String.join(",", result.getReasonCodes()), Timestamp.from(result.getAnalyzedAt())
@@ -100,9 +119,9 @@ public class JdbcBidSourceDiscoveryResultRepository implements BidSourceDiscover
 
     private Object[] updateValues(BidSourceDiscoveryResult result) {
         Object[] insert = values(result);
-        Object[] update = new Object[12];
-        System.arraycopy(insert, 1, update, 0, 11);
-        update[11] = result.getSourceId();
+        Object[] update = new Object[20];
+        System.arraycopy(insert, 1, update, 0, 19);
+        update[19] = result.getSourceId();
         return update;
     }
 
@@ -118,6 +137,14 @@ public class JdbcBidSourceDiscoveryResultRepository implements BidSourceDiscover
                         rs.getString("detected_collection_method")))
                 .listPageUrl(rs.getString("list_page_url"))
                 .detailUrlPattern(rs.getString("detail_url_pattern"))
+                .identifierMapping(rs.getString("identifier_mapping"))
+                .titleMapping(rs.getString("title_mapping"))
+                .agencyMapping(rs.getString("agency_mapping"))
+                .publishedDateMapping(rs.getString("published_date_mapping"))
+                .deadlineMapping(rs.getString("deadline_mapping"))
+                .statusMapping(rs.getString("status_mapping"))
+                .attachmentMapping(rs.getString("attachment_mapping"))
+                .paginationMapping(rs.getString("pagination_mapping"))
                 .identifierConfidence(BidSourceDiscoveryResult.Confidence.valueOf(
                         rs.getString("identifier_confidence")))
                 .titleConfidence(BidSourceDiscoveryResult.Confidence.valueOf(rs.getString("title_confidence")))

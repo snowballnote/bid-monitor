@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class BidSourceSiteDiscoveryTests {
@@ -49,7 +50,10 @@ class BidSourceSiteDiscoveryTests {
         assertEquals(BidSourceDiscoveryResult.Confidence.HIGH, analysis.identifierConfidence());
         assertEquals(BidSourceDiscoveryResult.Confidence.HIGH, analysis.titleConfidence());
         assertNotNull(analysis.detailUrlPattern());
+        assertEquals("a[href]@href::{key}", analysis.identifierMapping());
+        assertEquals("a[href]::text", analysis.titleMapping());
         assertTrue(analysis.attachmentDetected());
+        assertNotNull(analysis.attachmentMapping());
         assertFalse(analysis.paginationDetected());
         assertTrue(analysis.reasonCodes().contains("PAGINATION_NOT_DETECTED"));
         assertTrue(analysis.reasonCodes().contains("DETAIL_PAGE_ANALYZED"));
@@ -67,6 +71,8 @@ class BidSourceSiteDiscoveryTests {
         assertEquals(BidSourceRegistration.CollectionMethod.OFFICIAL_API, analysis.method());
         assertEquals(BidSourceDiscoveryResult.Confidence.MEDIUM, analysis.identifierConfidence());
         assertEquals(BidSourceDiscoveryResult.Confidence.MEDIUM, analysis.titleConfidence());
+        assertNotNull(analysis.identifierMapping());
+        assertNotNull(analysis.titleMapping());
         assertTrue(analysis.reasonCodes().contains("DETAIL_LINK_MISSING"));
         assertTrue(analysis.reasonCodes().contains("INSUFFICIENT_REPEATED_ITEMS"));
     }
@@ -110,6 +116,38 @@ class BidSourceSiteDiscoveryTests {
         assertEquals(List.of("FETCH_RESPONSE_TOO_LARGE"), oversized.getReasonCodes());
     }
 
+    @Test
+    void readyDiscoveryAutomaticallyCreatesPendingReview() throws Exception {
+        BidSourceRegistrationRepository registrations = mock(BidSourceRegistrationRepository.class);
+        BidSourceDiscoveryResultRepository discoveries = mock(BidSourceDiscoveryResultRepository.class);
+        BidSourceAvailabilityChecker availability = mock(BidSourceAvailabilityChecker.class);
+        BidSourceDiscoveryReviewService reviews = mock(BidSourceDiscoveryReviewService.class);
+        when(registrations.findById(1L)).thenReturn(Optional.of(BidSourceRegistration.builder()
+                .sourceId(1L)
+                .siteUrl("https://bid.kogas.or.kr:9443/supplier/contents/bid/bid_list.jsp")
+                .checkStatus(BidSourceRegistration.CheckStatus.REACHABLE)
+                .detectedCollectionMethod(BidSourceRegistration.CollectionMethod.PUBLIC_PAGE)
+                .build()));
+        when(discoveries.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        byte[] list = Files.readAllBytes(Path.of("src/test/resources/fixtures/kogas/list.html"));
+        byte[] detail = Files.readAllBytes(Path.of("src/test/resources/fixtures/kogas/detail.html"));
+        URI listUri = URI.create("https://bid.kogas.or.kr:9443/supplier/contents/bid/bid_list.jsp");
+        when(availability.fetch(listUri.toString())).thenReturn(
+                BidSourceAvailabilityChecker.FetchResult.success(listUri, 200, "text/html; charset=UTF-8", list));
+        when(availability.fetch(any())).thenReturn(
+                BidSourceAvailabilityChecker.FetchResult.success(listUri, 200, "text/html; charset=EUC-KR", detail));
+        when(availability.fetch(listUri.toString())).thenReturn(
+                BidSourceAvailabilityChecker.FetchResult.success(listUri, 200, "text/html; charset=UTF-8", list));
+        BidSourceDiscoveryService service = new BidSourceDiscoveryService(
+                registrations, discoveries, availability, analyzer, reviews,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        BidSourceDiscoveryResult result = service.analyze(1L);
+
+        assertEquals(BidSourceDiscoveryResult.DiscoveryStatus.READY, result.getDiscoveryStatus());
+        verify(reviews).initialize(result);
+    }
+
     private void assertManual(String html) {
         var analysis = analyzer.analyze(LIST_URI, "text/html; charset=UTF-8", bytes(html));
         assertEquals(BidSourceDiscoveryResult.DiscoveryStatus.MANUAL_REVIEW, analysis.status());
@@ -130,7 +168,8 @@ class BidSourceSiteDiscoveryTests {
         when(discoveries.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         return new BidSourceDiscoveryService(registrations, discoveries,
-                new BidSourceAvailabilityChecker(resolver, transport, clock), analyzer, clock);
+                new BidSourceAvailabilityChecker(resolver, transport, clock), analyzer,
+                mock(BidSourceDiscoveryReviewService.class), clock);
     }
 
     private static byte[] bytes(String value) {

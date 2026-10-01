@@ -98,9 +98,12 @@ class BidSourceSiteStructureAnalyzer {
         ).isEmpty();
         reasons.add(pagination ? "PAGINATION_DETECTED" : "PAGINATION_NOT_DETECTED");
 
-        if (hasHeader(document, "기관", "organization", "agency")) reasons.add("ORDERING_ORGANIZATION_DETECTED");
-        if (hasHeader(document, "게시", "공고일", "published", "date")) reasons.add("PUBLISHED_DATE_DETECTED");
-        if (hasHeader(document, "상태", "status")) reasons.add("NOTICE_STATUS_DETECTED");
+        boolean agencyDetected = hasHeader(document, "기관", "organization", "agency");
+        boolean publishedDateDetected = hasHeader(document, "게시", "공고일", "published", "date");
+        boolean statusDetected = hasHeader(document, "상태", "status");
+        if (agencyDetected) reasons.add("ORDERING_ORGANIZATION_DETECTED");
+        if (publishedDateDetected) reasons.add("PUBLISHED_DATE_DETECTED");
+        if (statusDetected) reasons.add("NOTICE_STATUS_DETECTED");
 
         String detailPattern = repeated == null ? null : repeated.getKey();
         URI detailCandidate = candidates.isEmpty() ? null : candidates.getFirst().uri();
@@ -115,6 +118,14 @@ class BidSourceSiteStructureAnalyzer {
                         : BidSourceDiscoveryResult.DiscoveryStatus.MANUAL_REVIEW,
                 BidSourceRegistration.CollectionMethod.PUBLIC_PAGE,
                 uri.toString(), detailPattern, detailCandidate,
+                identifier == BidSourceDiscoveryResult.Confidence.NONE ? null : "a[href]@href::{key}",
+                title == BidSourceDiscoveryResult.Confidence.NONE ? null : "a[href]::text",
+                agencyDetected ? "table::column(agency)" : null,
+                publishedDateDetected ? "table::column(publishedDate)" : null,
+                deadline == BidSourceDiscoveryResult.Confidence.NONE ? null : "table::column(deadline)",
+                statusDetected ? "table::column(status)" : null,
+                null,
+                pagination ? "a[href*=page],input[name*=page],select[name*=page]" : null,
                 identifier, title, deadline, false, pagination, reasons
         );
     }
@@ -127,6 +138,10 @@ class BidSourceSiteStructureAnalyzer {
         }
         long identifiers = items.stream().filter(this::hasIdentifier).count();
         long titles = items.stream().filter(this::hasTitle).count();
+        String identifierMapping = items.stream().map(item -> fieldName(item, "id", "no", "number"))
+                .filter(value -> value != null).findFirst().orElse(null);
+        String titleMapping = items.stream().map(item -> fieldName(item, "title", "name", "nm"))
+                .filter(value -> value != null).findFirst().orElse(null);
         String detail = items.stream().map(this::detailUrl).filter(value -> value != null).findFirst().orElse(null);
         Set<String> reasons = new LinkedHashSet<>();
         if (items.size() >= 2) reasons.add("REPEATED_STRUCTURE_DETECTED");
@@ -141,6 +156,7 @@ class BidSourceSiteStructureAnalyzer {
                 BidSourceDiscoveryResult.DiscoveryStatus.MANUAL_REVIEW,
                 BidSourceRegistration.CollectionMethod.OFFICIAL_API,
                 uri.toString(), detail, detail == null ? null : resolveSameOrigin(uri, detail),
+                identifierMapping, titleMapping, null, null, null, null, null, null,
                 identifiers > 0 ? BidSourceDiscoveryResult.Confidence.MEDIUM : BidSourceDiscoveryResult.Confidence.NONE,
                 titles > 0 ? BidSourceDiscoveryResult.Confidence.MEDIUM : BidSourceDiscoveryResult.Confidence.NONE,
                 BidSourceDiscoveryResult.Confidence.NONE,
@@ -163,11 +179,13 @@ class BidSourceSiteStructureAnalyzer {
             Set<String> reasons = new LinkedHashSet<>(analysis.reasonCodes());
             reasons.add("DETAIL_PAGE_ANALYZED");
             if (attachment) reasons.add("ATTACHMENT_DETECTED");
-            return analysis.withDetailMetadata(attachment, reasons);
+            return analysis.withDetailMetadata(attachment,
+                    attachment ? "a[href*=download],a[href*=attach],a[href$=.pdf]" : null,
+                    reasons);
         } catch (RuntimeException exception) {
             Set<String> reasons = new LinkedHashSet<>(analysis.reasonCodes());
             reasons.add("DETAIL_PAGE_UNRECOGNIZED");
-            return analysis.withDetailMetadata(false, reasons);
+            return analysis.withDetailMetadata(false, null, reasons);
         }
     }
 
@@ -251,6 +269,15 @@ class BidSourceSiteStructureAnalyzer {
                 .findFirst().orElse(null);
     }
 
+    private String fieldName(JsonNode item, String... candidates) {
+        return fields(item).keySet().stream().filter(key -> {
+            for (String candidate : candidates) {
+                if (key.contains(candidate) || key.endsWith(candidate)) return true;
+            }
+            return false;
+        }).findFirst().orElse(null);
+    }
+
     private Map<String, JsonNode> fields(JsonNode item) {
         Map<String, JsonNode> fields = new LinkedHashMap<>();
         if (item != null && item.isObject()) {
@@ -288,6 +315,14 @@ class BidSourceSiteStructureAnalyzer {
             String listPageUrl,
             String detailUrlPattern,
             URI detailCandidate,
+            String identifierMapping,
+            String titleMapping,
+            String agencyMapping,
+            String publishedDateMapping,
+            String deadlineMapping,
+            String statusMapping,
+            String attachmentMapping,
+            String paginationMapping,
             BidSourceDiscoveryResult.Confidence identifierConfidence,
             BidSourceDiscoveryResult.Confidence titleConfidence,
             BidSourceDiscoveryResult.Confidence deadlineConfidence,
@@ -298,18 +333,22 @@ class BidSourceSiteStructureAnalyzer {
         static Analysis unsupported(String url) {
             return new Analysis(BidSourceDiscoveryResult.DiscoveryStatus.UNSUPPORTED,
                     BidSourceRegistration.CollectionMethod.UNDETERMINED, url, null, null,
+                    null, null, null, null, null, null, null, null,
                     BidSourceDiscoveryResult.Confidence.NONE, BidSourceDiscoveryResult.Confidence.NONE,
                     BidSourceDiscoveryResult.Confidence.NONE, false, false, Set.of("UNSUPPORTED_CONTENT"));
         }
 
         static Analysis manual(String url, BidSourceRegistration.CollectionMethod method, Set<String> reasons) {
             return new Analysis(BidSourceDiscoveryResult.DiscoveryStatus.MANUAL_REVIEW, method, url, null, null,
+                    null, null, null, null, null, null, null, null,
                     BidSourceDiscoveryResult.Confidence.NONE, BidSourceDiscoveryResult.Confidence.NONE,
                     BidSourceDiscoveryResult.Confidence.NONE, false, false, reasons);
         }
 
-        Analysis withDetailMetadata(boolean attachment, Set<String> reasons) {
+        Analysis withDetailMetadata(boolean attachment, String newAttachmentMapping, Set<String> reasons) {
             return new Analysis(status, method, listPageUrl, detailUrlPattern, detailCandidate,
+                    identifierMapping, titleMapping, agencyMapping, publishedDateMapping, deadlineMapping,
+                    statusMapping, newAttachmentMapping, paginationMapping,
                     identifierConfidence, titleConfidence, deadlineConfidence,
                     attachment, paginationDetected, Set.copyOf(reasons));
         }
@@ -319,6 +358,8 @@ class BidSourceSiteStructureAnalyzer {
             reasons.add(reason);
             return new Analysis(BidSourceDiscoveryResult.DiscoveryStatus.MANUAL_REVIEW,
                     method, listPageUrl, detailUrlPattern, detailCandidate,
+                    identifierMapping, titleMapping, agencyMapping, publishedDateMapping, deadlineMapping,
+                    statusMapping, attachmentMapping, paginationMapping,
                     identifierConfidence, titleConfidence, deadlineConfidence,
                     false, paginationDetected, Set.copyOf(reasons));
         }

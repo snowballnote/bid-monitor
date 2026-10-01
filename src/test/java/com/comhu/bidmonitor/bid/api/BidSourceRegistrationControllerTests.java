@@ -99,6 +99,8 @@ class BidSourceRegistrationControllerTests {
 
     @BeforeEach
     void clearRegistrations() {
+        jdbcTemplate.update("DELETE FROM bid_source_discovery_review_audit");
+        jdbcTemplate.update("DELETE FROM bid_source_discovery_review");
         jdbcTemplate.update("DELETE FROM bid_source_discovery_result");
         jdbcTemplate.update("DELETE FROM bid_source_registration_audit");
         jdbcTemplate.update("DELETE FROM bid_source_registration");
@@ -154,6 +156,99 @@ class BidSourceRegistrationControllerTests {
     }
 
     @Test
+    void readyDiscoveryCreatesPendingReviewWithDetectedAndConfirmedValuesSeparated() throws Exception {
+        register("Ready review", "https://ready-review.example/notices");
+        long sourceId = sourceId("Ready review");
+        storeDiscovery(sourceId, BidSourceDiscoveryResult.DiscoveryStatus.READY,
+                "a[href]@href::{key}", "a[href]::text");
+
+        mockMvc.perform(get("/api/bid-source-registrations/{sourceId}/discovery/review", sourceId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.discoveryStatus").value("READY"))
+                .andExpect(jsonPath("$.reviewStatus").value("PENDING_REVIEW"))
+                .andExpect(jsonPath("$.detected.identifierMapping").value("a[href]@href::{key}"))
+                .andExpect(jsonPath("$.confirmed.identifierMapping").value("a[href]@href::{key}"))
+                .andExpect(jsonPath("$.confirmed.agencyMapping").value("UNKNOWN"));
+
+        assertEquals("PENDING_REVIEW", jdbcTemplate.queryForObject(
+                "SELECT review_status FROM bid_source_discovery_review WHERE source_id = ?",
+                String.class, sourceId));
+    }
+
+    @Test
+    void administratorApprovesReadyDiscoveryAndCreatesAudit() throws Exception {
+        register("Approve discovery", "https://approve-discovery.example/notices");
+        long sourceId = sourceId("Approve discovery");
+        storeDiscovery(sourceId, BidSourceDiscoveryResult.DiscoveryStatus.READY,
+                "a[href]@href::{key}", "a[href]::text");
+
+        discoveryReview(sourceId, Map.of("reviewStatus", "APPROVED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.reviewStatus").value("APPROVED"));
+
+        Map<String, Object> audit = jdbcTemplate.queryForMap("""
+                SELECT source_id, action, previous_status, new_status, actor, created_at
+                FROM bid_source_discovery_review_audit WHERE source_id = ?
+                """, sourceId);
+        assertEquals(sourceId, ((Number) audit.get("SOURCE_ID")).longValue());
+        assertEquals("APPROVED", audit.get("ACTION"));
+        assertEquals("PENDING_REVIEW", audit.get("PREVIOUS_STATUS"));
+        assertEquals("APPROVED", audit.get("NEW_STATUS"));
+        assertEquals("bid-admin", audit.get("ACTOR"));
+        assertNotNull(audit.get("CREATED_AT"));
+    }
+
+    @Test
+    void administratorEditsMappingsBeforeApproval() throws Exception {
+        register("Edit discovery", "https://edit-discovery.example/notices");
+        long sourceId = sourceId("Edit discovery");
+        storeDiscovery(sourceId, BidSourceDiscoveryResult.DiscoveryStatus.READY,
+                "a[href]@href::{key}", "a[href]::text");
+
+        discoveryReview(sourceId, Map.of(
+                "reviewStatus", "PENDING_REVIEW",
+                "titleMapping", "td.notice-title a::text",
+                "agencyMapping", "UNKNOWN",
+                "paginationMapping", "a.next@href"
+        )).andExpect(status().isOk());
+        discoveryReview(sourceId, Map.of("reviewStatus", "APPROVED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.reviewStatus").value("APPROVED"))
+                .andExpect(jsonPath("$.detected.titleMapping").value("a[href]::text"))
+                .andExpect(jsonPath("$.confirmed.titleMapping").value("td.notice-title a::text"))
+                .andExpect(jsonPath("$.confirmed.paginationMapping").value("a.next@href"));
+
+        assertEquals(2, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM bid_source_discovery_review_audit WHERE source_id = ?",
+                Integer.class, sourceId));
+    }
+
+    @Test
+    void rejectsDiscoveryApprovalUnlessReadyAndRequiredMappingsExist() throws Exception {
+        register("Not ready discovery", "https://not-ready-discovery.example/notices");
+        long notReadyId = sourceId("Not ready discovery");
+        storeDiscovery(notReadyId, BidSourceDiscoveryResult.DiscoveryStatus.MANUAL_REVIEW,
+                "a[href]@href::{key}", "a[href]::text");
+
+        discoveryReview(notReadyId, Map.of("reviewStatus", "APPROVED"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Discovery must be READY before approval."));
+
+        register("Missing mapping discovery", "https://missing-mapping.example/notices");
+        long missingId = sourceId("Missing mapping discovery");
+        storeDiscovery(missingId, BidSourceDiscoveryResult.DiscoveryStatus.READY,
+                null, "a[href]::text");
+
+        discoveryReview(missingId, Map.of("reviewStatus", "APPROVED"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("identifierMapping is required for approval."));
+
+        assertEquals(0, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM bid_source_discovery_review_audit",
+                Integer.class));
+    }
+
+    @Test
     void rejectsUnauthenticatedManagementRequests() throws Exception {
         mockMvc.perform(patch("/api/bid-source-registrations/1/review")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -168,6 +263,11 @@ class BidSourceRegistrationControllerTests {
         mockMvc.perform(patch("/api/bid-source-registrations/1/activation")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("executionEnabled", true))))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
+        mockMvc.perform(patch("/api/bid-source-registrations/1/discovery/review")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("reviewStatus", "APPROVED"))))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
     }
@@ -190,6 +290,12 @@ class BidSourceRegistrationControllerTests {
                         .with(user("reviewer").roles("USER"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("executionEnabled", true))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ADMIN_ROLE_REQUIRED"));
+        mockMvc.perform(patch("/api/bid-source-registrations/1/discovery/review")
+                        .with(user("reviewer").roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("reviewStatus", "APPROVED"))))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("ADMIN_ROLE_REQUIRED"));
     }
@@ -969,6 +1075,38 @@ class BidSourceRegistrationControllerTests {
                 .with(user("bid-admin").roles("ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json(Map.of("sourceCode", sourceCode))));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions discoveryReview(
+            long sourceId,
+            Map<String, ?> request
+    ) throws Exception {
+        return mockMvc.perform(patch("/api/bid-source-registrations/{sourceId}/discovery/review", sourceId)
+                .with(user("bid-admin").roles("ADMIN"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(request)));
+    }
+
+    private void storeDiscovery(
+            long sourceId,
+            BidSourceDiscoveryResult.DiscoveryStatus status,
+            String identifierMapping,
+            String titleMapping
+    ) {
+        discoveryResultRepository.save(BidSourceDiscoveryResult.builder()
+                .sourceId(sourceId)
+                .discoveryStatus(status)
+                .detectedCollectionMethod(BidSourceRegistration.CollectionMethod.PUBLIC_PAGE)
+                .listPageUrl("https://discovery-review.example/notices")
+                .detailUrlPattern("https://discovery-review.example/notices/{key}")
+                .identifierMapping(identifierMapping)
+                .titleMapping(titleMapping)
+                .identifierConfidence(BidSourceDiscoveryResult.Confidence.HIGH)
+                .titleConfidence(BidSourceDiscoveryResult.Confidence.HIGH)
+                .deadlineConfidence(BidSourceDiscoveryResult.Confidence.NONE)
+                .reasonCodes(List.of("DETAIL_PATTERN_DETECTED"))
+                .analyzedAt(Instant.parse("2026-09-30T03:00:00Z"))
+                .build());
     }
 
     private org.springframework.test.web.servlet.ResultActions activate(long sourceId, boolean enabled)
