@@ -2,11 +2,13 @@ package com.comhu.bidmonitor.bid.api;
 
 import com.comhu.bidmonitor.bid.api.dto.BidSourceRegistrationRequest;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceRegistrationResponse;
+import com.comhu.bidmonitor.bid.api.dto.BidSourceDiscoveryResponse;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceReviewRequest;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceBindingRequest;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceActivationRequest;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceRegistrationService;
+import com.comhu.bidmonitor.bid.source.registration.BidSourceDiscoveryService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,9 +27,14 @@ import java.util.List;
 public class BidSourceRegistrationController {
 
     private final BidSourceRegistrationService service;
+    private final BidSourceDiscoveryService discoveryService;
 
-    public BidSourceRegistrationController(BidSourceRegistrationService service) {
+    public BidSourceRegistrationController(
+            BidSourceRegistrationService service,
+            BidSourceDiscoveryService discoveryService
+    ) {
         this.service = service;
+        this.discoveryService = discoveryService;
     }
 
     @PostMapping
@@ -75,6 +82,16 @@ public class BidSourceRegistrationController {
     @PostMapping("/{sourceId}/check")
     public BidSourceRegistrationResponse check(@PathVariable long sourceId) {
         return BidSourceRegistrationResponse.from(service.check(sourceId));
+    }
+
+    @PostMapping("/{sourceId}/discovery")
+    public BidSourceDiscoveryResponse discover(@PathVariable long sourceId) {
+        return BidSourceDiscoveryResponse.from(discoveryService.analyze(sourceId));
+    }
+
+    @GetMapping("/{sourceId}/discovery")
+    public BidSourceDiscoveryResponse discovery(@PathVariable long sourceId) {
+        return BidSourceDiscoveryResponse.from(discoveryService.find(sourceId));
     }
 
     @PatchMapping("/{sourceId}/binding")

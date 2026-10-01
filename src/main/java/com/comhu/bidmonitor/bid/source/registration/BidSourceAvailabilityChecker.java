@@ -44,11 +44,31 @@ public class BidSourceAvailabilityChecker {
     }
 
     public BidSourceCheckResult check(String siteUrl) {
+        FetchResult fetched = fetch(siteUrl);
+        if (fetched.failureCode() != null) {
+            return fetched.blocked()
+                    ? blocked(fetched.failureCode())
+                    : failed(fetched.failureCode(), fetched.statusCode(), fetched.contentType());
+        }
+        BidSourceRegistration.CollectionMethod detected = detectCollectionMethod(
+                fetched.uri(), fetched.contentType(), fetched.body()
+        );
+        return new BidSourceCheckResult(
+                BidSourceRegistration.CheckStatus.REACHABLE,
+                detected,
+                fetched.statusCode(),
+                fetched.contentType(),
+                clock.instant(),
+                null
+        );
+    }
+
+    FetchResult fetch(String siteUrl) {
         URI current;
         try {
             current = new URI(siteUrl);
         } catch (URISyntaxException | NullPointerException exception) {
-            return blocked(BidSourceRegistration.SafeFailureCode.INVALID_URL);
+            return FetchResult.blocked(BidSourceRegistration.SafeFailureCode.INVALID_URL);
         }
 
         for (int redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
@@ -59,59 +79,49 @@ public class BidSourceAvailabilityChecker {
 
                 if (REDIRECT_STATUSES.contains(response.statusCode())) {
                     if (redirects == MAX_REDIRECTS) {
-                        return failed(BidSourceRegistration.SafeFailureCode.REDIRECT_LIMIT_EXCEEDED,
+                        return FetchResult.failed(BidSourceRegistration.SafeFailureCode.REDIRECT_LIMIT_EXCEEDED,
                                 response.statusCode(), contentType);
                     }
                     String location = firstHeader(response.headers(), "location");
                     if (location == null || location.isBlank()) {
-                        return failed(BidSourceRegistration.SafeFailureCode.INVALID_REDIRECT,
+                        return FetchResult.failed(BidSourceRegistration.SafeFailureCode.INVALID_REDIRECT,
                                 response.statusCode(), contentType);
                     }
                     try {
                         current = current.resolve(new URI(location));
                     } catch (IllegalArgumentException | URISyntaxException exception) {
-                        return failed(BidSourceRegistration.SafeFailureCode.INVALID_REDIRECT,
+                        return FetchResult.failed(BidSourceRegistration.SafeFailureCode.INVALID_REDIRECT,
                                 response.statusCode(), contentType);
                     }
                     continue;
                 }
 
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                    return failed(BidSourceRegistration.SafeFailureCode.HTTP_ERROR,
+                    return FetchResult.failed(BidSourceRegistration.SafeFailureCode.HTTP_ERROR,
                             response.statusCode(), contentType);
                 }
-                BidSourceRegistration.CollectionMethod detected = detectCollectionMethod(
-                        current, contentType, response.body()
-                );
                 if (!isSupportedContentType(contentType)) {
-                    return failed(BidSourceRegistration.SafeFailureCode.UNSUPPORTED_CONTENT_TYPE,
+                    return FetchResult.failed(BidSourceRegistration.SafeFailureCode.UNSUPPORTED_CONTENT_TYPE,
                             response.statusCode(), contentType);
                 }
-                return new BidSourceCheckResult(
-                        BidSourceRegistration.CheckStatus.REACHABLE,
-                        detected,
-                        response.statusCode(),
-                        contentType,
-                        clock.instant(),
-                        null
-                );
+                return FetchResult.success(current, response.statusCode(), contentType, response.body());
             } catch (AddressBlockedException exception) {
-                return blocked(BidSourceRegistration.SafeFailureCode.ADDRESS_BLOCKED);
+                return FetchResult.blocked(BidSourceRegistration.SafeFailureCode.ADDRESS_BLOCKED);
             } catch (InvalidTargetException exception) {
-                return blocked(BidSourceRegistration.SafeFailureCode.INVALID_URL);
+                return FetchResult.blocked(BidSourceRegistration.SafeFailureCode.INVALID_URL);
             } catch (UnknownHostException exception) {
-                return failed(BidSourceRegistration.SafeFailureCode.DNS_FAILURE);
+                return FetchResult.failed(BidSourceRegistration.SafeFailureCode.DNS_FAILURE, null, null);
             } catch (SocketTimeoutException exception) {
-                return failed(BidSourceRegistration.SafeFailureCode.CONNECTION_TIMEOUT);
+                return FetchResult.failed(BidSourceRegistration.SafeFailureCode.CONNECTION_TIMEOUT, null, null);
             } catch (ResponseTooLargeException exception) {
-                return failed(BidSourceRegistration.SafeFailureCode.RESPONSE_TOO_LARGE);
+                return FetchResult.failed(BidSourceRegistration.SafeFailureCode.RESPONSE_TOO_LARGE, null, null);
             } catch (InvalidHttpResponseException exception) {
-                return failed(BidSourceRegistration.SafeFailureCode.INVALID_RESPONSE);
+                return FetchResult.failed(BidSourceRegistration.SafeFailureCode.INVALID_RESPONSE, null, null);
             } catch (IOException exception) {
-                return failed(BidSourceRegistration.SafeFailureCode.CONNECTION_FAILED);
+                return FetchResult.failed(BidSourceRegistration.SafeFailureCode.CONNECTION_FAILED, null, null);
             }
         }
-        return failed(BidSourceRegistration.SafeFailureCode.REDIRECT_LIMIT_EXCEEDED);
+        return FetchResult.failed(BidSourceRegistration.SafeFailureCode.REDIRECT_LIMIT_EXCEEDED, null, null);
     }
 
     public BidSourceCheckResult failed(BidSourceRegistration.SafeFailureCode code) {
@@ -290,6 +300,31 @@ public class BidSourceAvailabilityChecker {
     }
 
     record RawResponse(int statusCode, Map<String, List<String>> headers, byte[] body) {
+    }
+
+    record FetchResult(
+            URI uri,
+            Integer statusCode,
+            String contentType,
+            byte[] body,
+            BidSourceRegistration.SafeFailureCode failureCode,
+            boolean blocked
+    ) {
+        static FetchResult success(URI uri, int statusCode, String contentType, byte[] body) {
+            return new FetchResult(uri, statusCode, contentType, body.clone(), null, false);
+        }
+
+        static FetchResult failed(
+                BidSourceRegistration.SafeFailureCode code,
+                Integer statusCode,
+                String contentType
+        ) {
+            return new FetchResult(null, statusCode, contentType, new byte[0], code, false);
+        }
+
+        static FetchResult blocked(BidSourceRegistration.SafeFailureCode code) {
+            return new FetchResult(null, null, null, new byte[0], code, true);
+        }
     }
 
     private record ValidatedTarget(URI uri, InetAddress address) {

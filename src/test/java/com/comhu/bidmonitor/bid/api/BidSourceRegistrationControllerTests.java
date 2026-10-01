@@ -4,6 +4,8 @@ import com.comhu.bidmonitor.bid.collection.ManualBidCollectionCoordinator;
 import com.comhu.bidmonitor.bid.persistence.BidSourceCheckResult;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistrationAuditRepository;
+import com.comhu.bidmonitor.bid.persistence.BidSourceDiscoveryResult;
+import com.comhu.bidmonitor.bid.persistence.BidSourceDiscoveryResultRepository;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceAvailabilityChecker;
 import com.comhu.bidmonitor.bid.source.d2b.D2bBidCollector;
 import com.comhu.bidmonitor.bid.source.koreaexpressway.KoreaExpresswayBidCollector;
@@ -71,6 +73,9 @@ class BidSourceRegistrationControllerTests {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private BidSourceDiscoveryResultRepository discoveryResultRepository;
+
     @MockitoBean
     private ManualBidCollectionCoordinator coordinator;
 
@@ -94,11 +99,58 @@ class BidSourceRegistrationControllerTests {
 
     @BeforeEach
     void clearRegistrations() {
+        jdbcTemplate.update("DELETE FROM bid_source_discovery_result");
         jdbcTemplate.update("DELETE FROM bid_source_registration_audit");
         jdbcTemplate.update("DELETE FROM bid_source_registration");
         when(kogasBidCollector.sourceCode()).thenReturn("KOGAS");
         when(kogasBidCollector.registrationBindingSupported()).thenReturn(true);
         when(kogasBidCollector.executionEnabled()).thenReturn(false);
+    }
+
+    @Test
+    void exposesNotAnalyzedAndStoredDiscoveryResult() throws Exception {
+        register("Discovery fixture", "https://discovery.example/notices");
+        long sourceId = sourceId("Discovery fixture");
+
+        mockMvc.perform(get("/api/bid-source-registrations/{sourceId}/discovery", sourceId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.discoveryStatus").value("NOT_ANALYZED"));
+
+        discoveryResultRepository.save(BidSourceDiscoveryResult.builder()
+                .sourceId(sourceId)
+                .discoveryStatus(BidSourceDiscoveryResult.DiscoveryStatus.MANUAL_REVIEW)
+                .detectedCollectionMethod(BidSourceRegistration.CollectionMethod.PUBLIC_PAGE)
+                .listPageUrl("https://discovery.example/notices")
+                .identifierConfidence(BidSourceDiscoveryResult.Confidence.MEDIUM)
+                .titleConfidence(BidSourceDiscoveryResult.Confidence.HIGH)
+                .deadlineConfidence(BidSourceDiscoveryResult.Confidence.NONE)
+                .attachmentDetected(false)
+                .paginationDetected(false)
+                .reasonCodes(List.of("DETAIL_LINK_MISSING", "PAGINATION_NOT_DETECTED"))
+                .analyzedAt(Instant.parse("2026-09-30T03:00:00Z"))
+                .build());
+
+        mockMvc.perform(get("/api/bid-source-registrations/{sourceId}/discovery", sourceId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.discoveryStatus").value("MANUAL_REVIEW"))
+                .andExpect(jsonPath("$.identifierConfidence").value("MEDIUM"))
+                .andExpect(jsonPath("$.reasonCodes[0]").value("DETAIL_LINK_MISSING"));
+    }
+
+    @Test
+    void discoveryExecutionUsesTheExistingPublicCheckPolicyAndRequiresAvailabilityFirst() throws Exception {
+        register("Discovery flow", "https://flow.example/notices");
+        long sourceId = sourceId("Discovery flow");
+
+        mockMvc.perform(post("/api/bid-source-registrations/{sourceId}/discovery", sourceId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.discoveryStatus").value("FAILED"))
+                .andExpect(jsonPath("$.reasonCodes[0]").value("AVAILABILITY_CHECK_REQUIRED"));
+
+        mockMvc.perform(get("/api/bid-source-registrations/{sourceId}/discovery", sourceId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.discoveryStatus").value("FAILED"));
+        verifyNoInteractions(availabilityChecker);
     }
 
     @Test

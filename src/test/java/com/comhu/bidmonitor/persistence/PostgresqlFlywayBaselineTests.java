@@ -123,6 +123,20 @@ class PostgresqlFlywayBaselineTests {
     }
 
     @Test
+    void discoveryMigrationStoresOnlyBoundedMetadata() throws IOException {
+        String sql = Files.readString(Path.of(
+                "src/main/resources/db/migration/postgresql/V2__bid_source_discovery.sql"));
+
+        assertTrue(sql.contains("CREATE TABLE bid_source_discovery_result"));
+        assertTrue(sql.contains("REFERENCES bid_source_registration (source_id) ON DELETE CASCADE"));
+        assertTrue(sql.contains("analyzed_at TIMESTAMP WITH TIME ZONE NOT NULL"));
+        assertTrue(sql.contains("detail_url_pattern VARCHAR(4000)"));
+        assertTrue(sql.contains("reason_codes VARCHAR(2000) NOT NULL"));
+        assertFalse(sql.toLowerCase().contains("html"));
+        assertFalse(sql.toLowerCase().contains("response_body"));
+    }
+
+    @Test
     @EnabledIfEnvironmentVariable(named = "BIZ_ASSIST_POSTGRES_TEST_ENABLED", matches = "(?i)true")
     void migratesEmptyPostgresqlAndRoundTripsDatesTimesAndLocatorHashes() throws Exception {
         String url = "jdbc:postgresql://" + env("DB_HOST") + ":" + env("DB_PORT") + "/" + env("DB_NAME");
@@ -142,13 +156,13 @@ class PostgresqlFlywayBaselineTests {
     }
 
     private void assertPostgresqlSchema(Connection connection) throws SQLException {
-        assertEquals(28, queryInt(connection, """
+        assertEquals(29, queryInt(connection, """
                 SELECT COUNT(*) FROM pg_tables
                 WHERE schemaname = 'public' AND tablename <> 'flyway_schema_history'
                 """));
-        assertEquals(1, queryInt(connection, """
+        assertEquals(2, queryInt(connection, """
                 SELECT COUNT(*) FROM flyway_schema_history
-                WHERE version = '1' AND success = TRUE
+                WHERE version IN ('1', '2') AND success = TRUE
                 """));
         assertEquals(1, queryInt(connection, "SELECT COUNT(*) FROM pg_extension WHERE extname = 'pgcrypto'"));
         assertEquals(1, queryInt(connection, "SELECT COUNT(*) FROM bid_source_state WHERE source_code = 'D2B'"));
