@@ -45,6 +45,9 @@ public class DiscoveredBidSourceConfigFactory {
         BidSourceDiscoveryResult discovered = discovery.get();
         BidSourceDiscoveryReview approved = review.get();
         if (!Long.valueOf(sourceId).equals(registration.get().getSourceId())
+                || registration.get().getCollectionMethod() != BidSourceRegistration.CollectionMethod.PUBLIC_PAGE
+                || registration.get().getDetectedCollectionMethod()
+                != BidSourceRegistration.CollectionMethod.PUBLIC_PAGE
                 || discovered.getDiscoveryStatus() != BidSourceDiscoveryResult.DiscoveryStatus.READY
                 || discovered.getDetectedCollectionMethod() != BidSourceRegistration.CollectionMethod.PUBLIC_PAGE
                 || approved.getReviewStatus() != BidSourceDiscoveryReview.ReviewStatus.APPROVED

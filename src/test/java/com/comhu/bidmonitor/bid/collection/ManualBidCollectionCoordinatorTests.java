@@ -7,7 +7,12 @@ import com.comhu.bidmonitor.bid.persistence.BidNoticeRepository;
 import com.comhu.bidmonitor.bid.persistence.BidSourceState;
 import com.comhu.bidmonitor.bid.persistence.BidSourceStateRepository;
 import com.comhu.bidmonitor.bid.persistence.service.BidCollectionPersistenceService;
+import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
+import com.comhu.bidmonitor.bid.source.registration.BidSourceExecutionEligibilityService;
+import com.comhu.bidmonitor.bid.source.registration.DiscoveredPublicPageBidCollectorProvider;
+import com.comhu.bidmonitor.classifier.BidAwardMethodClassifier;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
+import com.comhu.bidmonitor.service.G2bApiService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -157,6 +162,66 @@ class ManualBidCollectionCoordinatorTests {
 
         verify(dynamicRegistry, times(2)).sources();
         assertTrue(noticeRepository.findByIdentity("KOGAS", "DYNAMIC:KOGAS", "1").isPresent());
+    }
+
+    @Test
+    void runsGenericCollectorThroughCompanyEvaluationAndPersistence() {
+        String sourceCode = "GENERIC_PUBLIC";
+        BidQualificationDto raw = candidate(sourceCode, "GENERIC-1", null, "Generic public notice");
+        BidCandidateCollector generic = collector(sourceCode, true, true, List.of(raw));
+        BidSourceExecutionEligibilityService eligibility = mock(BidSourceExecutionEligibilityService.class);
+        when(eligibility.isEligible(generic)).thenReturn(true);
+        DiscoveredPublicPageBidCollectorProvider provider = mock(DiscoveredPublicPageBidCollectorProvider.class);
+        when(provider.collectors()).thenReturn(List.of(generic));
+        G2bApiService reviewService = new G2bApiService(new BidAwardMethodClassifier(), List.of());
+        ManualBidCollectionSourceRegistry registry = new ManualBidCollectionSourceRegistry(
+                reviewService, List.of(), eligibility, provider
+        );
+        ManualBidCollectionCoordinator coordinator = new ManualBidCollectionCoordinator(
+                persistenceService, stateRepository, lockService, clock, registry
+        );
+
+        coordinator.collect(START, END, LICENSE_CODES, Set.of(sourceCode));
+
+        verify(eligibility).requireEligible(generic);
+        assertNotNull(raw.getAwardMethodCategory());
+        assertNotNull(raw.getReviewStatus());
+        BidNotice stored = noticeRepository.findByIdentity(sourceCode, "GENERIC-1", null).orElseThrow();
+        assertTrue(stored.getAnalysisResult().contains("reviewStatus"));
+        assertEquals(BidCollectionRun.Status.SUCCESS, latestRun(sourceCode).getStatus());
+    }
+
+    @Test
+    void isolatesGenericSourceFailureAndContinuesFixedSource() {
+        String genericCode = "GENERIC_FAIL";
+        BidCandidateCollector generic = collector(genericCode, true, true, List.of());
+        when(generic.collect(START, END)).thenThrow(new IllegalStateException("safe fixture failure"));
+        BidCandidateCollector fixed = collector(
+                "KOREA_EXPRESSWAY", true, false,
+                List.of(candidate("KOREA_EXPRESSWAY", "AFTER-GENERIC", null, "Fixed source notice"))
+        );
+        BidSourceExecutionEligibilityService eligibility = mock(BidSourceExecutionEligibilityService.class);
+        when(eligibility.isEligible(generic)).thenReturn(true);
+        DiscoveredPublicPageBidCollectorProvider provider = mock(DiscoveredPublicPageBidCollectorProvider.class);
+        when(provider.collectors()).thenReturn(List.of(generic));
+        ManualBidCollectionSourceRegistry registry = new ManualBidCollectionSourceRegistry(
+                new G2bApiService(new BidAwardMethodClassifier(), List.of()),
+                List.of(fixed), eligibility, provider
+        );
+        ManualBidCollectionCoordinator coordinator = new ManualBidCollectionCoordinator(
+                persistenceService, stateRepository, lockService, clock, registry
+        );
+
+        ManualBidCollectionResult result = coordinator.collect(
+                START, END, LICENSE_CODES, Set.of(genericCode, "KOREA_EXPRESSWAY")
+        );
+
+        assertEquals(ManualBidCollectionResult.Status.PARTIAL_SUCCESS, result.status());
+        assertEquals(BidCollectionRun.Status.FAILED, latestRun(genericCode).getStatus());
+        assertEquals(BidCollectionRun.Status.SUCCESS, latestRun("KOREA_EXPRESSWAY").getStatus());
+        assertTrue(noticeRepository.findByIdentity(
+                "KOREA_EXPRESSWAY", "AFTER-GENERIC", null
+        ).isPresent());
     }
 
     @Test
@@ -437,6 +502,21 @@ class ManualBidCollectionCoordinatorTests {
                 return new CollectionBatch(candidates, apiCallCount);
             }
         };
+    }
+
+    private BidCandidateCollector collector(
+            String sourceCode,
+            boolean enabled,
+            boolean bindingSupported,
+            List<BidQualificationDto> candidates
+    ) {
+        BidCandidateCollector collector = mock(BidCandidateCollector.class);
+        when(collector.sourceCode()).thenReturn(sourceCode);
+        when(collector.executionEnabled()).thenReturn(enabled);
+        when(collector.registrationBindingSupported()).thenReturn(bindingSupported);
+        when(collector.collect(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(candidates);
+        return collector;
     }
 
     private ManualBidCollectionSource failingSource(String sourceCode) {

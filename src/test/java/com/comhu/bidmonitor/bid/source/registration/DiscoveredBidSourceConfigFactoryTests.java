@@ -77,6 +77,20 @@ class DiscoveredBidSourceConfigFactoryTests {
     }
 
     @Test
+    void refusesRegistrationThatIsNotConfirmedAsPublicPage() {
+        when(registrations.findById(SOURCE_ID)).thenReturn(Optional.of(
+                BidSourceRegistration.builder()
+                        .sourceId(SOURCE_ID)
+                        .sourceCode("GENERIC")
+                        .collectionMethod(BidSourceRegistration.CollectionMethod.RSS)
+                        .detectedCollectionMethod(BidSourceRegistration.CollectionMethod.RSS)
+                        .build()
+        ));
+
+        assertTrue(factory.create(SOURCE_ID).isEmpty());
+    }
+
+    @Test
     void refusesMissingDiscoveryOrReview() {
         when(discoveries.findBySourceId(SOURCE_ID)).thenReturn(Optional.empty());
         assertTrue(factory.create(SOURCE_ID).isEmpty());
@@ -182,6 +196,8 @@ class DiscoveredBidSourceConfigFactoryTests {
         return BidSourceRegistration.builder()
                 .sourceId(SOURCE_ID)
                 .sourceCode(sourceCode)
+                .collectionMethod(BidSourceRegistration.CollectionMethod.PUBLIC_PAGE)
+                .detectedCollectionMethod(BidSourceRegistration.CollectionMethod.PUBLIC_PAGE)
                 .build();
     }
 
