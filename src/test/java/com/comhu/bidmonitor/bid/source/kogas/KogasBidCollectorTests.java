@@ -5,6 +5,7 @@ import com.comhu.bidmonitor.dto.BidQualificationDto;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistrationRepository;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceExecutionEligibilityService;
+import com.comhu.bidmonitor.bid.source.registration.DiscoveredPublicPageAdapterFixtureSupport;
 import com.comhu.bidmonitor.classifier.BidAwardMethodClassifier;
 import com.comhu.bidmonitor.service.BidQualificationEvaluationService;
 import org.junit.jupiter.api.Test;
@@ -88,6 +89,24 @@ class KogasBidCollectorTests {
         assertEquals("OTHER", candidate.getAwardMethodCategory());
         assertEquals("제외", candidate.getReviewStatus());
         assertEquals("UNKNOWN", candidate.getExternalCheckStatus());
+    }
+
+    @Test
+    void comparesDedicatedAndGenericAdapterResultsFromTheSameKogasFixture() throws Exception {
+        List<BidQualificationDto> dedicated = new KogasBidCollector(
+                BASE_URL, new FixtureTransport(false)
+        ).collect(START, END);
+        List<BidQualificationDto> generic =
+                DiscoveredPublicPageAdapterFixtureSupport.collectKogasFixture();
+
+        assertEquals(1, dedicated.size());
+        assertEquals(3, generic.size());
+        BidQualificationDto dedicatedFirst = dedicated.getFirst();
+        BidQualificationDto genericFirst = generic.getFirst();
+        assertEquals("NC001:BC777", dedicatedFirst.getSourceNoticeId());
+        assertTrue(genericFirst.getSourceNoticeId().contains("notice_code=NC001"));
+        assertTrue(genericFirst.getSourceNoticeId().contains("bid_code=BC777"));
+        assertEquals(dedicatedFirst.getBidNtceNm(), genericFirst.getBidNtceNm());
     }
 
     @Test

@@ -128,7 +128,7 @@ public class DiscoveredPublicPageCollectionRunner {
     public static final class CollectionFailureException extends RuntimeException {
         private final String safeCode;
 
-        private CollectionFailureException(String safeCode) {
+        CollectionFailureException(String safeCode) {
             super(safeCode);
             this.safeCode = safeCode;
         }
