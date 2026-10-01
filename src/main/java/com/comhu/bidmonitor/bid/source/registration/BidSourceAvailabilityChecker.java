@@ -19,7 +19,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.Predicate;
 
 @Component
 public class BidSourceAvailabilityChecker {
@@ -64,6 +66,11 @@ public class BidSourceAvailabilityChecker {
     }
 
     FetchResult fetch(String siteUrl) {
+        return fetch(siteUrl, ignored -> true);
+    }
+
+    FetchResult fetch(String siteUrl, Predicate<URI> allowedTarget) {
+        Objects.requireNonNull(allowedTarget, "allowedTarget is required.");
         URI current;
         try {
             current = new URI(siteUrl);
@@ -73,6 +80,12 @@ public class BidSourceAvailabilityChecker {
 
         for (int redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
             try {
+                if (!allowedTarget.test(current)) {
+                    return redirects == 0
+                            ? FetchResult.blocked(BidSourceRegistration.SafeFailureCode.INVALID_URL)
+                            : FetchResult.failed(BidSourceRegistration.SafeFailureCode.INVALID_REDIRECT,
+                            null, null);
+                }
                 ValidatedTarget target = validateAndResolve(current);
                 RawResponse response = transport.get(target.uri(), target.address(), MAX_RESPONSE_BYTES);
                 String contentType = safeContentType(response.headers());

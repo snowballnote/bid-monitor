@@ -41,10 +41,12 @@ public class DiscoveredPublicPageParser {
                 ParsedIdentifier identifier = identifier(config, row);
                 String title = value(row, expression(config.titleMapping()));
                 if (identifier == null || title == null) continue;
+                String sourceIdentity = config.sourceCode().orElse("sourceId:" + config.sourceId());
+                String candidateKey = sourceIdentity + "\u0000" + identifier.value();
+                if (candidates.containsKey(candidateKey)) continue;
                 BidQualificationDto candidate = candidate(config, identifier, title, row);
                 enrichFromDetail(config, candidate, identifier.detailUri(), detailProvider);
-                String sourceIdentity = config.sourceCode().orElse("sourceId:" + config.sourceId());
-                candidates.putIfAbsent(sourceIdentity + "\u0000" + identifier.value(), candidate);
+                candidates.put(candidateKey, candidate);
             } catch (RuntimeException ignored) {
                 // A malformed row is isolated; other rows remain parseable.
             }
