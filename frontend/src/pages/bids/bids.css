@@ -29,12 +29,13 @@
 .bid-source-status-heading > span, .bid-source-status-message { color: var(--muted); font-size: 13px; }
 .bid-source-status-message { margin: 12px 0 0; }
 .bid-source-status-message.error { color: var(--danger, #b42318); }
-.bid-source-status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-top: 12px; }
+.bid-source-status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin-top: 12px; }
 .bid-source-status-card { padding: 12px; border: 1px solid var(--border); border-radius: 9px; }
 .bid-source-status-card > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .bid-source-status-card > div span { padding: 3px 7px; border-radius: 999px; font-size: 11px; font-weight: 800; }
 .bid-source-status-card .enabled { background: #ecfdf3; color: #067647; }
 .bid-source-status-card .disabled { background: #f2f4f7; color: #667085; }
+.bid-source-status-code { margin: 6px 0 0; color: var(--muted); font-size: 11px; font-weight: 700; overflow-wrap: anywhere; }
 .bid-source-status-card dl { display: grid; gap: 6px; margin: 10px 0 0; }
 .bid-source-status-card dl div { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
 .bid-source-status-card dt { color: var(--muted); }

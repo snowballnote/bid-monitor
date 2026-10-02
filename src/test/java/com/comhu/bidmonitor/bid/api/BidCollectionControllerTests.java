@@ -84,6 +84,7 @@ class BidCollectionControllerTests {
         jdbcTemplate.update("DELETE FROM bid_collection_lock");
         jdbcTemplate.update("DELETE FROM bid_collection_run");
         jdbcTemplate.update("DELETE FROM bid_source_state");
+        jdbcTemplate.update("DELETE FROM bid_source_registration WHERE site_url = 'https://catalog-filter.example/bids'");
     }
 
     @Test
@@ -199,6 +200,29 @@ class BidCollectionControllerTests {
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/bid-notices").param("size", "101"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void acceptsFixedAndRegisteredCatalogSourceCodesForStoredNoticeFiltering() throws Exception {
+        saveNotice("KOGAS", "kogas-one", "1", LocalDateTime.of(2026, 9, 22, 10, 0), 'a');
+        jdbcTemplate.update("""
+                INSERT INTO bid_source_registration (
+                    source_name, site_url, source_code, registration_status, collection_method,
+                    execution_enabled, check_status, detected_collection_method, checked_at,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, 'APPROVED', 'PUBLIC_PAGE', FALSE, 'REACHABLE',
+                    'PUBLIC_PAGE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, "신규사이트 A", "https://catalog-filter.example/bids", "CUSTOM_CATALOG");
+        saveNotice("CUSTOM_CATALOG", "custom-one", "1", LocalDateTime.of(2026, 9, 22, 11, 0), 'c');
+
+        mockMvc.perform(get("/api/bid-notices").param("sourceCode", "kogas"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].sourceCode").value("KOGAS"));
+        mockMvc.perform(get("/api/bid-notices").param("sourceCode", "custom_catalog"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].sourceCode").value("CUSTOM_CATALOG"));
     }
 
     @Test

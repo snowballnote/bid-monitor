@@ -14,6 +14,7 @@ import com.comhu.bidmonitor.bid.persistence.BidNotice;
 import com.comhu.bidmonitor.bid.persistence.BidNoticeRepository;
 import com.comhu.bidmonitor.bid.persistence.BidSourceState;
 import com.comhu.bidmonitor.bid.persistence.BidSourceStateRepository;
+import com.comhu.bidmonitor.bid.source.registration.BidSourceCatalogService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -32,15 +33,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 @RestController
 @RequestMapping("/api")
 public class BidCollectionController {
 
     private static final Set<String> DEFAULT_ALLOWED_LICENSE_CODES = Set.of("6146", "1468");
-    private static final Set<String> ALLOWED_NOTICE_SOURCE_CODES = Set.of(
-            "G2B", "D2B", "KOREA_EXPRESSWAY"
-    );
+    private static final Pattern SOURCE_CODE_PATTERN = Pattern.compile("[A-Z][A-Z0-9_]{0,99}");
     private static final int MAX_PAGE_SIZE = 100;
 
     private final ManualBidCollectionCoordinator coordinator;
@@ -48,19 +48,22 @@ public class BidCollectionController {
     private final BidNoticeRepository noticeRepository;
     private final BidSourceStateRepository stateRepository;
     private final ManualBidCollectionSourceRegistry sourceRegistry;
+    private final BidSourceCatalogService sourceCatalogService;
 
     public BidCollectionController(
             ManualBidCollectionCoordinator coordinator,
             BidCollectionRunRepository runRepository,
             BidNoticeRepository noticeRepository,
             BidSourceStateRepository stateRepository,
-            ManualBidCollectionSourceRegistry sourceRegistry
+            ManualBidCollectionSourceRegistry sourceRegistry,
+            BidSourceCatalogService sourceCatalogService
     ) {
         this.coordinator = coordinator;
         this.runRepository = runRepository;
         this.noticeRepository = noticeRepository;
         this.stateRepository = stateRepository;
         this.sourceRegistry = sourceRegistry;
+        this.sourceCatalogService = sourceCatalogService;
     }
 
     @PostMapping("/bid-collections")
@@ -161,7 +164,10 @@ public class BidCollectionController {
             return null;
         }
         String normalized = sourceCode.trim().toUpperCase(Locale.ROOT);
-        if (normalized.isEmpty() || !ALLOWED_NOTICE_SOURCE_CODES.contains(normalized)) {
+        boolean catalogSource = SOURCE_CODE_PATTERN.matcher(normalized).matches()
+                && sourceCatalogService.catalog().stream()
+                .anyMatch(source -> normalized.equals(source.sourceCode()));
+        if (!catalogSource) {
             throw new IllegalArgumentException("Unsupported bid source.");
         }
         return normalized;
