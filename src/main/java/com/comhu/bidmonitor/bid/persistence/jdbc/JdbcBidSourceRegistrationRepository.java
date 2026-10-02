@@ -82,9 +82,9 @@ public class JdbcBidSourceRegistrationRepository implements BidSourceRegistratio
             return Optional.empty();
         }
         return jdbcTemplate.query(
-                "SELECT " + COLUMNS + " FROM bid_source_registration WHERE source_code = ?",
+                "SELECT " + COLUMNS + " FROM bid_source_registration WHERE UPPER(source_code) = UPPER(?)",
                 this::map,
-                sourceCode
+                sourceCode.trim()
         ).stream().findFirst();
     }
 

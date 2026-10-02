@@ -6,7 +6,6 @@ import com.comhu.bidmonitor.bid.persistence.BidSourceRegistrationAuditRepository
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistrationRepository;
 import com.comhu.bidmonitor.bid.persistence.BidSourceCheckResult;
 import com.comhu.bidmonitor.bid.collection.ManualBidCollectionSourceRegistry;
-import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -15,14 +14,23 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Service
 public class BidSourceRegistrationService {
 
     private static final int MAX_SOURCE_NAME_LENGTH = 200;
+    private static final int AUTO_TOKEN_BYTES = 10;
+    private static final int MAX_AUTO_CODE_ATTEMPTS = 32;
+    private static final String AUTO_SOURCE_CODE = "AUTO";
+    private static final Pattern SOURCE_CODE_PATTERN = Pattern.compile("[A-Z][A-Z0-9_]{0,99}");
 
     private final BidSourceRegistrationRepository repository;
     private final BidSourceRegistrationAuditRepository auditRepository;
@@ -30,7 +38,7 @@ public class BidSourceRegistrationService {
     private final BidSourceAvailabilityChecker availabilityChecker;
     private final ManualBidCollectionSourceRegistry sourceRegistry;
     private final BidSourceExecutionEligibilityService executionEligibility;
-    private final List<BidCandidateCollector> collectors;
+    private final DiscoveredBidSourceConfigFactory discoveredConfigFactory;
     private final Clock clock;
     private final Duration checkTimeout;
 
@@ -41,7 +49,7 @@ public class BidSourceRegistrationService {
             BidSourceAvailabilityChecker availabilityChecker,
             ManualBidCollectionSourceRegistry sourceRegistry,
             BidSourceExecutionEligibilityService executionEligibility,
-            List<BidCandidateCollector> collectors,
+            DiscoveredBidSourceConfigFactory discoveredConfigFactory,
             Clock clock,
             @Value("${bid-source.registration.check-timeout:PT10M}") Duration checkTimeout
     ) {
@@ -51,7 +59,7 @@ public class BidSourceRegistrationService {
         this.availabilityChecker = availabilityChecker;
         this.sourceRegistry = sourceRegistry;
         this.executionEligibility = executionEligibility;
-        this.collectors = List.copyOf(collectors);
+        this.discoveredConfigFactory = discoveredConfigFactory;
         this.clock = clock;
         if (checkTimeout == null || checkTimeout.isZero() || checkTimeout.isNegative()) {
             throw new IllegalArgumentException("Bid source check timeout must be positive.");
@@ -129,7 +137,8 @@ public class BidSourceRegistrationService {
 
     @Transactional
     public BidSourceRegistration bind(long sourceId, String sourceCode, String actor) {
-        String normalizedCode = normalizeSourceCode(sourceCode);
+        boolean automatic = isAutomaticBinding(sourceCode);
+        String normalizedCode = automatic ? null : normalizeSourceCode(sourceCode);
         BidSourceRegistration current = findById(sourceId);
         if (current.getRegistrationStatus() != BidSourceRegistration.RegistrationStatus.APPROVED) {
             throw new IllegalArgumentException("Only approved registrations can be bound to a collector.");
@@ -140,11 +149,20 @@ public class BidSourceRegistrationService {
                     "The confirmed and detected collection methods must match before binding."
             );
         }
-        if (!sourceRegistry.registrationBindingSourceCodes().contains(normalizedCode)) {
-            throw new IllegalArgumentException("sourceCode is not supported for registration binding.");
-        }
         if (current.getSourceCode() != null) {
+            if (automatic || current.getSourceCode().equalsIgnoreCase(normalizedCode)) {
+                return current;
+            }
             throw new IllegalArgumentException("The registration is already bound to a collector.");
+        }
+        if (automatic) {
+            requireValidDiscoveredPublicPageConfig(sourceId);
+            normalizedCode = automaticSourceCode(sourceId);
+        } else if (!sourceRegistry.registrationBindingSourceCodes().contains(normalizedCode)) {
+            if (sourceRegistry.fixedSourceCodes().contains(normalizedCode)) {
+                throw new IllegalArgumentException("sourceCode conflicts with a fixed collector.");
+            }
+            requireValidDiscoveredPublicPageConfig(sourceId);
         }
         if (repository.findBySourceCode(normalizedCode).isPresent()) {
             throw new DuplicateBidSourceCodeBindingException();
@@ -158,8 +176,12 @@ public class BidSourceRegistrationService {
                     changedAt
             );
             if (!updated) {
-                repository.findById(sourceId)
+                BidSourceRegistration latest = repository.findById(sourceId)
                         .orElseThrow(BidSourceRegistrationNotFoundException::new);
+                if (latest.getSourceCode() != null
+                        && (automatic || latest.getSourceCode().equalsIgnoreCase(normalizedCode))) {
+                    return latest;
+                }
                 throw new IllegalArgumentException("The registration binding state changed.");
             }
         } catch (DuplicateKeyException exception) {
@@ -174,7 +196,7 @@ public class BidSourceRegistrationService {
     public BidSourceRegistration activate(long sourceId, boolean executionEnabled, String actor) {
         BidSourceRegistration current = findById(sourceId);
         if (executionEnabled) {
-            executionEligibility.activationFailure(current, collectors)
+            executionEligibility.activationFailure(current, sourceRegistry.registrationBindingCollectors())
                     .ifPresent(message -> {
                         throw new IllegalArgumentException(message);
                     });
@@ -328,6 +350,41 @@ public class BidSourceRegistrationService {
         if (normalized.length() > 100) {
             throw new IllegalArgumentException("sourceCode must not exceed 100 characters.");
         }
+        if (!SOURCE_CODE_PATTERN.matcher(normalized).matches()) {
+            throw new IllegalArgumentException("sourceCode may contain only uppercase letters, digits, and underscores.");
+        }
         return normalized;
+    }
+
+    private boolean isAutomaticBinding(String sourceCode) {
+        return sourceCode == null || AUTO_SOURCE_CODE.equalsIgnoreCase(sourceCode.trim());
+    }
+
+    private void requireValidDiscoveredPublicPageConfig(long sourceId) {
+        if (discoveredConfigFactory.create(sourceId).isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Generic binding requires READY discovery, APPROVED review, and a valid PUBLIC_PAGE config."
+            );
+        }
+    }
+
+    private String automaticSourceCode(long sourceId) {
+        for (int attempt = 0; attempt < MAX_AUTO_CODE_ATTEMPTS; attempt++) {
+            String candidate = "CUSTOM_" + stableToken(sourceId, attempt);
+            if (sourceRegistry.fixedSourceCodes().contains(candidate)) continue;
+            if (repository.findBySourceCode(candidate).isEmpty()) return candidate;
+        }
+        throw new DuplicateBidSourceCodeBindingException();
+    }
+
+    private String stableToken(long sourceId, int attempt) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(("BIZ_ASSIST_PUBLIC_PAGE:" + sourceId + ":" + attempt)
+                    .getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().withUpperCase().formatHex(hash, 0, AUTO_TOKEN_BYTES);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable.", exception);
+        }
     }
 }
