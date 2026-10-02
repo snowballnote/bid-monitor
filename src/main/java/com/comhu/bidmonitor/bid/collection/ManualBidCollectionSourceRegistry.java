@@ -86,7 +86,7 @@ public class ManualBidCollectionSourceRegistry {
             String sourceCode = collector == null ? null : collector.sourceCode();
             String normalized = normalizeSourceCode(sourceCode);
             if (normalized != null) fixedSourceCodes.add(normalized);
-            addEligibleSource(sources, collector, sourceCode);
+            addEligibleSource(sources, collector, sourceCode, false);
         }
 
         Map<String, DynamicCollector> uniqueDynamic = new LinkedHashMap<>();
@@ -104,7 +104,7 @@ public class ManualBidCollectionSourceRegistry {
         }
         for (Map.Entry<String, DynamicCollector> entry : uniqueDynamic.entrySet()) {
             if (!duplicateDynamicCodes.contains(entry.getKey())) {
-                addEligibleSource(sources, entry.getValue().collector(), entry.getValue().sourceCode());
+                addEligibleSource(sources, entry.getValue().collector(), entry.getValue().sourceCode(), true);
             }
         }
         return List.copyOf(sources);
@@ -113,7 +113,8 @@ public class ManualBidCollectionSourceRegistry {
     private void addEligibleSource(
             List<ManualBidCollectionSource> sources,
             BidCandidateCollector collector,
-            String sourceCode
+            String sourceCode,
+            boolean usesGenericSchedule
     ) {
         if (collector == null || sourceCode == null || sourceCode.isBlank()) return;
         boolean registrationManaged = collector.registrationBindingSupported();
@@ -129,6 +130,11 @@ public class ManualBidCollectionSourceRegistry {
                 return registrationManaged
                         ? executionEligibility.isEligible(collector)
                         : collector.executionEnabled();
+            }
+
+            @Override
+            public boolean usesGenericSchedule() {
+                return usesGenericSchedule;
             }
 
             @Override

@@ -29,6 +29,7 @@ public class BidCollectionScheduler {
     private final Duration failureBaseDelay;
     private final Duration failureMaxDelay;
     private final Map<String, BidCollectionSourceSchedule> schedules;
+    private final GenericPublicPageSchedule genericSchedule;
 
     public BidCollectionScheduler(
             ManualBidCollectionCoordinator coordinator,
@@ -36,6 +37,7 @@ public class BidCollectionScheduler {
             BidSourceStateRepository stateRepository,
             Clock clock,
             List<BidCollectionSourceSchedule> schedules,
+            GenericPublicPageSchedule genericSchedule,
             @Value("${bid.collection.scheduler.zone-id:Asia/Seoul}") String zoneId,
             @Value("${bid.collection.scheduler.failure-base-delay-seconds:300}") long failureBaseDelaySeconds,
             @Value("${bid.collection.scheduler.failure-max-delay-seconds:3600}") long failureMaxDelaySeconds
@@ -47,6 +49,9 @@ public class BidCollectionScheduler {
         this.zoneId = ZoneId.of(zoneId);
         this.failureBaseDelay = positiveDuration(failureBaseDelaySeconds, "failureBaseDelaySeconds");
         this.failureMaxDelay = positiveDuration(failureMaxDelaySeconds, "failureMaxDelaySeconds");
+        this.genericSchedule = java.util.Objects.requireNonNull(
+                genericSchedule, "genericSchedule must not be null"
+        );
         if (failureMaxDelay.compareTo(failureBaseDelay) < 0) {
             throw new IllegalArgumentException("failureMaxDelay must not be shorter than failureBaseDelay");
         }
@@ -60,7 +65,7 @@ public class BidCollectionScheduler {
     public void runDueCollections() {
         Instant scanTime = clock.instant();
         for (ManualBidCollectionSource source : sourceRegistry.sources()) {
-            BidCollectionSourceSchedule schedule = schedules.get(source.sourceCode());
+            BidCollectionSourceSchedule schedule = scheduleFor(source);
             if (schedule == null || !source.executionEnabled()) {
                 continue;
             }
@@ -71,6 +76,12 @@ public class BidCollectionScheduler {
             }
             runSource(source.sourceCode(), schedule, scanTime, state);
         }
+    }
+
+    private BidCollectionSourceSchedule scheduleFor(ManualBidCollectionSource source) {
+        BidCollectionSourceSchedule fixedSchedule = schedules.get(source.sourceCode());
+        if (fixedSchedule != null) return fixedSchedule;
+        return source.usesGenericSchedule() ? genericSchedule.forSource(source.sourceCode()) : null;
     }
 
     private void runSource(

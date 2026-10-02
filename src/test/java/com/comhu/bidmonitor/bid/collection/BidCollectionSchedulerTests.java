@@ -57,6 +57,7 @@ class BidCollectionSchedulerTests {
                         new BidCollectionSourceSchedule("KOGAS", Duration.ofHours(24), 7),
                         new BidCollectionSourceSchedule("D2B", Duration.ofHours(1), 1)
                 ),
+                new GenericPublicPageSchedule(Duration.ofHours(1), 3),
                 "Asia/Seoul",
                 300,
                 3600
@@ -160,11 +161,75 @@ class BidCollectionSchedulerTests {
         assertEquals(NOW.plus(Duration.ofHours(1)), state.getNextRunAt());
     }
 
+    @Test
+    void runsActiveGenericSourceWithOverlappingDefaultLookbackThroughCoordinator() {
+        when(sourceRegistry.sources()).thenReturn(List.of(
+                source("CUSTOM_ACTIVE", true, true),
+                source("CUSTOM_INACTIVE", false, true)
+        ));
+
+        scheduler.runDueCollections();
+
+        verify(coordinator).collectScheduled(
+                TODAY.minusDays(2), TODAY, Set.of("6146", "1468"), "CUSTOM_ACTIVE"
+        );
+        verify(coordinator, never()).collectScheduled(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                anySet(),
+                org.mockito.ArgumentMatchers.eq("CUSTOM_INACTIVE")
+        );
+        assertEquals(NOW.plus(Duration.ofHours(1)), state("CUSTOM_ACTIVE").getNextRunAt());
+    }
+
+    @Test
+    void reflectsGenericActivationAndDeactivationOnFollowingCyclesWithoutRestart() {
+        ManualBidCollectionSource activated = source("CUSTOM_DYNAMIC", true, true);
+        when(sourceRegistry.sources())
+                .thenReturn(List.of())
+                .thenReturn(List.of(activated))
+                .thenReturn(List.of());
+
+        scheduler.runDueCollections();
+        scheduler.runDueCollections();
+        scheduler.runDueCollections();
+
+        verify(sourceRegistry, times(3)).sources();
+        verify(coordinator, times(1)).collectScheduled(
+                TODAY.minusDays(2), TODAY, Set.of("6146", "1468"), "CUSTOM_DYNAMIC"
+        );
+    }
+
+    @Test
+    void isolatesGenericFailureAndContinuesOtherGenericAndFixedSources() {
+        when(sourceRegistry.sources()).thenReturn(List.of(
+                source("CUSTOM_FAIL", true, true),
+                source("CUSTOM_OK", true, true),
+                source("G2B", true)
+        ));
+        doThrow(new IllegalStateException("fixture failure"))
+                .when(coordinator)
+                .collectScheduled(TODAY.minusDays(2), TODAY, Set.of("6146", "1468"), "CUSTOM_FAIL");
+
+        scheduler.runDueCollections();
+
+        verify(coordinator).collectScheduled(
+                TODAY.minusDays(2), TODAY, Set.of("6146", "1468"), "CUSTOM_OK"
+        );
+        verify(coordinator).collectScheduled(TODAY, TODAY, Set.of("6146", "1468"), "G2B");
+        assertEquals(NOW.plusSeconds(300), state("CUSTOM_FAIL").getNextRunAt());
+        assertEquals(NOW.plus(Duration.ofHours(1)), state("CUSTOM_OK").getNextRunAt());
+    }
+
     private BidSourceState state(String sourceCode) {
         return stateRepository.findBySourceCode(sourceCode).orElseThrow();
     }
 
     private ManualBidCollectionSource source(String sourceCode, boolean enabled) {
+        return source(sourceCode, enabled, false);
+    }
+
+    private ManualBidCollectionSource source(String sourceCode, boolean enabled, boolean genericSchedule) {
         return new ManualBidCollectionSource() {
             @Override
             public String sourceCode() {
@@ -174,6 +239,11 @@ class BidCollectionSchedulerTests {
             @Override
             public boolean executionEnabled() {
                 return enabled;
+            }
+
+            @Override
+            public boolean usesGenericSchedule() {
+                return genericSchedule;
             }
 
             @Override

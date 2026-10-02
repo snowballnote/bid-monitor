@@ -15,6 +15,10 @@ public interface ManualBidCollectionSource {
         return true;
     }
 
+    default boolean usesGenericSchedule() {
+        return false;
+    }
+
     CollectionBatch collect(LocalDate startDate, LocalDate endDate, Set<String> allowedLicenseCodes);
 
     record CollectionBatch(List<BidQualificationDto> candidates, Integer apiCallCount) {

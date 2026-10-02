@@ -16,6 +16,16 @@ import java.time.Duration;
 public class BidCollectionSchedulingConfiguration {
 
     @Bean
+    GenericPublicPageSchedule genericPublicPageSchedule(
+            @Value("${bid.collection.scheduler.generic.interval-seconds:${BID_COLLECTION_SCHEDULER_GENERIC_INTERVAL_SECONDS:3600}}")
+            long intervalSeconds,
+            @Value("${bid.collection.scheduler.generic.lookback-days:${BID_COLLECTION_SCHEDULER_GENERIC_LOOKBACK_DAYS:3}}")
+            int lookbackDays
+    ) {
+        return new GenericPublicPageSchedule(Duration.ofSeconds(intervalSeconds), lookbackDays);
+    }
+
+    @Bean
     BidCollectionSourceSchedule g2bBidCollectionSourceSchedule(
             @Value("${bid.collection.scheduler.g2b.interval-seconds:3600}") long intervalSeconds,
             @Value("${bid.collection.scheduler.g2b.lookback-days:1}") int lookbackDays

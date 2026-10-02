@@ -16,3 +16,19 @@ public record BidCollectionSourceSchedule(String sourceCode, Duration interval, 
         }
     }
 }
+
+record GenericPublicPageSchedule(Duration interval, int lookbackDays) {
+
+    GenericPublicPageSchedule {
+        if (interval == null || interval.isZero() || interval.isNegative()) {
+            throw new IllegalArgumentException("interval must be positive");
+        }
+        if (lookbackDays < 1) {
+            throw new IllegalArgumentException("lookbackDays must be at least 1");
+        }
+    }
+
+    BidCollectionSourceSchedule forSource(String sourceCode) {
+        return new BidCollectionSourceSchedule(sourceCode, interval, lookbackDays);
+    }
+}

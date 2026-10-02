@@ -71,6 +71,7 @@ class ManualBidCollectionSourceRegistryTests {
                 .findFirst()
                 .orElseThrow();
 
+        assertFalse(source.usesGenericSchedule());
         assertEquals(List.of(reviewed), source.collect(START, END, Set.of("6146")).candidates());
         verify(eligibility).requireEligible(kogas);
         verify(g2b).getAdditionalBidQualificationList(kogas, START, END, Set.of("6146"));
@@ -94,6 +95,7 @@ class ManualBidCollectionSourceRegistryTests {
                 .filter(candidate -> candidate.sourceCode().equals("GENERIC"))
                 .findFirst().orElseThrow();
 
+        org.junit.jupiter.api.Assertions.assertTrue(source.usesGenericSchedule());
         assertEquals(List.of(reviewed), source.collect(START, END, Set.of("6146")).candidates());
         verify(eligibility).requireEligible(generic);
         verify(g2b).getAdditionalBidQualificationList(generic, START, END, Set.of("6146"));
