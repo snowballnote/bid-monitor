@@ -1,4 +1,5 @@
 const BASE_URL = '/api/bid-source-registrations';
+const CATALOG_URL = '/api/bid-sources/catalog';
 
 export class BidSourceRegistrationRequestError extends Error {
   constructor(status) {
@@ -27,11 +28,32 @@ function isRegistration(value) {
     && typeof value.updatedAt === 'string';
 }
 
-export async function getBidSourceRegistrations(signal) {
-  const response = await fetch(BASE_URL, { signal, headers: { Accept: 'application/json' } });
+function isNullableString(value) {
+  return value == null || typeof value === 'string';
+}
+
+function isCatalogItem(value) {
+  return value && (value.sourceId == null || Number.isInteger(value.sourceId))
+    && isNullableString(value.sourceCode)
+    && typeof value.sourceName === 'string'
+    && typeof value.siteUrl === 'string'
+    && ['FIXED', 'DISCOVERED'].includes(value.sourceType)
+    && isNullableString(value.collectionMethod)
+    && typeof value.executionEnabled === 'boolean'
+    && isNullableString(value.registrationStatus)
+    && isNullableString(value.checkStatus)
+    && isNullableString(value.discoveryStatus)
+    && isNullableString(value.reviewStatus)
+    && isNullableString(value.lastSuccessAt)
+    && isNullableString(value.lastFailureAt)
+    && isNullableString(value.safeFailureCode);
+}
+
+export async function getBidSourceCatalog(signal) {
+  const response = await fetch(CATALOG_URL, { signal, headers: { Accept: 'application/json' } });
   if (!response.ok) throw new BidSourceRegistrationRequestError(response.status);
   const result = await readJson(response);
-  if (!Array.isArray(result) || !result.every(isRegistration)) {
+  if (!Array.isArray(result) || !result.every(isCatalogItem)) {
     throw new BidSourceRegistrationRequestError(503);
   }
   return result;

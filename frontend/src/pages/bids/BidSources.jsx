@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   BidSourceRegistrationRequestError,
-  getBidSourceRegistrations,
+  getBidSourceCatalog,
   registerBidSource,
 } from '../../api/bidSources';
 import './bid-sources.css';
@@ -20,10 +20,11 @@ const METHOD_NAMES = {
   RSS: 'RSS',
 };
 
-function formatDate(value) {
+function formatDateTime(value) {
+  if (!value) return '—';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? '—'
-    : new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium' }).format(date);
+    : new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
 }
 
 function validateForm({ sourceName, siteUrl }) {
@@ -47,19 +48,31 @@ function registrationErrorMessage(error) {
   return '수집처를 등록하지 못했습니다. 잠시 후 다시 시도해 주세요.';
 }
 
-function RegistrationRow({ registration }) {
-  const statusName = STATUS_NAMES[registration.registrationStatus] || '상태 확인 필요';
+function reviewStatus(item) {
+  const statuses = [];
+  if (item.registrationStatus) statuses.push(STATUS_NAMES[item.registrationStatus] || item.registrationStatus);
+  if (item.reviewStatus) statuses.push(`구조 ${STATUS_NAMES[item.reviewStatus] || item.reviewStatus}`);
+  return statuses.length ? statuses.join(' · ') : '해당 없음';
+}
+
+function CatalogRow({ item }) {
+  const statusClass = item.registrationStatus?.toLowerCase() || 'not_applicable';
   return <tr>
-    <td data-label="수집처 이름"><strong>{registration.sourceName}</strong></td>
-    <td data-label="사이트 URL" className="bid-source-url">{registration.siteUrl}</td>
-    <td data-label="등록일"><time dateTime={registration.createdAt}>{formatDate(registration.createdAt)}</time></td>
-    <td data-label="검토 상태"><span className={`registration-status registration-status-${registration.registrationStatus.toLowerCase()}`}>
-      {statusName}
+    <td data-label="수집처 이름"><strong>{item.sourceName}</strong>
+      {item.sourceCode && <small className="bid-source-code">{item.sourceCode}</small>}</td>
+    <td data-label="유형"><span className={`source-type source-type-${item.sourceType.toLowerCase()}`}>
+      {item.sourceType === 'FIXED' ? '기본' : '등록'}
     </span></td>
-    <td data-label="수집방식">{METHOD_NAMES[registration.collectionMethod] || '확인 필요'}</td>
-    <td data-label="자동수집"><span className={registration.executionEnabled ? 'collection-enabled' : 'collection-disabled'}>
-      {registration.executionEnabled ? '활성' : '비활성'}
+    <td data-label="사이트 URL" className="bid-source-url">{item.siteUrl}</td>
+    <td data-label="검토 상태"><span className={`registration-status registration-status-${statusClass}`}>
+      {reviewStatus(item)}
     </span></td>
+    <td data-label="수집 방식">{METHOD_NAMES[item.collectionMethod] || '해당 없음'}</td>
+    <td data-label="자동수집"><span className={item.executionEnabled ? 'collection-enabled' : 'collection-disabled'}>
+      {item.executionEnabled ? '활성' : '비활성'}
+    </span></td>
+    <td data-label="최근 성공">{formatDateTime(item.lastSuccessAt)}</td>
+    <td data-label="최근 실패">{formatDateTime(item.lastFailureAt)}</td>
   </tr>;
 }
 
@@ -74,7 +87,7 @@ export default function BidSources() {
   useEffect(() => {
     const controller = new AbortController();
     setResource(current => ({ status: 'loading', data: current.data }));
-    getBidSourceRegistrations(controller.signal)
+    getBidSourceCatalog(controller.signal)
       .then(data => {
         if (!controller.signal.aborted) setResource({ status: 'success', data });
       })
@@ -123,7 +136,7 @@ export default function BidSources() {
   return <main className="page-container bid-sources-page">
     <header className="page-heading bid-sources-heading">
       <div><span className="page-eyebrow">BID SOURCES</span><h1>입찰공고 수집처 관리</h1>
-        <p>나라장터에 없는 입찰 사이트를 등록하고 검토 현황을 확인합니다.</p></div>
+        <p>기본 수집처와 새로 등록한 입찰 사이트의 현황을 함께 확인합니다.</p></div>
       <a href="#/bids" className="bid-sources-back-link">입찰공고 목록으로</a>
     </header>
 
@@ -152,18 +165,18 @@ export default function BidSources() {
       </section>
 
       <section className="surface-card bid-source-list-card" aria-labelledby="bid-source-list-title">
-        <div className="bid-source-section-heading"><h2 id="bid-source-list-title">등록 현황</h2>
-          <p>{resource.status === 'success' ? `전체 ${resource.data.length}개 수집처` : '등록된 수집처를 확인합니다.'}</p></div>
-        {resource.status === 'loading' && <div className="bid-source-list-state" role="status">등록된 수집처를 불러오는 중입니다.</div>}
-        {resource.status === 'error' && <div className="bid-source-list-state error" role="alert">등록 현황을 불러오지 못했습니다.</div>}
+        <div className="bid-source-section-heading"><h2 id="bid-source-list-title">수집처 현황</h2>
+          <p>{resource.status === 'success' ? `전체 ${resource.data.length}개 수집처` : '수집처 현황을 확인합니다.'}</p></div>
+        {resource.status === 'loading' && <div className="bid-source-list-state" role="status">수집처 현황을 불러오는 중입니다.</div>}
+        {resource.status === 'error' && <div className="bid-source-list-state error" role="alert">수집처 현황을 불러오지 못했습니다.</div>}
         {resource.status === 'success' && resource.data.length === 0
-          && <div className="bid-source-list-state">아직 등록된 수집처가 없습니다.</div>}
+          && <div className="bid-source-list-state">표시할 수집처가 없습니다.</div>}
         {resource.status === 'success' && resource.data.length > 0 && <div className="bid-source-table-wrap">
           <table className="bid-source-table">
-            <thead><tr><th>수집처 이름</th><th>사이트 URL</th><th>등록일</th><th>검토 상태</th>
-              <th>수집방식</th><th>자동수집</th></tr></thead>
-            <tbody>{resource.data.map(registration => <RegistrationRow registration={registration}
-              key={registration.sourceId} />)}</tbody>
+            <thead><tr><th>수집처 이름</th><th>유형</th><th>사이트 URL</th><th>검토 상태</th>
+              <th>수집 방식</th><th>자동수집</th><th>최근 성공</th><th>최근 실패</th></tr></thead>
+            <tbody>{resource.data.map(item => <CatalogRow item={item}
+              key={item.sourceCode || `registration-${item.sourceId}`} />)}</tbody>
           </table>
         </div>}
       </section>

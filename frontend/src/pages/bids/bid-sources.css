@@ -19,20 +19,26 @@
 .bid-source-list-state { padding: 64px 18px; color: var(--muted); text-align: center; }
 .bid-source-list-state.error { color: var(--danger); }
 .bid-source-table-wrap { overflow-x: auto; }
-.bid-source-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.bid-source-table { width: 100%; min-width: 1080px; border-collapse: collapse; table-layout: auto; }
 .bid-source-table th, .bid-source-table td { padding: 13px 12px; border-top: 1px solid var(--border); color: var(--text); font-size: 13px; line-height: 1.45; text-align: left; vertical-align: middle; }
 .bid-source-table th { border-top: 0; background: var(--surface-subtle); color: var(--muted); font-size: 12px; white-space: nowrap; }
-.bid-source-table th:nth-child(1) { width: 18%; }
-.bid-source-table th:nth-child(2) { width: 31%; }
-.bid-source-table th:nth-child(3) { width: 112px; }
-.bid-source-table th:nth-child(4), .bid-source-table th:nth-child(5), .bid-source-table th:nth-child(6) { width: 100px; }
+.bid-source-table th:nth-child(1) { min-width: 150px; }
+.bid-source-table th:nth-child(2) { width: 72px; }
+.bid-source-table th:nth-child(3) { min-width: 230px; }
+.bid-source-table th:nth-child(4) { min-width: 145px; }
+.bid-source-table th:nth-child(5), .bid-source-table th:nth-child(6) { width: 100px; }
+.bid-source-table th:nth-child(7), .bid-source-table th:nth-child(8) { min-width: 135px; }
 .bid-source-url { overflow-wrap: anywhere; color: #475569; }
-.registration-status, .collection-enabled, .collection-disabled { display: inline-flex; padding: 4px 8px; border-radius: 999px; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.bid-source-code { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; font-weight: 600; }
+.registration-status, .collection-enabled, .collection-disabled, .source-type { display: inline-flex; padding: 4px 8px; border-radius: 999px; font-size: 12px; font-weight: 800; white-space: nowrap; }
 .registration-status-pending_review { background: #fff7ed; color: #b54708; }
 .registration-status-under_review { background: #eff6ff; color: #1d4ed8; }
 .registration-status-approved, .collection-enabled { background: #ecfdf3; color: #067647; }
 .registration-status-rejected { background: #fef3f2; color: var(--danger); }
+.registration-status-not_applicable { background: #f2f4f7; color: #667085; }
 .collection-disabled { background: #f2f4f7; color: #667085; }
+.source-type-fixed { background: #eef2ff; color: #3730a3; }
+.source-type-discovered { background: #eff6ff; color: #1d4ed8; }
 
 @media (max-width: 1050px) {
   .bid-sources-layout { grid-template-columns: 1fr; }
@@ -43,7 +49,7 @@
   .bid-sources-back-link { text-align: center; }
   .bid-source-review-notice { gap: 6px; }
   .bid-source-table-wrap { overflow: visible; padding: 0 12px 12px; }
-  .bid-source-table, .bid-source-table tbody, .bid-source-table tr, .bid-source-table td { display: block; width: 100%; }
+  .bid-source-table, .bid-source-table tbody, .bid-source-table tr, .bid-source-table td { display: block; width: 100%; min-width: 0; }
   .bid-source-table thead { display: none; }
   .bid-source-table tr { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
   .bid-source-table td { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 10px; padding: 7px 0; border: 0; overflow-wrap: anywhere; }

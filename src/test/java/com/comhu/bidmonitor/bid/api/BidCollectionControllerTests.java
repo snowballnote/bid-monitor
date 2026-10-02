@@ -360,6 +360,20 @@ class BidCollectionControllerTests {
     }
 
     @Test
+    void returnsUnifiedCatalogWithAllFixedSourcesIncludingDisabledCollectors() throws Exception {
+        mockMvc.perform(get("/api/bid-sources/catalog"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(4))
+                .andExpect(jsonPath("$[?(@.sourceCode == 'G2B')].sourceName").value("나라장터"))
+                .andExpect(jsonPath("$[?(@.sourceCode == 'KOREA_EXPRESSWAY')].sourceName")
+                        .value("한국도로공사"))
+                .andExpect(jsonPath("$[?(@.sourceCode == 'KOGAS')].executionEnabled").value(false))
+                .andExpect(jsonPath("$[?(@.sourceCode == 'D2B')].executionEnabled").value(false))
+                .andExpect(jsonPath("$[*].sourceType").value(org.hamcrest.Matchers.everyItem(
+                        org.hamcrest.Matchers.is("FIXED"))));
+    }
+
+    @Test
     void preservesExistingRealtimeBidRangeEndpoint() throws Exception {
         when(g2bApiService.getTargetBidQualificationList(START, END, Set.of("6146", "1468")))
                 .thenReturn(List.of());
