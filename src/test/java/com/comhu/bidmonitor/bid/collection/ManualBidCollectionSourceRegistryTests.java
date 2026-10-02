@@ -38,6 +38,8 @@ class ManualBidCollectionSourceRegistryTests {
         List<ManualBidCollectionSource> sources = registry.sources();
 
         assertEquals(java.util.Set.of("KOGAS"), registry.registrationBindingSourceCodes());
+        assertEquals(java.util.Set.of("G2B", "KOGAS", "KOREA_EXPRESSWAY", "D2B"),
+                registry.fixedSourceCodes());
         assertEquals(List.of("G2B", "KOREA_EXPRESSWAY", "D2B"), sources.stream()
                 .map(ManualBidCollectionSource::sourceCode)
                 .toList());

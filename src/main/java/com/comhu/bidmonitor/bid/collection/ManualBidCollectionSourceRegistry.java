@@ -22,6 +22,10 @@ import java.util.stream.Collectors;
 @Component
 public class ManualBidCollectionSourceRegistry {
 
+    private static final Set<String> BUILT_IN_SOURCE_CODES = Set.of(
+            "G2B", "KOGAS", "KOREA_EXPRESSWAY", "D2B"
+    );
+
     private final G2bApiService g2bApiService;
     private final List<BidCandidateCollector> additionalCollectors;
     private final BidSourceExecutionEligibilityService executionEligibility;
@@ -166,8 +170,28 @@ public class ManualBidCollectionSourceRegistry {
         return additionalCollectors.stream()
                 .filter(BidCandidateCollector::registrationBindingSupported)
                 .map(BidCandidateCollector::sourceCode)
-                .filter(code -> code != null && !code.isBlank())
+                .map(this::normalizeSourceCode)
+                .filter(java.util.Objects::nonNull)
                 .collect(Collectors.toUnmodifiableSet());
+    }
+
+    /** Source codes owned by built-in collectors, compared case-insensitively. */
+    public Set<String> fixedSourceCodes() {
+        Set<String> sourceCodes = new LinkedHashSet<>(BUILT_IN_SOURCE_CODES);
+        additionalCollectors.stream()
+                .map(BidCandidateCollector::sourceCode)
+                .map(this::normalizeSourceCode)
+                .filter(java.util.Objects::nonNull)
+                .forEach(sourceCodes::add);
+        return Set.copyOf(sourceCodes);
+    }
+
+    /** Collectors that can satisfy registration activation, including discovered adapters. */
+    public List<BidCandidateCollector> registrationBindingCollectors() {
+        List<BidCandidateCollector> collectors = new ArrayList<>(additionalCollectors);
+        List<BidCandidateCollector> dynamicCollectors = dynamicCollectorProvider.get();
+        if (dynamicCollectors != null) collectors.addAll(dynamicCollectors);
+        return List.copyOf(collectors);
     }
 
     private record DynamicCollector(BidCandidateCollector collector, String sourceCode) {
