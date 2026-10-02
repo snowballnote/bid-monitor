@@ -1,6 +1,7 @@
 package com.comhu.bidmonitor.bid.api;
 
 import com.comhu.bidmonitor.bid.collection.ManualBidCollectionCoordinator;
+import com.comhu.bidmonitor.bid.collection.ManualBidCollectionSourceRegistry;
 import com.comhu.bidmonitor.bid.persistence.BidSourceCheckResult;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistrationAuditRepository;
@@ -38,6 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.never;
@@ -48,6 +50,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -75,6 +78,9 @@ class BidSourceRegistrationControllerTests {
 
     @Autowired
     private BidSourceDiscoveryResultRepository discoveryResultRepository;
+
+    @Autowired
+    private ManualBidCollectionSourceRegistry sourceRegistry;
 
     @MockitoBean
     private ManualBidCollectionCoordinator coordinator;
@@ -268,6 +274,16 @@ class BidSourceRegistrationControllerTests {
         mockMvc.perform(patch("/api/bid-source-registrations/1/discovery/review")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("reviewStatus", "APPROVED"))))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
+    }
+
+    @Test
+    void rejectsDevBasicCredentialsOutsideDevProfile() throws Exception {
+        mockMvc.perform(patch("/api/bid-source-registrations/1/review")
+                        .with(httpBasic("dev-admin", "test-only-password"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("registrationStatus", "UNDER_REVIEW"))))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
     }
@@ -488,7 +504,7 @@ class BidSourceRegistrationControllerTests {
         approveWithDetectedMethod(unknownId, "https://unknown-binding.example/notices", "PUBLIC_PAGE");
         bind(unknownId, "D2B")
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("sourceCode is not supported for registration binding."));
+                .andExpect(jsonPath("$.message").value("sourceCode conflicts with a fixed collector."));
 
         register("Incompatible Binding", "https://incompatible-binding.example/notices");
         long incompatibleId = sourceId("Incompatible Binding");
@@ -522,6 +538,103 @@ class BidSourceRegistrationControllerTests {
         ));
         verify(kogasBidCollector, never()).collect(any(), any());
         verifyNoInteractions(coordinator);
+    }
+
+    @Test
+    void autoBindsStableGenericIdentityOnlyAfterBothApprovalsAndKeepsActivationSeparate() throws Exception {
+        register("Stable Generic", "https://stable-generic.example/notices");
+        long sourceId = sourceId("Stable Generic");
+        approveWithDetectedMethod(sourceId, "https://stable-generic.example/notices", "PUBLIC_PAGE");
+
+        bindAutomatic(sourceId)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(
+                        "Generic binding requires READY discovery, APPROVED review, and a valid PUBLIC_PAGE config."
+                ));
+
+        storeDiscovery(sourceId, BidSourceDiscoveryResult.DiscoveryStatus.READY,
+                "a[href]@href::{key}", "a[href]::text");
+        discoveryReview(sourceId, Map.of("reviewStatus", "APPROVED"))
+                .andExpect(status().isOk());
+
+        String sourceCode = objectMapper.readTree(bindAutomatic(sourceId)
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.sourceCode").value(
+                                org.hamcrest.Matchers.matchesPattern("CUSTOM_[0-9A-F]{20}")))
+                        .andExpect(jsonPath("$.executionEnabled").value(false))
+                        .andReturn().getResponse().getContentAsString())
+                .get("sourceCode").asText();
+        assertFalse(sourceRegistry.sources().stream()
+                .anyMatch(source -> sourceCode.equals(source.sourceCode())));
+
+        jdbcTemplate.update("""
+                UPDATE bid_source_registration
+                SET source_name = 'Renamed Generic', site_url = 'https://renamed-generic.example/changed'
+                WHERE source_id = ?
+                """, sourceId);
+        bind(sourceId, "AUTO")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceCode").value(sourceCode))
+                .andExpect(jsonPath("$.executionEnabled").value(false));
+
+        assertEquals(1, jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM bid_source_registration_audit
+                WHERE source_id = ? AND action = 'SOURCE_BOUND'
+                """, Integer.class, sourceId));
+        Map<String, Object> audit = jdbcTemplate.queryForMap("""
+                SELECT previous_source_code, new_source_code, actor
+                FROM bid_source_registration_audit
+                WHERE source_id = ? AND action = 'SOURCE_BOUND'
+                """, sourceId);
+        assertEquals(null, audit.get("PREVIOUS_SOURCE_CODE"));
+        assertEquals(sourceCode, audit.get("NEW_SOURCE_CODE"));
+        assertEquals("bid-admin", audit.get("ACTOR"));
+
+        activate(sourceId, true)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceCode").value(sourceCode))
+                .andExpect(jsonPath("$.executionEnabled").value(true));
+        assertTrue(sourceRegistry.sources().stream()
+                .anyMatch(source -> sourceCode.equals(source.sourceCode())));
+    }
+
+    @Test
+    void genericExplicitBindingPreventsFixedRegistrationAndCaseInsensitiveCollisions() throws Exception {
+        register("Fixed Collision", "https://fixed-collision.example/notices");
+        long fixedCollisionId = sourceId("Fixed Collision");
+        approveGenericPublicPage(fixedCollisionId, "https://fixed-collision.example/notices");
+        bind(fixedCollisionId, "d2b")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("sourceCode conflicts with a fixed collector."));
+
+        register("First Generic", "https://first-generic.example/notices");
+        long firstId = sourceId("First Generic");
+        approveGenericPublicPage(firstId, "https://first-generic.example/notices");
+        bind(firstId, "custom_shared_portal")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceCode").value("CUSTOM_SHARED_PORTAL"));
+        jdbcTemplate.update("""
+                UPDATE bid_source_registration SET source_code = 'custom_shared_portal' WHERE source_id = ?
+                """, firstId);
+
+        register("Second Generic", "https://second-generic.example/notices");
+        long secondId = sourceId("Second Generic");
+        approveGenericPublicPage(secondId, "https://second-generic.example/notices");
+        bind(secondId, "CuStOm_ShArEd_PoRtAl")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SOURCE_CODE_ALREADY_BOUND"));
+
+        bind(firstId, "AUTO")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceCode").value("custom_shared_portal"));
+        bind(firstId, "CUSTOM_REPLACEMENT")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("The registration is already bound to a collector."));
+        assertEquals("custom_shared_portal", jdbcTemplate.queryForObject(
+                "SELECT source_code FROM bid_source_registration WHERE source_id = ?",
+                String.class,
+                firstId
+        ));
     }
 
     @Test
@@ -1077,6 +1190,14 @@ class BidSourceRegistrationControllerTests {
                 .content(json(Map.of("sourceCode", sourceCode))));
     }
 
+    private org.springframework.test.web.servlet.ResultActions bindAutomatic(long sourceId)
+            throws Exception {
+        return mockMvc.perform(patch("/api/bid-source-registrations/{sourceId}/binding", sourceId)
+                .with(user("bid-admin").roles("ADMIN"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(Map.of())));
+    }
+
     private org.springframework.test.web.servlet.ResultActions discoveryReview(
             long sourceId,
             Map<String, ?> request
@@ -1125,6 +1246,14 @@ class BidSourceRegistrationControllerTests {
                 "registrationStatus", "APPROVED",
                 "collectionMethod", method
         )).andExpect(status().isOk());
+    }
+
+    private void approveGenericPublicPage(long sourceId, String siteUrl) throws Exception {
+        approveWithDetectedMethod(sourceId, siteUrl, "PUBLIC_PAGE");
+        storeDiscovery(sourceId, BidSourceDiscoveryResult.DiscoveryStatus.READY,
+                "a[href]@href::{key}", "a[href]::text");
+        discoveryReview(sourceId, Map.of("reviewStatus", "APPROVED"))
+                .andExpect(status().isOk());
     }
 
     private void checkAs(long sourceId, String siteUrl, String method) throws Exception {
