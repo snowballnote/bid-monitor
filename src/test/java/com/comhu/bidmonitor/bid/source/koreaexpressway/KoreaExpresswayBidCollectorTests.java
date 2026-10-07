@@ -56,6 +56,7 @@ class KoreaExpresswayBidCollectorTests {
         assertEquals("QUALIFICATION_REVIEW", result.getAwardMethodCategory());
         assertEquals("CONFIRMED", result.getAwardMethodStatus());
         assertEquals("추가확인필요", result.getReviewStatus());
+        assertEquals("지역제한 조건 확인 필요, PQ심사 조건 확인 필요", result.getReviewReason());
         assertEquals("UNKNOWN", result.getExternalCheckStatus());
     }
 
