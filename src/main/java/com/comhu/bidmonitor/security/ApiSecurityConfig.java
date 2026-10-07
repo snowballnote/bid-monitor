@@ -40,22 +40,32 @@ public class ApiSecurityConfig {
                 response, jsonMapper, 403, "Forbidden", "ADMIN_ROLE_REQUIRED",
                 "Administrator authority is required."
         );
+        boolean h2ConsoleProfile = environment.acceptsProfiles(Profiles.of("h2"));
         http
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .formLogin(form -> form.disable())
                 .logout(logout -> logout.disable())
-                .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers(HttpMethod.PATCH,
-                                "/api/bid-source-registrations/*/review",
-                                "/api/bid-source-registrations/*/discovery/review",
-                                "/api/bid-source-registrations/*/binding",
-                                "/api/bid-source-registrations/*/activation")
-                        .hasRole("ADMIN")
-                        .anyRequest().permitAll())
+                .authorizeHttpRequests(authorize -> {
+                    if (h2ConsoleProfile) {
+                        authorize.requestMatchers("/h2-console/**").permitAll();
+                    } else {
+                        authorize.requestMatchers("/h2-console/**").denyAll();
+                    }
+                    authorize.requestMatchers(HttpMethod.PATCH,
+                                    "/api/bid-source-registrations/*/review",
+                                    "/api/bid-source-registrations/*/discovery/review",
+                                    "/api/bid-source-registrations/*/binding",
+                                    "/api/bid-source-registrations/*/activation")
+                            .hasRole("ADMIN")
+                            .anyRequest().permitAll();
+                })
                 .exceptionHandling(errors -> errors
                         .authenticationEntryPoint(authenticationEntryPoint)
                         .accessDeniedHandler(accessDeniedHandler));
+        if (h2ConsoleProfile) {
+            http.headers(headers -> headers.frameOptions(frameOptions -> frameOptions.sameOrigin()));
+        }
         if (environment.acceptsProfiles(Profiles.of("dev"))) {
             http.httpBasic(basic -> basic.authenticationEntryPoint(authenticationEntryPoint));
         } else {

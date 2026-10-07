@@ -28,8 +28,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -134,6 +136,14 @@ class BidSourceDevAdminSecurityTests {
         mockMvc.perform(post("/api/bid-source-registrations/{sourceId}/check", sourceId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.checkStatus").value("REACHABLE"));
+    }
+
+    @Test
+    void devH2ConsoleAllowsOnlySameOriginFrames() throws Exception {
+        // MockMvc does not dispatch the H2 servlet; 404 confirms Security allowed the request through.
+        mockMvc.perform(get("/h2-console/"))
+                .andExpect(status().isNotFound())
+                .andExpect(header().string("X-Frame-Options", "SAMEORIGIN"));
     }
 
     private long register(String sourceName, String siteUrl) throws Exception {
