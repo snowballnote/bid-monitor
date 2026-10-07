@@ -11,7 +11,7 @@ export const performanceEntryReady = entry => entry?.info?.selectedFileId != nul
 const businessStatusLabel = entry => `${entry?.resolvedStatus === 'IN_PROGRESS' ? '수행중' : '수행완료'} · ${entry?.info?.businessStatus ? '수동' : '자동'}`;
 const kitcStatusLabel = { NEEDED: '요청 필요', REQUESTED: '요청함', RECEIVED: '회신 완료' };
 
-export default function PerformanceDocuments({ project, required, onLoaded, connection }) {
+export default function PerformanceDocuments({ project, required, onLoaded, connection, summaryOnly = false }) {
   const callback = useRef(onLoaded); callback.current = onLoaded;
   const [state, setState] = useState(() => required && project.performanceProjectId
     ? { status: 'loading' } : { status: 'empty' });
@@ -32,6 +32,13 @@ export default function PerformanceDocuments({ project, required, onLoaded, conn
   }, [project.performanceProjectId, required]);
   const entries = state.status === 'success' ? state.entries : [];
   const prepared = entries.filter(performanceEntryReady).length;
+  if (summaryOnly) return <section id="performance-documents" className="surface-card performance-documents" aria-label="실적증빙 진행상태">
+    <header className="panel-header"><h2 id="performance-documents-title">실적증빙</h2>
+      {state.status === 'success' && <strong>{prepared} / {entries.length} 준비</strong>}</header>
+    {connection}
+    {state.status === 'loading' && <p className="panel-state" role="status">실적증빙 진행상태를 불러오는 중입니다.</p>}
+    {state.status === 'error' && <p className="panel-state error" role="alert">{state.message}</p>}
+  </section>;
   async function selectCandidate(entry, candidate) {
     const updated = await selectPerformanceCandidate(project.performanceProjectId, entry, candidate);
     const next = entries.map(row => row.id === updated.id ? updated : row);
@@ -69,23 +76,25 @@ export default function PerformanceDocuments({ project, required, onLoaded, conn
     const next = [...entries, ...saved.filter(entry => !ids.has(entry.id))];
     setState({ status: 'success', entries: next }); callback.current(next);
   }
-  return <section id="performance-documents" className="surface-card performance-documents" aria-label="실적증빙 목록">
-    <header className="panel-header"><h2 id="performance-documents-title">실적증빙</h2>
-      {state.status === 'success' && <><strong>{prepared} / {entries.length}</strong>
-        <Button className="ui-button ui-button-secondary" onClick={() => setEditor({ entry: null })}>실적 추가</Button></>}</header>
+  return <section id="performance-documents" className="surface-card performance-documents" aria-label="실적증빙 불러오기 / 등록">
+    <header className="performance-work-heading"><span className="panel-kicker">PERFORMANCE EVIDENCE</span><h2 id="performance-documents-title">실적증빙 불러오기 / 등록</h2>
+      <p>실적 명세를 붙여넣고 관련 증빙 파일을 찾아 연결합니다.</p></header>
     {connection}
     {state.status === 'loading' && <p className="panel-state" role="status">실적증빙 목록을 불러오는 중입니다.</p>}
     {state.status === 'error' && <p className="panel-state error" role="alert">{state.message}</p>}
     {state.status === 'empty' && <p className="panel-state">{required ? '연결된 실적 프로젝트가 없습니다.' : '필요한 실적증빙이 없습니다.'}</p>}
-    {state.status === 'success' && <PerformanceImport projectId={project.performanceProjectId} onImported={appendEntries} />}
-    {state.status === 'success' && (!entries.length ? <p className="panel-state">등록된 실적이 없습니다.</p>
+    {state.status === 'success' && <><PerformanceImport projectId={project.performanceProjectId} onImported={appendEntries} />
+      <div className="performance-registered"><header className="panel-header"><div><h3>등록된 실적증빙</h3><small>총 {entries.length}건</small></div>
+        <strong>{prepared} / {entries.length} 준비</strong>
+        <Button className="ui-button ui-button-primary" onClick={() => setEditor({ entry: null })}>+ 실적 추가</Button></header>
+      {!entries.length ? <p className="panel-state">등록된 실적이 없습니다.</p>
       : <div className="performance-documents-scroll" tabIndex={0} aria-label="실적증빙 준비 현황 표">
-        <table className="submission-project-table"><thead><tr>{['상태', '실적명', '발주기관', '수행기간', '사업/KITC', '현재 파일', '관리'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
+        <table className="submission-project-table"><thead><tr>{['상태', '번호', '실적명', '발주기관', '수행기간', '사업/KITC', '현재 파일', '관리'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
           <tbody>{entries.map((entry, index) => {
             const ready = performanceEntryReady(entry); const info = entry.info;
             return <tr key={entry.id ?? index}>
               <td><span className={`requirement-state${ready ? ' complete' : ' attention'}`}>{ready ? '준비됨' : '미준비'}</span></td>
-              <th scope="row">{info.businessName || '실적명 미등록'}</th>
+              <td>{info.pptNumber || '—'}</td><th scope="row">{info.businessName || '실적명 미등록'}</th>
               <td>{info.client || '—'}</td><td>{info.businessPeriod || '—'}</td>
               <td className="performance-entry-status"><span>{businessStatusLabel(entry)}</span><span>KITC {kitcStatusLabel[info.kitcStatus] || '확인 필요'}</span>
                 {(info.requestedAt || info.repliedAt) && <small>{info.requestedAt ? `요청 ${info.requestedAt}` : ''}{info.repliedAt ? ` · 회신 ${info.repliedAt}` : ''}</small>}</td>
@@ -94,7 +103,7 @@ export default function PerformanceDocuments({ project, required, onLoaded, conn
                 <Button className="ui-button ui-button-secondary" onClick={() => setEditor({ entry })}>수정</Button></div></td>
             </tr>;
           })}</tbody></table>
-      </div>)}
+      </div>}</div></>}
     {active && <PerformanceCandidates projectId={project.performanceProjectId} entry={active}
       onSelect={candidate => selectCandidate(active, candidate)} onClear={() => disconnectFile(active)}
       onUpload={(file, evidenceType) => uploadFile(active, file, evidenceType)}

@@ -8,13 +8,14 @@ const entry = (id, source, filename) => ({ id, projectId: 'p1', selectedFilename
   kitcStatus: 'NEEDED', requestedAt: null, repliedAt: null,
 } });
 
-async function setup(page, entries = [entry('1', 'fms', 'FMS.pdf')]) {
+async function setup(page, entries = [entry('1', 'fms', 'FMS.pdf')], driveRows = []) {
   const project = { id: 'p1', name: 'ZIP 프로젝트', deadline: '2026-10-01', daysRemaining: 13, status: entries.length ? 'READY' : 'DRAFT' };
   const state = { downloads: 0, writes: [], hold: false, release: null, error: null, disposition: 'attachment; filename="performance-evidence.zip"' };
   await page.route('**/api/**', async route => {
     const request = route.request(); const path = new URL(request.url()).pathname;
     if (request.method() !== 'GET') state.writes.push({ method: request.method(), path });
-    if (path === '/api/drive-index') return route.fulfill({ json: [] });
+    if (path === '/api/drive-index') return route.fulfill({ json: driveRows });
+    if (path === '/api/submission-cases/71') return route.fulfill({ json: { id: 71, performanceProjectId: 'p1' } });
     if (path === '/api/performance-projects/p1') return route.fulfill({ json: project });
     if (path === '/api/performance-projects/p1/entries') return route.fulfill({ json: entries });
     if (path === '/api/performance-projects/p1/download') {
@@ -25,10 +26,35 @@ async function setup(page, entries = [entry('1', 'fms', 'FMS.pdf')]) {
     }
     return route.fulfill({ status: 404, json: { message: 'unexpected' } });
   });
-  await page.goto('/react/index.html#/performances/p1');
+  await page.goto('/react/index.html#/performances/p1?caseId=71');
   await expect(page.locator('#performance-documents')).toBeVisible();
   return state;
 }
+
+test('performance detail: compact work layout keeps project, Drive, import, list and guidance visible', async ({ page }, testInfo) => {
+  const driveRows = [{ label: '검색 범위 1', state: {
+    status: 'SUCCESS', lastAttemptAt: '2026-10-07T01:00:00Z', lastSuccessAt: '2026-10-07T01:00:00Z',
+    folderCount: 3, fileCount: 42, errorCode: null,
+  } }];
+  await setup(page, [entry('1', 'fms', 'FMS.pdf')], driveRows);
+  await expect(page.getByText('PERFORMANCE', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '실적증빙 관리', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'ZIP 프로젝트', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: '원래 제출서류로 돌아가기' })).toHaveAttribute('href', '#/submissions/71');
+  const drive = page.getByRole('region', { name: 'Drive 연동 상태' });
+  await expect(drive).toContainText('연동됨');
+  await expect(drive.getByText('1개', { exact: true })).toBeVisible();
+  await expect(drive.locator('dd').filter({ hasText: '42개' })).toBeVisible();
+  await expect(drive.getByRole('button', { name: 'Drive 인덱스 갱신' })).toBeEnabled();
+  await expect(drive.getByRole('table')).toBeHidden();
+  await drive.getByText('검색 범위 상세보기').click();
+  await expect(drive.getByRole('table')).toContainText('검색 범위 1');
+  await expect(page.getByRole('region', { name: '실적증빙 불러오기 / 등록' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '등록된 실적증빙' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '필요 서류 / 준비 현황' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '진행 가이드' })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('performance-detail-desktop.png'), fullPage: true });
+});
 
 test('performance ZIP: server Content-Disposition filename is used without changing state', async ({ page }) => {
   const state = await setup(page);

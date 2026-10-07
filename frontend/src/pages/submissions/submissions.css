@@ -56,23 +56,30 @@
 .performance-entry-status small { margin-top: 4px; color: var(--muted); font-size: 10px; }
 .performance-filename { overflow-wrap: anywhere; }
 .performance-documents .ui-button { min-height: 32px; padding: 6px 10px; font-size: 12px; }
-.performance-candidates { width: min(620px, calc(100vw - 24px)); max-height: 85vh; overflow-y: auto; padding: 18px; box-sizing: border-box; }
-.performance-candidates h2 { margin: 0 0 16px; font-size: 16px; overflow-wrap: anywhere; }
+.common-document-dialog.performance-candidates { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; padding: 20px 22px; box-sizing: border-box; }
+.performance-candidates-heading { margin: -20px -22px 18px; padding: 20px 22px 16px; border-bottom: 1px solid var(--border); background: var(--surface-subtle); }
+.performance-candidates-heading h2 { margin: 3px 0 5px; font-size: 20px; line-height: 1.3; }
+.performance-candidates-heading p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .performance-candidates h3 { margin: 0 0 8px; font-size: 13px; }
 .performance-candidates p, .performance-candidates small, .performance-candidates span { overflow-wrap: anywhere; white-space: normal; }
-.performance-current-file { margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
-.performance-current-file small { display: block; margin-bottom: 8px; color: var(--muted); }
+.performance-current-file { display: grid; grid-template-columns: minmax(0, 1fr) auto; margin-bottom: 16px; padding: 14px 16px; align-items: center; gap: 4px 18px; border: 1px solid var(--border); border-radius: 9px; background: #fff; }
+.performance-current-file h3, .performance-current-file p, .performance-current-file small { grid-column: 1; }
+.performance-current-file p { margin: 0; font-size: 14px; font-weight: 650; line-height: 1.45; }
+.performance-current-file small { display: block; margin-top: 2px; color: var(--muted); }
+.performance-current-file .performance-disconnect { grid-column: 2; grid-row: 1 / span 3; }
 .performance-disconnect { color: var(--danger, #b42318); }
-.performance-candidate-guidance { color: var(--muted); font-size: 12px; }
-.performance-candidate-list { list-style: none; margin: 0; padding: 0; }
-.performance-candidate-list li { padding: 10px 0; border-bottom: 1px solid var(--border); }
-.performance-candidate-list li.is-selected { background: var(--surface-subtle, #f7f9fc); }
-.performance-candidate-list li > p { margin: 0 0 5px; font-size: 13px; }
+.performance-candidate-section { padding: 14px 16px 4px; border: 1px solid var(--border); border-radius: 9px; }
+.performance-candidate-guidance { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+.performance-candidate-list { display: grid; list-style: none; margin: 0; padding: 0; gap: 8px; }
+.performance-candidate-list li { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.performance-candidate-list li.is-selected { border-color: #b9d4ff; background: #f5f9ff; }
+.performance-candidate-list li > p { margin: 0 0 5px; font-size: 13px; font-weight: 650; line-height: 1.45; }
 .performance-candidate-list small { display: block; color: var(--muted); font-size: 11px; }
 .performance-candidate-meta { display: flex; align-items: flex-start; gap: 8px; margin-top: 7px; font-size: 12px; }
 .performance-candidate-meta .match-badge { flex: 0 0 auto; }
+.performance-candidate-meta > span:not(.match-badge) { flex: 1 1 auto; min-width: 0; }
 .performance-candidate-meta .ui-button { margin-left: auto; flex: 0 0 auto; }
-.performance-upload { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.performance-upload { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-subtle); }
 .performance-upload form { display: grid; gap: 8px; }
 .performance-upload label { display: grid; gap: 4px; font-size: 12px; }
 .performance-upload input, .performance-upload select { min-width: 0; max-width: 100%; }
@@ -80,13 +87,16 @@
 .performance-upload form > small { color: var(--muted); }
 .performance-upload form > .ui-button { justify-self: end; }
 .performance-row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.performance-entry-dialog { width: min(560px, calc(100vw - 24px)); padding: 18px; box-sizing: border-box; }
-.performance-entry-dialog h2 { margin: 0 0 14px; font-size: 16px; }
+.common-document-dialog.performance-entry-dialog { width: min(680px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; padding: 20px 22px; box-sizing: border-box; }
+.performance-entry-heading { margin: -20px -22px 18px; padding: 20px 22px 16px; border-bottom: 1px solid var(--border); background: var(--surface-subtle); }
+.performance-entry-heading h2 { margin: 3px 0 5px; font-size: 20px; line-height: 1.3; }
+.performance-entry-heading p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .performance-entry-dialog form { display: grid; gap: 10px; }
 .performance-entry-dialog label { display: grid; gap: 4px; font-size: 12px; }
 .performance-entry-dialog input { min-width: 0; }
 .performance-entry-dialog select { min-width: 0; width: 100%; }
-.performance-entry-dialog { max-height: 90vh; overflow-y: auto; }
+.performance-entry-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+.performance-entry-field-businessName, .performance-entry-field-businessPeriod, .performance-entry-field-client { grid-column: 1 / -1; }
 .performance-entry-metadata { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; min-width: 0; margin: 4px 0 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
 .performance-entry-metadata legend { padding: 0 5px; font-size: 12px; font-weight: 700; }
 .performance-entry-metadata > small { grid-column: 1 / -1; color: var(--muted); }
@@ -111,6 +121,18 @@
 .performance-import-errors p { margin: 0; color: var(--danger, #b42318); font-size: 12px; }
 .performance-import-errors .ui-button { justify-self: end; }
 .performance-candidates footer { display: flex; justify-content: flex-end; margin-top: 16px; }
+
+@media (max-width: 600px) {
+  .common-document-dialog.performance-candidates { padding: 16px; }
+  .performance-candidates-heading { margin: -16px -16px 16px; padding: 17px 16px 14px; }
+  .performance-current-file { grid-template-columns: 1fr; }
+  .performance-current-file .performance-disconnect { grid-column: 1; grid-row: auto; justify-self: start; margin-top: 6px; }
+  .common-document-dialog.performance-entry-dialog { padding: 16px; }
+  .performance-entry-heading { margin: -16px -16px 16px; padding: 17px 16px 14px; }
+  .performance-entry-fields, .performance-entry-metadata { grid-template-columns: 1fr; }
+  .performance-entry-field-businessName, .performance-entry-field-businessPeriod, .performance-entry-field-client,
+  .performance-entry-metadata > small { grid-column: 1; }
+}
 @media (max-width: 520px) {
   .react-submissions .document-picker-heading { flex-wrap: wrap; }
   .react-submissions .project-controls { gap: 8px; }

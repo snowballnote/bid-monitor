@@ -96,12 +96,12 @@ export default function PerformanceImport({ projectId, onImported }) {
       setErrors(current => current.map(item => item.id === row.id ? { ...item, message: error.message } : item));
     } finally { busy.current = false; setSaving(false); }
   }
-  return <details className="performance-import">
+  return <details className="performance-import" open>
     <summary>실적표 일괄 붙여넣기</summary>
     <div className="performance-import-body">
-      <label htmlFor="performance-paste">PPT 실적표</label>
+      <label htmlFor="performance-paste">PPT 또는 엑셀 실적표</label>
       <textarea id="performance-paste" rows="4" value={text} disabled={saving} onPaste={paste}
-        placeholder="번호 / 사업명 / 사업기간 / 계약금액 / 발주처"
+        placeholder="PPT 또는 엑셀의 실적표를 붙여넣으세요."
         onChange={event => { setText(event.target.value); setHtml(''); setFailure(''); }} />
       {rows.length > 0 && <div className="performance-import-scroll" tabIndex={0} aria-label="실적표 붙여넣기 미리보기">
         <table><thead><tr>{labels.map(label => <th key={label}>{label}</th>)}<th>확인</th></tr></thead>

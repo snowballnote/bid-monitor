@@ -11,7 +11,7 @@ function timestamp(value) {
   return Number.isNaN(date.getTime()) ? '확인 불가' : date.toLocaleString('ko-KR');
 }
 
-export default function DriveIndexStatus() {
+export default function DriveIndexStatus({ compact = false }) {
   const mounted = useRef(false); const locked = useRef(false);
   const [state, setState] = useState({ status: 'loading', rows: null, error: '' });
   const [refreshing, setRefreshing] = useState(false);
@@ -38,20 +38,43 @@ export default function DriveIndexStatus() {
   }
 
   const remoteRefreshing = state.rows?.some(root => root.state.status === 'REFRESHING') || false;
+  const rows = state.rows || [];
+  const indexedFiles = rows.reduce((total, root) => total + (Number(root.state.fileCount) || 0), 0);
+  const successfulAt = rows.map(root => root.state.lastSuccessAt).filter(value => value && !Number.isNaN(new Date(value).getTime()));
+  const lastSuccessAt = successfulAt.length
+    ? successfulAt.reduce((latest, value) => new Date(value) > new Date(latest) ? value : latest)
+    : null;
+  const connected = rows.some(root => ['SUCCESS', 'REFRESHING'].includes(root.state.status));
+  const rootTable = rows.length > 0 && <div className="drive-index-scroll" tabIndex={0}>
+    <table className="submission-project-table"><thead><tr>{['root', '상태', '마지막 성공', '파일 수'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
+      <tbody>{rows.map(root => <tr key={root.label}>
+        <th scope="row">{root.label}</th>
+        <td><span className={`requirement-state ${classes[root.state.status] || 'attention'}`}>{labels[root.state.status] || '확인 필요'}</span>
+          {root.state.status === 'FAILED' && <small>FMS 연결·설정·접근 권한·탐색 제한을 확인하세요.</small>}</td>
+        <td>{timestamp(root.state.lastSuccessAt)}</td><td>{root.state.fileCount.toLocaleString('ko-KR')}개</td>
+      </tr>)}</tbody></table></div>;
+  if (compact) return <section className="surface-card drive-index-panel drive-index-compact" aria-labelledby="drive-index-title">
+    <header className="document-picker-heading"><div><span className="panel-kicker">DRIVE INDEX</span><h2 id="drive-index-title">Drive 연동 상태</h2></div>
+      <Button className="ui-button ui-button-secondary" disabled={refreshing || remoteRefreshing || state.status === 'loading'} onClick={refresh}>
+        {refreshing ? '갱신 중…' : 'Drive 인덱스 갱신'}</Button></header>
+    {state.status === 'loading' && <p className="drive-index-state" role="status">인덱스 상태 확인 중…</p>}
+    {state.error && <p className="drive-index-state error" role="alert">{state.error}</p>}
+    {state.status === 'success' && <div className="drive-index-summary">
+      <div className="drive-index-connection"><span className={`requirement-state ${connected ? 'complete' : 'attention'}`}>{connected ? '연동됨' : '확인 필요'}</span>
+        <small>마지막 인덱스 갱신 {timestamp(lastSuccessAt)}</small></div>
+      <dl><div><dt>검색 범위</dt><dd>{rows.length.toLocaleString('ko-KR')}개</dd></div>
+        <div><dt>인덱싱된 파일</dt><dd>{indexedFiles.toLocaleString('ko-KR')}개</dd></div></dl>
+    </div>}
+    {state.status === 'success' && rows.length === 0 && <p className="drive-index-state">검색 폴더 설정이 필요합니다.</p>}
+    {rootTable && <details className="drive-index-details"><summary>검색 범위 상세보기</summary>{rootTable}</details>}
+  </section>;
   return <section className="surface-card drive-index-panel" aria-labelledby="drive-index-title">
     <header className="document-picker-heading"><div><span className="panel-kicker">DRIVE INDEX</span><h2 id="drive-index-title">Drive 검색 인덱스</h2></div>
       <Button className="ui-button ui-button-secondary" disabled={refreshing || remoteRefreshing || state.status === 'loading'} onClick={refresh}>
         {refreshing ? '갱신 중…' : 'Drive 인덱스 갱신'}</Button></header>
     {state.status === 'loading' && <p className="drive-index-state" role="status">인덱스 상태 확인 중…</p>}
     {state.error && <p className="drive-index-state error" role="alert">{state.error}</p>}
-    {state.status === 'success' && state.rows.length === 0 && <p className="drive-index-state">검색 폴더 설정이 필요합니다.</p>}
-    {state.rows?.length > 0 && <div className="drive-index-scroll" tabIndex={0}>
-      <table className="submission-project-table"><thead><tr>{['root', '상태', '마지막 성공', '파일 수'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
-        <tbody>{state.rows.map(root => <tr key={root.label}>
-          <th scope="row">{root.label}</th>
-          <td><span className={`requirement-state ${classes[root.state.status] || 'attention'}`}>{labels[root.state.status] || '확인 필요'}</span>
-            {root.state.status === 'FAILED' && <small>FMS 연결·설정·접근 권한·탐색 제한을 확인하세요.</small>}</td>
-          <td>{timestamp(root.state.lastSuccessAt)}</td><td>{root.state.fileCount.toLocaleString('ko-KR')}개</td>
-        </tr>)}</tbody></table></div>}
+    {state.status === 'success' && rows.length === 0 && <p className="drive-index-state">검색 폴더 설정이 필요합니다.</p>}
+    {rootTable}
   </section>;
 }

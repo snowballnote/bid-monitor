@@ -29,7 +29,7 @@ async function setup(page, options = {}) {
   await page.goto('/react/index.html#/submissions/71');
   return state;
 }
-const connect = page => page.getByRole('button', { name: '실적 프로젝트 생성·연결' });
+const connect = page => page.getByRole('button', { name: '실적 관리', exact: true });
 const legacy = page => page.evaluate(() => localStorage.getItem('biz-assist.performance-project.71'));
 
 test('performance link: create once, preserve files and return to submission on mobile', async ({ page }) => {
@@ -46,7 +46,8 @@ test('performance link: create once, preserve files and return to submission on 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole('link', { name: '원래 제출서류로 돌아가기' }).click();
   await expect(page).toHaveURL(/#\/submissions\/71$/);
-  await expect(page.getByText('연결된 실적 프로젝트: p1')).toBeVisible();
+  await expect(page.getByText('연결됨', { exact: true })).toBeVisible();
+  await expect(page.getByText('p1', { exact: true })).toHaveCount(0);
   expect(state.writes).toHaveLength(1);
 });
 
@@ -70,7 +71,7 @@ test('performance link: failed migration retains key and does not create; retry 
 for (const options of [{ linked: true, legacy: 'old' }, { initialized: true, legacy: 'p1' }, { legacy: 'missing' }]) {
   test('performance link: existing and ineligible migration rules ' + JSON.stringify(options), async ({ page }) => {
     const state = await setup(page, options);
-    await page.getByRole('button', { name: options.linked ? '실적 프로젝트 관리' : '실적 프로젝트 생성·연결' }).click();
+    await page.getByRole('button', { name: '실적 관리', exact: true }).click();
     await expect(page).toHaveURL(/performances\/p1\?caseId=71$/);
     expect(state.writes.map(row => row.method)).toEqual(options.linked ? [] : ['POST']);
     expect(await legacy(page)).toBe(options.legacy);
@@ -81,7 +82,7 @@ test('performance link: delayed creation cannot navigate another case; direct ro
   const state = await setup(page, { hold: true }); await connect(page).click();
   await expect.poll(() => state.writes.length).toBe(1);
   await page.evaluate(() => { location.hash = '/submissions/72'; });
-  await expect(page.getByText('연결된 실적 프로젝트: p2')).toBeVisible();
+  await expect(page.getByText('연결됨', { exact: true })).toBeVisible();
   state.release();
   await expect.poll(() => state.project.performanceProjectId).toBe('p1');
   await expect(page).toHaveURL(/submissions\/72$/);

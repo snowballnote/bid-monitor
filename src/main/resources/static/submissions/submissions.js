@@ -175,8 +175,10 @@ function requirementComplete(requirement) {
 function performanceManageUrl() {
     const params = new URLSearchParams();
     if (state.submissionCase) params.set("caseId", state.submissionCase.id);
-    if (state.performance.projectId) params.set("project", state.performance.projectId);
-    return "/performances/index.html" + (params.size ? "?" + params : "");
+    const route = state.performance.projectId
+        ? "/performances/" + encodeURIComponent(state.performance.projectId)
+        : "/performances";
+    return "/react/index.html#" + route + (params.size ? "?" + params : "");
 }
 
 function renderPerformanceProgress() {
@@ -312,9 +314,11 @@ function renderRequirements() {
         const [label, className] = requirementState(requirement);
         const status = projectNode("td");status.append(projectNode("span", label, "requirement-state" + className));
         const file = state.selections.get(requirement.id);
-        const filename = projectNode("td", file?.originalFilename || "—", "requirement-filename");
+        const filename = projectNode("td", requirement.performanceSelectionRequired
+            ? (state.performance.projectId ? "연결됨" : "미연결")
+            : (file?.originalFilename || "—"), "requirement-filename");
         const actions = projectNode("td");
-        const button = projectNode("button", requirement.performanceSelectionRequired ? "관리" : isCompanyCommon(requirement) ? "확인" : "파일 연결", "ui-button ui-button-secondary");
+        const button = projectNode("button", requirement.performanceSelectionRequired ? "실적 관리" : isCompanyCommon(requirement) ? "확인" : "파일 연결", "ui-button ui-button-secondary");
         button.type = "button";
         button.disabled = Boolean(checklistSave);
         button.onclick = () => {

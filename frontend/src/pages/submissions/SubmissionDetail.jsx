@@ -56,7 +56,7 @@ export default function SubmissionDetail() {
         })} />
         <PerformanceDocuments key={`performance-${caseId}`} project={current.data.project}
           connection={<PerformanceLink key={caseId} project={current.data.project} required={current.data.requirements.some(row => row.performanceSelectionRequired)} />}
-          required={current.data.requirements.some(row => row.performanceSelectionRequired)} onLoaded={entries => setState(previous => {
+          required={current.data.requirements.some(row => row.performanceSelectionRequired)} summaryOnly onLoaded={entries => setState(previous => {
             if (previous.id !== caseId || previous.status !== 'success') return previous;
             const data = { ...previous.data, entries };
             return { ...previous, data, view: detailView(data) };

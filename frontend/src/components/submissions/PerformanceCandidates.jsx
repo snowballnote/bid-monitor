@@ -19,7 +19,8 @@ export default function PerformanceCandidates({ projectId, entry, onSelect, onCl
   const [savingId, setSavingId] = useState(null);
   const [saveError, setSaveError] = useState('');
   const types = entry.resolvedStatus === 'IN_PROGRESS'
-    ? [['CONTRACT', '계약서']] : [['CERTIFICATE', '실적증명서'], ['CONTRACT', '계약서']];
+    ? [['CONTRACT', '계약서'], ['TAX_INVOICE', '세금계산서']]
+    : [['CERTIFICATE', '실적증명서'], ['CONTRACT', '계약서'], ['TAX_INVOICE', '세금계산서']];
   const [evidenceType, setEvidenceType] = useState(() => types.some(([type]) => type === entry.info.evidenceType)
     ? entry.info.evidenceType : types[0][0]);
   const [file, setFile] = useState(null);
@@ -83,9 +84,11 @@ export default function PerformanceCandidates({ projectId, entry, onSelect, onCl
   function close() { if (selecting.current) return; dialog.current.close(); onClose(); }
   const connected = entry.info.selectedFileId != null || entry.info.selectedDriveFileId != null
     || entry.info.selectedUploadedFileId != null;
-  return <dialog ref={dialog} className="common-document-dialog performance-candidates" aria-labelledby="performance-candidates-title"
+  const businessName = entry.info.businessName || '실적명 미등록';
+  return <dialog ref={dialog} className="common-document-dialog performance-candidates" aria-label={`${businessName} 파일 관리`}
     onCancel={event => { event.preventDefault(); close(); }}>
-    <header><h2 id="performance-candidates-title">{entry.info.businessName || '실적명 미등록'} 파일 관리</h2></header>
+    <header className="performance-candidates-heading"><span className="panel-kicker">FILE MANAGEMENT</span>
+      <h2 id="performance-candidates-title">실적증빙 파일 관리</h2><p>{businessName}</p></header>
     <section className="performance-current-file" aria-label="현재 연결 파일">
       <h3>현재 연결 파일</h3><p>{entry.selectedFilename || '파일 미등록'}</p>
       {connected && <small>{entry.info.selectedUploadedFileId ? 'PC 직접 업로드' : entry.info.selectedDriveFileId ? 'FMS' : '회사 파일'}
@@ -96,7 +99,7 @@ export default function PerformanceCandidates({ projectId, entry, onSelect, onCl
     {savingId && <p role="status">{savingId === 'disconnect' ? '파일 연결 해제 중…'
       : savingId === 'upload' ? '파일 업로드 중…' : 'FMS 후보 연결 중…'}</p>}
     {saveError && <p role="alert">{saveError}</p>}
-    <section aria-label="FMS 후보 목록" aria-busy={state.status === 'loading'}>
+    <section className="performance-candidate-section" aria-label="FMS 후보 목록" aria-busy={state.status === 'loading'}>
       <h3>FMS 후보 목록</h3>
       {state.status === 'loading' && <p role="status">FMS 후보 조회 중…</p>}
       {state.status === 'error' && <p role="alert">{state.message}</p>}

@@ -154,9 +154,12 @@ async function setup(page, options = {}) {
       if (options.error) return route.fulfill({ status: 503, json: {} });
       return route.fulfill({ json: entries });
     }
+    if (path === '/api/performance-projects/perf-1') return route.fulfill({ json: {
+      id: 'perf-1', name: '실적 조회 프로젝트', deadline: '2026-10-01', daysRemaining: 14, status: 'DRAFT',
+    } });
     return route.fulfill({ status: 404, json: {} });
   });
-  await page.goto('/react/index.html#/submissions/71');
+  await page.goto(options.unlinked ? '/react/index.html#/submissions/71' : '/react/index.html#/performances/perf-1');
   await expect(page.locator('#performance-documents')).toBeVisible();
   return state;
 }
@@ -171,6 +174,15 @@ async function pastePerformance(page, plain = '', rich = '') {
 test('performance documents: connected entries show metadata, current files, states and entry-based progress', async ({ page }) => {
   const state = await setup(page);
   const section = page.locator('#performance-documents');
+  await expect(section.getByRole('heading', { name: '실적증빙 불러오기 / 등록' })).toBeVisible();
+  await expect(section.getByPlaceholder('PPT 또는 엑셀의 실적표를 붙여넣으세요.')).toBeVisible();
+  await expect(section.getByRole('heading', { name: '등록된 실적증빙' })).toBeVisible();
+  for (const name of ['상태', '번호', '실적명', '발주기관', '수행기간', '사업/KITC', '현재 파일', '관리']) {
+    await expect(section.getByRole('columnheader', { name, exact: true })).toBeVisible();
+  }
+  await expect(section.getByRole('button', { name: '+ 실적 추가' })).toBeVisible();
+  await expect(section.getByRole('button', { name: '파일 관리' })).toHaveCount(3);
+  await expect(section.getByRole('button', { name: '수정' })).toHaveCount(3);
   await expect(section.locator('tbody tr')).toHaveCount(3);
   await expect(section).toContainText('공공정보시스템 구축');
   await expect(section).toContainText('한국기관');
@@ -179,8 +191,6 @@ test('performance documents: connected entries show metadata, current files, sta
   await expect(section.getByText('준비됨', { exact: true })).toHaveCount(2);
   await expect(section.getByText('미준비', { exact: true })).toHaveCount(1);
   await expect(section.locator('.panel-header')).toContainText('2 / 3');
-  await expect(page.locator('.category-progress-card[aria-label="실적증빙"]')).toContainText('2 / 3');
-  await expect(page.locator('.case-progress')).toContainText('2 / 3 · 67%');
   expect(state.requests.every(request => request.method === 'GET')).toBe(true);
   expect(state.requests.filter(request => request.path.endsWith('/entries'))).toHaveLength(1);
 });
@@ -196,11 +206,15 @@ test('performance entry status: automatic and manual business status with KITC d
   await expect(second).toContainText('KITC 요청 필요');
 });
 
-test('performance entry status: manual override, automatic return and KITC updates preserve entry data', async ({ page }) => {
+test('performance entry status: manual override, automatic return and KITC updates preserve entry data', async ({ page }, testInfo) => {
   const state = await setup(page);
   const row = page.locator('#performance-documents tbody tr').filter({ hasText: '운영 사업' });
   await row.getByRole('button', { name: '수정' }).click();
   let dialog = page.getByRole('dialog', { name: '실적 수정' });
+  expect((await dialog.boundingBox()).width).toBeGreaterThanOrEqual(640);
+  await expect(dialog.getByText('PERFORMANCE RECORD', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('운영 사업', { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('performance-entry-dialog-desktop.png'), fullPage: true });
   await expect(dialog.getByLabel('사업상태')).toHaveValue('');
   await dialog.getByLabel('사업상태').selectOption('IN_PROGRESS');
   await dialog.getByLabel('KITC 상태').selectOption('REQUESTED');
@@ -269,38 +283,42 @@ test('performance documents: loading, empty and error states stay inside the sec
 test('performance documents: no entries and no linked project use distinct empty states without writes', async ({ page }) => {
   let state = await setup(page, { empty: true });
   await expect(page.locator('#performance-documents')).toContainText('등록된 실적이 없습니다.');
-  await expect(page.locator('.category-progress-card[aria-label="실적증빙"]')).toContainText('0 / 0');
+  await expect(page.locator('#performance-documents .panel-header')).toContainText('0 / 0');
   expect(state.requests.every(request => request.method === 'GET')).toBe(true);
 
   await page.unroute('**/api/**');
   await page.goto('about:blank');
   state = await setup(page, { unlinked: true });
-  await expect(page.locator('#performance-documents')).toContainText('연결된 실적 프로젝트가 없습니다.');
+  await expect(page.locator('#performance-documents')).toContainText('미연결');
+  await expect(page.locator('#performance-documents').getByRole('button', { name: '실적 관리', exact: true })).toBeVisible();
   expect(state.requests.some(request => request.path.endsWith('/entries'))).toBe(false);
   expect(state.requests.every(request => request.method === 'GET')).toBe(true);
 });
 
-test('performance documents: long filenames remain usable on mobile and other sections stay unchanged', async ({ page }) => {
+test('performance documents: long filenames remain usable on the dedicated mobile screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const state = await setup(page);
   await expect(page.locator('#performance-documents')).toContainText('아주-긴-직접업로드-실적증빙');
-  await expect(page.locator('#common-documents')).toBeVisible();
-  await expect(page.locator('.react-personnel')).toBeVisible();
-  await expect(page.locator('#other-documents')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '실적 조회 프로젝트' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Drive 연동 상태' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(state.requests.every(request => request.method === 'GET')).toBe(true);
   await page.screenshot({ path: 'test-results/performance-documents-mobile.png', fullPage: true });
 });
 
-test('performance candidates: current file and server ordered recommendations are read only', async ({ page }) => {
+test('performance candidates: current file and server ordered recommendations are read only', async ({ page }, testInfo) => {
   const state = await setup(page, { holdCandidateEntry: 'one' });
   const section = page.locator('#performance-documents');
-  await expect(page.locator('.case-progress')).toContainText('2 / 3');
-  const progress = await page.locator('.case-progress').textContent();
+  await expect(section.locator('.panel-header')).toContainText('2 / 3');
+  const progress = await section.locator('.panel-header').textContent();
   await section.locator('tbody tr').filter({ hasText: '공공정보시스템 구축' }).getByRole('button', { name: '파일 관리' }).click();
 
   const dialog = page.getByRole('dialog', { name: '공공정보시스템 구축 파일 관리' });
   await expect(dialog).toBeVisible();
+  expect((await dialog.boundingBox()).width).toBeGreaterThanOrEqual(700);
+  await expect(dialog.getByRole('heading', { name: '실적증빙 파일 관리' })).toBeVisible();
+  await expect(dialog.getByText('공공정보시스템 구축', { exact: true })).toBeVisible();
+  await expect(dialog.getByLabel('증빙유형').locator('option')).toHaveText(['실적증명서', '계약서', '세금계산서']);
   await expect(dialog.getByLabel('현재 연결 파일')).toContainText('완료된-실적증명서.pdf');
   await expect(dialog.getByRole('status')).toHaveText('FMS 후보 조회 중…');
   await expect.poll(() => typeof state.releaseCandidate).toBe('function');
@@ -312,7 +330,8 @@ test('performance candidates: current file and server ordered recommendations ar
   await expect(dialog.getByText('추천', { exact: true })).toHaveCount(2);
   await expect(dialog.locator('.performance-candidate-list li').nth(0).getByRole('button')).toHaveText('선택됨');
   await expect(dialog.locator('.performance-candidate-list li').nth(1).getByRole('button')).toHaveText('선택');
-  await expect(page.locator('.case-progress')).toHaveText(progress);
+  await page.screenshot({ path: testInfo.outputPath('performance-candidates-desktop.png'), fullPage: true });
+  await expect(section.locator('.panel-header')).toHaveText(progress);
   expect(state.requests.filter(request => request.path.endsWith('/candidates'))).toEqual([{
     method: 'GET', path: '/api/performance-projects/perf-1/entries/one/candidates',
   }]);
@@ -354,8 +373,7 @@ test('performance candidates: long names fit the mobile modal without writes', a
 
 test('performance candidate selection: recommended candidate updates current file and all performance progress once', async ({ page }) => {
   const state = await setup(page);
-  const untouched = await page.locator('.category-progress-card:not([aria-label="실적증빙"])').allTextContents();
-  await expect(page.locator('.case-progress')).toContainText('2 / 3 · 67%');
+  await expect(page.locator('#performance-documents .panel-header')).toContainText('2 / 3');
   await page.locator('#performance-documents tbody tr').filter({ hasText: '운영 사업' })
     .getByRole('button', { name: '파일 관리' }).click();
   const dialog = page.getByRole('dialog', { name: '운영 사업 파일 관리' });
@@ -375,9 +393,7 @@ test('performance candidate selection: recommended candidate updates current fil
   await expect(dialog.locator('.performance-candidate-list li').nth(0).getByRole('button')).toHaveText('선택됨');
   await expect(page.locator('#performance-documents tbody tr').filter({ hasText: '운영 사업' })).toContainText('준비됨');
   await expect(page.locator('#performance-documents .panel-header')).toContainText('3 / 3');
-  await expect(page.locator('.category-progress-card[aria-label="실적증빙"]')).toContainText('3 / 3');
-  await expect(page.locator('.case-progress')).toContainText('3 / 3 · 100%');
-  expect(await page.locator('.category-progress-card:not([aria-label="실적증빙"])').allTextContents()).toEqual(untouched);
+  await expect(page.locator('#performance-documents .panel-header')).toContainText('3 / 3');
   expect(state.writes).toHaveLength(1);
   expect(state.writes[0]).toMatchObject({ method: 'PUT', path: '/api/performance-projects/perf-1/entries/two' });
   expect(state.writes[0].body).toMatchObject({
@@ -415,7 +431,6 @@ test('performance candidate selection: same-name paths replace by identifier and
 
 test('performance disconnect: FMS connection clears linked fields once and updates all progress', async ({ page }) => {
   const state = await setup(page);
-  const untouched = await page.locator('.category-progress-card:not([aria-label="실적증빙"])').allTextContents();
   const before = { ...state.entries[0].info };
   await page.locator('#performance-documents tbody tr').filter({ hasText: '공공정보시스템 구축' })
     .getByRole('button', { name: '파일 관리' }).click();
@@ -435,9 +450,7 @@ test('performance disconnect: FMS connection clears linked fields once and updat
   await expect(dialog.locator('.performance-candidate-list').getByRole('button', { name: '선택됨' })).toHaveCount(0);
   await expect(page.locator('#performance-documents tbody tr').filter({ hasText: '공공정보시스템 구축' })).toContainText('미준비');
   await expect(page.locator('#performance-documents .panel-header')).toContainText('1 / 3');
-  await expect(page.locator('.category-progress-card[aria-label="실적증빙"]')).toContainText('1 / 3');
-  await expect(page.locator('.case-progress')).toContainText('1 / 3 · 33%');
-  expect(await page.locator('.category-progress-card:not([aria-label="실적증빙"])').allTextContents()).toEqual(untouched);
+  await expect(page.locator('#performance-documents .panel-header')).toContainText('1 / 3');
   expect(state.writes[0].body).toMatchObject({
     selectedFileId: null, selectedDriveFileId: null, selectedUploadedFileId: null, evidenceType: null,
     kitcStatus: before.kitcStatus, requestedAt: before.requestedAt, repliedAt: before.repliedAt,
@@ -480,29 +493,27 @@ test('performance disconnect: failure preserves current file, evidence type and 
 
 test('performance upload: new PC file updates source, evidence type and all progress', async ({ page }) => {
   const state = await setup(page);
-  const untouched = await page.locator('.category-progress-card:not([aria-label="실적증빙"])').allTextContents();
   await page.locator('#performance-documents tbody tr').filter({ hasText: '운영 사업' })
     .getByRole('button', { name: '파일 관리' }).click();
   const dialog = page.getByRole('dialog', { name: '운영 사업 파일 관리' });
-  await dialog.getByLabel('증빙유형').selectOption('CONTRACT');
-  await dialog.getByLabel('업로드 파일').setInputFiles({ name: 'local-contract.pdf', mimeType: 'application/pdf', buffer: Buffer.from('contract') });
-  await expect(dialog.getByText('local-contract.pdf', { exact: true })).toBeVisible();
+  await expect(dialog.getByLabel('증빙유형').locator('option')).toHaveText(['실적증명서', '계약서', '세금계산서']);
+  await dialog.getByLabel('증빙유형').selectOption('TAX_INVOICE');
+  await dialog.getByLabel('업로드 파일').setInputFiles({ name: 'local-tax-invoice.pdf', mimeType: 'application/pdf', buffer: Buffer.from('tax-invoice') });
+  await expect(dialog.getByText('local-tax-invoice.pdf', { exact: true })).toBeVisible();
   await dialog.getByRole('button', { name: '업로드', exact: true }).click();
 
-  await expect(dialog.getByLabel('현재 연결 파일')).toContainText('local-contract.pdf');
-  await expect(dialog.getByLabel('현재 연결 파일')).toContainText('PC 직접 업로드 · 계약서');
+  await expect(dialog.getByLabel('현재 연결 파일')).toContainText('local-tax-invoice.pdf');
+  await expect(dialog.getByLabel('현재 연결 파일')).toContainText('PC 직접 업로드 · 세금계산서');
   await expect(page.locator('#performance-documents tbody tr').filter({ hasText: '운영 사업' })).toContainText('준비됨');
   await expect(page.locator('#performance-documents .panel-header')).toContainText('3 / 3');
-  await expect(page.locator('.category-progress-card[aria-label="실적증빙"]')).toContainText('3 / 3');
-  await expect(page.locator('.case-progress')).toContainText('3 / 3 · 100%');
-  expect(await page.locator('.category-progress-card:not([aria-label="실적증빙"])').allTextContents()).toEqual(untouched);
+  await expect(page.locator('#performance-documents .panel-header')).toContainText('3 / 3');
   expect(state.entries[1].info).toMatchObject({
     selectedFileId: null, selectedDriveFileId: null, selectedUploadedFileId: 'upload-1',
-    evidenceType: 'CONTRACT', kitcStatus: 'NEEDED', requestedAt: null, repliedAt: null,
+    evidenceType: 'TAX_INVOICE', kitcStatus: 'NEEDED', requestedAt: null, repliedAt: null,
   });
   expect(state.uploads).toHaveLength(1);
   expect(state.uploads[0].body).toContain('name="evidenceType"');
-  expect(state.uploads[0].body).toContain('CONTRACT');
+  expect(state.uploads[0].body).toContain('TAX_INVOICE');
 });
 
 test('performance upload: replaces direct upload and FMS connection while blocking conflicting actions', async ({ page }) => {
@@ -579,7 +590,6 @@ test('performance upload: safe server validation is shown and internal details s
 
 test('performance entry: required validation and single-row import add an ongoing entry with free-form amount', async ({ page }) => {
   const state = await setup(page);
-  const untouched = await page.locator('.category-progress-card:not([aria-label="실적증빙"])').allTextContents();
   await page.locator('#performance-documents').getByRole('button', { name: '실적 추가' }).click();
   const dialog = page.getByRole('dialog', { name: '실적 추가' });
   await dialog.getByRole('button', { name: '저장' }).click();
@@ -597,9 +607,7 @@ test('performance entry: required validation and single-row import add an ongoin
   const row = page.locator('#performance-documents tbody tr').filter({ hasText: '신규 운영 사업' });
   await expect(row).toContainText('미준비');
   await expect(page.locator('#performance-documents .panel-header')).toContainText('2 / 4');
-  await expect(page.locator('.category-progress-card[aria-label="실적증빙"]')).toContainText('2 / 4');
-  await expect(page.locator('.case-progress')).toContainText('2 / 4 · 50%');
-  expect(await page.locator('.category-progress-card:not([aria-label="실적증빙"])').allTextContents()).toEqual(untouched);
+  await expect(page.locator('#performance-documents .panel-header')).toContainText('2 / 4');
   expect(state.entries.at(-1)).toMatchObject({ resolvedStatus: 'IN_PROGRESS', info: {
     pptNumber: '4', businessPeriod: '2026.01 ~ 수행중', contractAmount: '금액 협의', businessStatus: null,
     kitcStatus: 'NEEDED', selectedDriveFileId: null, evidenceType: null,
@@ -608,7 +616,8 @@ test('performance entry: required validation and single-row import add an ongoin
   expect(state.imports[0].html).toBeNull();
 
   await row.getByRole('button', { name: '파일 관리' }).click();
-  await expect(page.getByRole('dialog', { name: '신규 운영 사업 파일 관리' }).getByLabel('증빙유형').locator('option')).toHaveCount(1);
+  await expect(page.getByRole('dialog', { name: '신규 운영 사업 파일 관리' }).getByLabel('증빙유형').locator('option'))
+    .toHaveText(['계약서', '세금계산서']);
 });
 
 test('performance entry: duplicate PPT number and invalid period errors stay by their fields', async ({ page }) => {
@@ -678,7 +687,6 @@ test('performance entry: edit preserves file, evidence, manual status and KITC d
 
 test('performance import: HTML table has priority and plain quoted TSV previews without writes', async ({ page }) => {
   const state = await setup(page);
-  await page.locator('.performance-import summary').click();
   const html = '<table><tr><th>번호</th><th>사업명</th><th>사업기간</th><th>계약금액</th><th>발주처</th></tr>'
     + '<tr><td>10</td><td>HTML<br>사업</td><td>2024.01 ~ 2025.12</td><td>금액 협의</td><td>기관</td></tr></table>';
   await pastePerformance(page, 'plain should not parse', html);
@@ -713,7 +721,6 @@ test('performance import: mixed server result appends valid rows and corrected e
     { row: 3, cells: ['1', '중복 사업', '2024.01 ~ 2025.12', '100', '기관'], message: '이미 저장된 PPT 번호입니다. 기존 실적을 수정하세요.' },
     { row: 4, cells: ['12', '기간 오류', '날짜 오류', '200', '기관'], message: '사업기간은 시작~종료 날짜로 입력하거나 상세 수정에서 사업 상태를 지정하세요.' },
   ] };
-  await page.locator('.performance-import summary').click();
   const html = '<table><tr><td>10</td><td>일괄 정상 사업</td><td>2024.01 ~ 2025.12</td><td>금액 협의</td><td>기관</td></tr>'
     + '<tr><td>1</td><td>중복 사업</td><td>2024.01 ~ 2025.12</td><td>100</td><td>기관</td></tr>'
     + '<tr><td>12</td><td>기간 오류</td><td>날짜 오류</td><td>200</td><td>기관</td></tr></table>';
@@ -738,7 +745,6 @@ test('performance import: failed POST retains input and preview on mobile', asyn
   await page.setViewportSize({ width: 390, height: 844 });
   const state = await setup(page);
   state.importFailure = true;
-  await page.locator('.performance-import summary').click();
   const text = '20\t모바일 사업\t2024.01 ~ 2025.12\t계약금액 자유\t기관';
   await pastePerformance(page, text);
   await page.getByRole('button', { name: '일괄 저장' }).click();

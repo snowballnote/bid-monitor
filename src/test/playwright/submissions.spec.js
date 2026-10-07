@@ -71,7 +71,7 @@ async function setup(page, options = {}) {
             if (pathname.endsWith('/performance-project')) { state.project.performanceProjectId = 'perf-1';return route.fulfill({ json: state.project }); }
             return route.fulfill({ status: 404, json: {} });
         }
-        if (pathname.startsWith('/performances/')) return route.fulfill({ contentType: 'text/html', body: '<h1>실적 관리</h1>' });
+        if (pathname.startsWith('/react/')) return route.fulfill({ contentType: 'text/html', body: '<h1>실적 관리</h1>' });
         const file = path.join(__dirname, '../../main/resources/static', pathname.endsWith('/') ? pathname + 'index.html' : pathname);
         return fs.existsSync(file) ? route.fulfill({ path: file }) : route.fulfill({ status: 404, body: '' });
     });
@@ -96,8 +96,10 @@ test('submissions: summary, category progress and selected-only table reuse save
     await expect(row(page, 82)).toContainText('파일 미등록');
     await expect(row(page, 83)).toContainText('선택 완료');
     await expect(row(page, 84)).toContainText('1 / 2 준비');
-    await expect(row(page, 84).getByRole('button', { name: '관리', exact: true })).toBeVisible();
-    await expect(page.locator('.package-panel, #candidate-performance, .performance-picker-action')).toHaveCount(0);
+    await expect(row(page, 84)).toContainText('연결됨');
+    await expect(row(page, 84).getByRole('button', { name: '실적 관리', exact: true })).toBeVisible();
+    await expect(page.getByText('perf-1', { exact: true })).toHaveCount(0);
+    await expect(page.getByText(/실적 추가|실적표 일괄 붙여넣기|실적 프로젝트 관리/)).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'ZIP 다운로드' })).toHaveAttribute('href', '/api/submission-cases/71/download');
     const left = await page.locator('#document-picker').boundingBox(), right = await page.locator('.requirement-panel').boundingBox();
     expect(right.x).toBeGreaterThan(left.x + left.width);
@@ -177,8 +179,9 @@ test('submissions: uploaded performance files count in preparation progress', as
 
 test('submissions: performance management links project and preserves return case', async ({ page }) => {
     const state = await setup(page, { unlinked: true });
-    await row(page, 84).getByRole('button', { name: '관리', exact: true }).click();
-    await expect(page).toHaveURL(/\/performances\/index.html\?caseId=71&project=perf-1/);
+    await expect(row(page, 84)).toContainText('미연결');
+    await row(page, 84).getByRole('button', { name: '실적 관리', exact: true }).click();
+    await expect(page).toHaveURL(/\/react\/index.html#\/performances\/perf-1\?caseId=71/);
     expect(state.writes.some(item => item.path.endsWith('/performance-project') && item.method === 'POST')).toBe(true);
     await page.goBack();
     await expect(row(page, 84)).toContainText('1 / 2 준비');

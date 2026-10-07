@@ -18,6 +18,17 @@
 .drive-index-panel th:first-child { width: 30%; }
 .drive-index-panel th, .drive-index-panel td { font-size: 12px; overflow-wrap: anywhere; }
 .drive-index-panel td small { display: block; margin-top: 5px; color: var(--muted); }
+.drive-index-summary { display: flex; align-items: center; gap: 28px; padding: 0 20px 18px; }
+.drive-index-connection { display: grid; min-width: 240px; gap: 6px; }
+.drive-index-connection .requirement-state { width: fit-content; }
+.drive-index-connection small { color: var(--muted); }
+.drive-index-summary dl { display: flex; gap: 32px; margin: 0; }
+.drive-index-summary dl div { display: grid; gap: 3px; }
+.drive-index-summary dt { color: var(--muted); font-size: 11px; }
+.drive-index-summary dd { margin: 0; font-size: 14px; font-weight: 750; }
+.drive-index-details { border-top: 1px solid var(--border); }
+.drive-index-details summary { padding: 10px 20px; color: var(--muted); font-size: 12px; cursor: pointer; }
+.drive-index-details .drive-index-scroll { border-top: 1px solid var(--border); }
 .performance-project-dialog { width: min(500px, calc(100vw - 24px)); padding: 18px; box-sizing: border-box; }
 .performance-project-dialog h2 { margin: 0 0 14px; font-size: 17px; }
 .performance-project-dialog form { display: grid; gap: 12px; }
@@ -26,7 +37,12 @@
 .performance-project-dialog .field-error, .performance-project-dialog [role="alert"] { color: var(--danger); }
 .performance-project-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .performance-project-overview { display: flex; align-items: center; flex-wrap: wrap; gap: 20px; padding: 20px; margin-bottom: 16px; }
-.performance-project-overview h1 { margin: 4px 0 0; font-size: 21px; overflow-wrap: anywhere; }
+.performance-detail-heading { margin-bottom: 16px; }
+.performance-detail-heading h1 { margin: 4px 0 5px; font-size: 28px; }
+.performance-detail-heading p { margin: 0; color: var(--muted); }
+.performance-project-name { min-width: 220px; }
+.performance-project-name small { color: var(--muted); font-size: 11px; }
+.performance-project-overview h2 { margin: 4px 0 0; font-size: 19px; overflow-wrap: anywhere; }
 .performance-project-overview dl { display: flex; flex-wrap: wrap; gap: 18px; margin: 0; }
 .performance-project-overview dl div { display: grid; gap: 3px; }
 .performance-project-overview dt { color: var(--muted); font-size: 11px; }
@@ -34,6 +50,36 @@
 .performance-download-state { display: grid; gap: 3px; color: var(--muted); font-size: 12px; }
 .performance-download-state small { max-width: 360px; color: var(--danger); overflow-wrap: anywhere; }
 .performance-overview-actions { display: flex; gap: 8px; margin-left: auto; }
+.performance-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 250px; align-items: start; gap: 16px; }
+.performance-workspace > .performance-documents { margin: 0; overflow: hidden; }
+.performance-work-heading { padding: 18px 20px 12px; }
+.performance-work-heading h2 { margin: 3px 0 4px; font-size: 18px; }
+.performance-work-heading p { margin: 0; color: var(--muted); font-size: 12px; }
+.performance-registered { border-top: 1px solid var(--border); }
+.performance-registered .panel-header h3 { margin: 0; font-size: 16px; }
+.performance-registered .panel-header small { display: block; margin-top: 3px; color: var(--muted); }
+.react-performance-detail .performance-import { margin: 0 20px 18px; border: 1px solid var(--border); border-radius: 8px; }
+.react-performance-detail .performance-import summary { padding: 11px 12px; }
+.react-performance-detail .performance-import-body { padding: 0 12px 12px; }
+.react-performance-detail .performance-documents table { min-width: 920px; }
+.react-performance-detail .performance-documents th:nth-child(1) { width: 72px; }
+.react-performance-detail .performance-documents th:nth-child(2) { width: 64px; }
+.react-performance-detail .performance-aside { display: grid; gap: 12px; }
+.performance-readiness, .performance-guide { padding: 18px; }
+.performance-readiness header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.performance-readiness h2, .performance-guide h2 { margin: 0; font-size: 15px; }
+.performance-readiness header strong { color: var(--primary); }
+.performance-readiness .progress-track { margin: 14px 0; }
+.performance-readiness dl { display: grid; gap: 8px; margin: 0; }
+.performance-readiness dl div { display: flex; justify-content: space-between; gap: 12px; }
+.performance-readiness dt { color: var(--muted); }
+.performance-readiness dd { margin: 0; font-weight: 700; }
+.performance-guide ol { display: grid; gap: 10px; margin: 14px 0 0; padding-left: 22px; }
+.performance-guide li { padding-left: 3px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+@media (max-width: 1100px) {
+  .performance-workspace { grid-template-columns: 1fr; }
+  .performance-aside { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 600px) {
   .performance-page-heading { align-items: stretch; flex-direction: column; }
   .performance-page-heading .ui-button { width: 100%; }
@@ -42,4 +88,7 @@
   .performance-download-state { width: 100%; }
   .performance-overview-actions { width: 100%; margin-left: 0; }
   .performance-overview-actions > * { flex: 1; justify-content: center; }
+  .drive-index-summary { align-items: stretch; flex-direction: column; gap: 14px; }
+  .drive-index-summary dl { justify-content: space-between; }
+  .performance-aside { grid-template-columns: 1fr; }
 }

@@ -3,8 +3,8 @@ import { validatePerformanceEntry, validatePerformanceEntryMetadata } from '../.
 import Button from '../Button';
 
 const fields = [
-  ['pptNumber', 'PPT 번호', 100], ['businessName', '사업명', 1000], ['businessPeriod', '사업기간', 500],
-  ['contractAmount', '계약금액', 200], ['client', '발주처', 500],
+  ['pptNumber', 'PPT 번호', 100], ['contractAmount', '계약금액', 200], ['businessName', '사업명', 1000],
+  ['businessPeriod', '사업기간', 500], ['client', '발주처', 500],
 ];
 
 export default function PerformanceEntryDialog({ entry, onSave, onClose }) {
@@ -41,14 +41,16 @@ export default function PerformanceEntryDialog({ entry, onSave, onClose }) {
   }
   return <dialog ref={setDialog} className="common-document-dialog performance-entry-dialog"
     aria-labelledby="performance-entry-title" onCancel={event => { event.preventDefault(); close(); }}>
-    <header><h2 id="performance-entry-title">{entry ? '실적 수정' : '실적 추가'}</h2></header>
+    <header className="performance-entry-heading"><span className="panel-kicker">PERFORMANCE RECORD</span>
+      <h2 id="performance-entry-title">{entry ? '실적 수정' : '실적 추가'}</h2>
+      <p>{entry ? entry.info.businessName || '실적명 미등록' : '새 실적 정보를 입력합니다.'}</p></header>
     <form noValidate onSubmit={submit}>
-      {fields.map(([name, label, max]) => <label key={name}>{label}
-        <input name={name} value={values[name]} maxLength={max} disabled={saving}
-          aria-invalid={Boolean(errors[name])} aria-describedby={errors[name] ? `performance-${name}-error` : undefined}
-          onChange={event => change(name, event.target.value)} />
-        {errors[name] && <small id={`performance-${name}-error`} className="field-error">{errors[name]}</small>}
-      </label>)}
+      <div className="performance-entry-fields">{fields.map(([name, label, max]) => <label className={`performance-entry-field performance-entry-field-${name}`} key={name}>{label}
+          <input name={name} value={values[name]} maxLength={max} disabled={saving}
+            aria-invalid={Boolean(errors[name])} aria-describedby={errors[name] ? `performance-${name}-error` : undefined}
+            onChange={event => change(name, event.target.value)} />
+          {errors[name] && <small id={`performance-${name}-error`} className="field-error">{errors[name]}</small>}
+        </label>)}</div>
       <small className="performance-period-help">사업기간 예: 2024.01 ~ 2025.12 또는 2024.01 ~ 수행중</small>
       {entry && <fieldset className="performance-entry-metadata"><legend>사업상태·KITC</legend>
         <label>사업상태
