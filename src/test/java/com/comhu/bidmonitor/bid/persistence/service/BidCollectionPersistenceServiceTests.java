@@ -1,11 +1,16 @@
 package com.comhu.bidmonitor.bid.persistence.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.comhu.bidmonitor.bid.persistence.BidNotice;
 import com.comhu.bidmonitor.bid.persistence.BidNoticeRepository;
 import com.comhu.bidmonitor.dto.BidAttachmentDto;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -80,6 +85,31 @@ class BidCollectionPersistenceServiceTests {
         assertTrue(savedG2b.getAnalysisResult().contains("reviewStatus"));
         assertNull(repository.findByIdentity("D2B", "2026:11:D2B-1", "3")
                 .orElseThrow().getDetailUrl());
+    }
+
+    @Test
+    void storesKogasCandidateWhenOpeningOccursImmediatelyAfterBidClosing() {
+        BidQualificationDto kogas = candidate(
+                "KOGAS", "2015100110:001", "1", "KOGAS 용역 공고"
+        );
+        kogas.setBidNtceDt("2015-10-01 14:52");
+        kogas.setBidClseDt("2015-10-16 11:00");
+        kogas.setBidOpeningDt(null);
+        kogas.setContractMethod("제한경쟁");
+        kogas.setParticipationRegion("제한없음");
+        kogas.setSucsfbidMthdNm("적격심사");
+
+        BidCollectionPersistenceResult result = service.persist(List.of(
+                BidSourceCollectionResult.success("KOGAS", List.of(kogas))
+        ), COLLECTED_AT);
+
+        assertEquals(1, result.successfulSourceCount());
+        BidNotice saved = repository.findByIdentity("KOGAS", "2015100110:001", "1").orElseThrow();
+        assertEquals("KOGAS", saved.getSourceCode());
+        assertEquals(LocalDateTime.of(2015, 10, 1, 14, 52), saved.getPublishedAt());
+        assertEquals(LocalDateTime.of(2015, 10, 16, 11, 0), saved.getSubmissionDeadlineAt());
+        assertNull(saved.getBidOpeningAt());
+        assertEquals("제한경쟁", saved.getContractMethod());
     }
 
     @Test
@@ -178,6 +208,42 @@ class BidCollectionPersistenceServiceTests {
         assertEquals(1, repository.findAll().size());
         assertTrue(repository.findByIdentity("G2B", "VALID-1", null).isPresent());
         assertTrue(repository.findByIdentity("D2B", "ROLLBACK-1", "1").isEmpty());
+    }
+
+    @Test
+    void debugLogIdentifiesCandidateAndMapperStageWithoutLoggingTheDto() {
+        Logger logger = (Logger) LoggerFactory.getLogger(BidCollectionPersistenceService.class);
+        Level originalLevel = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+        try {
+            BidQualificationDto invalid = candidate(
+                    "KOGAS", "DIAGNOSTIC-1", "01", "SHOULD_NOT_BE_LOGGED"
+            );
+            invalid.setBidOpeningDt("UNSUPPORTED_DATE_VALUE");
+
+            assertThrows(BidCollectionPersistenceException.class, () -> service.persist(List.of(
+                    BidSourceCollectionResult.success("KOGAS", List.of(invalid))
+            ), COLLECTED_AT));
+
+            String output = appender.list.stream()
+                    .map(ILoggingEvent::getFormattedMessage)
+                    .reduce("", (left, right) -> left + "\n" + right);
+            assertTrue(output.contains("sourceCode=KOGAS"));
+            assertTrue(output.contains("sourceNoticeId=DIAGNOSTIC-1"));
+            assertTrue(output.contains("revision=01"));
+            assertTrue(output.contains("stage=mapper"));
+            assertTrue(output.contains("errorType=IllegalArgumentException"));
+            assertTrue(output.contains("bidOpeningDt has an unsupported date format"));
+            assertTrue(!output.contains("SHOULD_NOT_BE_LOGGED"));
+            assertTrue(!output.contains("UNSUPPORTED_DATE_VALUE"));
+        } finally {
+            logger.setLevel(originalLevel);
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test

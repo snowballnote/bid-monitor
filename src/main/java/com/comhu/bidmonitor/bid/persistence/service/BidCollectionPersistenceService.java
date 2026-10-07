@@ -2,6 +2,7 @@ package com.comhu.bidmonitor.bid.persistence.service;
 
 import com.comhu.bidmonitor.bid.persistence.BidNoticeRepository;
 import com.comhu.bidmonitor.bid.persistence.BidNoticeSaveResult;
+import com.comhu.bidmonitor.bid.persistence.BidNotice;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,6 +20,10 @@ import java.util.regex.Pattern;
 public class BidCollectionPersistenceService {
 
     private static final Pattern SAFE_ERROR_CODE = Pattern.compile("[A-Z0-9_]{1,100}");
+    private static final Pattern LOG_URL_PATTERN = Pattern.compile("(?i)https?://\\S+");
+    private static final Pattern LOG_SECRET_PATTERN = Pattern.compile(
+            "(?i)\\b(password|passwd|token|secret|authorization|credential)\\s*[:=]\\s*\\S+"
+    );
     private static final String COLLECTION_FAILED = "COLLECTION_FAILED";
     private static final String PERSISTENCE_FAILED = "PERSISTENCE_FAILED";
 
@@ -93,10 +98,23 @@ public class BidCollectionPersistenceService {
         int changedCount = 0;
         int unchangedCount = 0;
         for (BidQualificationDto candidate : sourceResult.candidates()) {
-            if (candidate == null || !sourceResult.sourceCode().equals(candidate.getSourceCode())) {
-                throw new IllegalArgumentException("Candidate source does not match its source result.");
+            BidNotice mapped;
+            try {
+                if (candidate == null || !sourceResult.sourceCode().equals(candidate.getSourceCode())) {
+                    throw new IllegalArgumentException("Candidate source does not match its source result.");
+                }
+                mapped = mapper.map(candidate, collectedAt);
+            } catch (RuntimeException exception) {
+                logCandidateFailure(sourceResult.sourceCode(), candidate, "mapper", exception);
+                throw exception;
             }
-            BidNoticeSaveResult saved = noticeRepository.save(mapper.map(candidate, collectedAt));
+            BidNoticeSaveResult saved;
+            try {
+                saved = noticeRepository.save(mapped);
+            } catch (RuntimeException exception) {
+                logCandidateFailure(sourceResult.sourceCode(), candidate, "repository", exception);
+                throw exception;
+            }
             switch (saved.changeType()) {
                 case NEW -> newCount++;
                 case UPDATED -> changedCount++;
@@ -112,6 +130,37 @@ public class BidCollectionPersistenceService {
                 unchangedCount,
                 null
         );
+    }
+
+    private void logCandidateFailure(
+            String sourceCode,
+            BidQualificationDto candidate,
+            String stage,
+            RuntimeException exception
+    ) {
+        if (!log.isDebugEnabled()) {
+            return;
+        }
+        log.debug(
+                "Bid candidate persistence failed: sourceCode={}, sourceNoticeId={}, revision={}, "
+                        + "stage={}, errorType={}, errorMessage={}",
+                sourceCode,
+                candidate == null ? null : candidate.getSourceNoticeId(),
+                candidate == null ? null : candidate.getRevision(),
+                stage,
+                exception.getClass().getSimpleName(),
+                safeLogMessage(exception.getMessage())
+        );
+    }
+
+    private String safeLogMessage(String message) {
+        if (message == null || message.isBlank()) {
+            return "(no message)";
+        }
+        String singleLine = message.replaceAll("[\\r\\n\\t]+", " ").strip();
+        singleLine = LOG_URL_PATTERN.matcher(singleLine).replaceAll("[REDACTED_URL]");
+        singleLine = LOG_SECRET_PATTERN.matcher(singleLine).replaceAll("$1=[REDACTED]");
+        return singleLine.length() <= 300 ? singleLine : singleLine.substring(0, 300) + "...";
     }
 
     private BidSourcePersistenceResult failure(String sourceCode, String errorCode) {

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.comhu.bidmonitor.bid.persistence.BidNotice;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -17,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 @Component
+@Slf4j
 public class BidQualificationNoticeMapper {
 
     private static final List<DateTimeFormatter> DATE_TIME_FORMATS = List.of(
@@ -53,9 +55,13 @@ public class BidQualificationNoticeMapper {
                 .noticeNumber(nullable(source.getBidNtceNo()))
                 .title(required(source.getBidNtceNm(), "bidNtceNm"))
                 .orderingOrganization(nullable(source.getNtceInsttNm()))
-                .publishedAt(parseDateTime(source.getBidNtceDt(), "bidNtceDt"))
-                .submissionDeadlineAt(parseDateTime(source.getBidClseDt(), "bidClseDt"))
-                .bidOpeningAt(parseDateTime(source.getBidOpeningDt(), "bidOpeningDt"))
+                .publishedAt(parseDateTime(source.getBidNtceDt(), "bidNtceDt", source.getSourceNoticeId()))
+                .submissionDeadlineAt(parseDateTime(
+                        source.getBidClseDt(), "bidClseDt", source.getSourceNoticeId()
+                ))
+                .bidOpeningAt(parseDateTime(
+                        source.getBidOpeningDt(), "bidOpeningDt", source.getSourceNoticeId()
+                ))
                 .contractMethod(nullable(source.getContractMethod()))
                 .bidMethod(nullable(source.getBidForm()))
                 .noticeStatus(nullable(source.getNoticeStatus()))
@@ -99,7 +105,7 @@ public class BidQualificationNoticeMapper {
         return values.stream().map(this::nullable).sorted().toList();
     }
 
-    private LocalDateTime parseDateTime(String value, String field) {
+    private LocalDateTime parseDateTime(String value, String field, String sourceNoticeId) {
         String normalized = nullable(value);
         if (normalized == null) {
             return null;
@@ -123,7 +129,25 @@ public class BidQualificationNoticeMapper {
                 // Try the next supported source format.
             }
         }
-        throw new IllegalArgumentException(field + " has an unsupported date format.");
+        IllegalArgumentException exception =
+                new IllegalArgumentException(field + " has an unsupported date format.");
+        if (log.isDebugEnabled()) {
+            log.debug(
+                    "Bid candidate date parsing failed: fieldName={}, sourceNoticeId={}, rawValue={}, "
+                            + "errorType={}, errorMessage={}",
+                    field,
+                    sourceNoticeId,
+                    safeDateValue(normalized),
+                    exception.getClass().getSimpleName(),
+                    exception.getMessage()
+            );
+        }
+        throw exception;
+    }
+
+    private String safeDateValue(String value) {
+        String singleLine = value.replaceAll("[\\r\\n\\t]+", " ").strip();
+        return singleLine.length() <= 100 ? singleLine : singleLine.substring(0, 100) + "...";
     }
 
     private String firstNonBlank(String first, String second) {

@@ -66,6 +66,13 @@ public class G2bApiService {
     private static final Logger log = LoggerFactory.getLogger(G2bApiService.class);
     private static final String G2B_SOURCE_CODE = "G2B";
     private static final Pattern SAFE_SOURCE_CODE_PATTERN = Pattern.compile("[A-Z0-9_]{1,50}");
+    private static final Pattern LOG_URL_PATTERN = Pattern.compile("(?i)https?://\\S+");
+    private static final Pattern LOG_SECRET_PATTERN = Pattern.compile(
+            "(?i)\\b(password|passwd|token|secret|authorization|credential)\\s*[:=]\\s*\\S+"
+    );
+    private static final Pattern LOG_SENSITIVE_MESSAGE_PATTERN = Pattern.compile(
+            "(?i)\\b(password|passwd|token|secret|authorization|credential|responsebody)\\b"
+    );
 
     private static final int BID_LIST_PAGE_SIZE = 100;
     private static final List<String> G2B_TITLE_SEARCH_KEYWORDS = List.of(
@@ -2105,8 +2112,10 @@ public class G2bApiService {
                 successfulAdditionalCollectors++;
             } catch (RuntimeException exception) {
                 failedSourceCodes.add(sourceCode);
-                log.warn("Additional bid collector failed: sourceCode={}, errorType={}",
-                        sourceCode, exception.getClass().getSimpleName());
+                log.warn("Additional bid collector failed: sourceCode={}, errorType={}, errorMessage={}",
+                        sourceCode, exception.getClass().getSimpleName(), safeLogMessage(exception.getMessage()));
+                log.debug("Additional bid collector stack trace: sourceCode={}\n{}",
+                        sourceCode, safeStackTrace(exception));
             }
         }
 
@@ -2119,6 +2128,37 @@ public class G2bApiService {
         }
 
         return new ArrayList<>(uniqueCandidates.values());
+    }
+
+    private String safeLogMessage(String message) {
+        if (message == null || message.isBlank()) {
+            return "(no message)";
+        }
+        String singleLine = message.replaceAll("[\\r\\n\\t]+", " ").strip();
+        singleLine = LOG_URL_PATTERN.matcher(singleLine).replaceAll("[REDACTED_URL]");
+        singleLine = LOG_SECRET_PATTERN.matcher(singleLine).replaceAll("$1=[REDACTED]");
+        if (LOG_SENSITIVE_MESSAGE_PATTERN.matcher(singleLine).find()) {
+            return "[REDACTED]";
+        }
+        return singleLine.length() <= 500 ? singleLine : singleLine.substring(0, 500) + "...";
+    }
+
+    private String safeStackTrace(Throwable failure) {
+        StringBuilder trace = new StringBuilder();
+        Throwable current = failure;
+        for (int causeDepth = 0; current != null && causeDepth < 8; causeDepth++) {
+            if (causeDepth > 0) {
+                trace.append("Caused by: ");
+            }
+            trace.append(current.getClass().getName()).append(System.lineSeparator());
+            StackTraceElement[] frames = current.getStackTrace();
+            int frameCount = Math.min(frames.length, 100);
+            for (int index = 0; index < frameCount; index++) {
+                trace.append("\tat ").append(frames[index]).append(System.lineSeparator());
+            }
+            current = current.getCause();
+        }
+        return trace.toString().stripTrailing();
     }
 
     /** Coordinator가 나라장터와 연계기관을 독립 실행할 수 있도록 기존 G2B 처리만 분리한다. */

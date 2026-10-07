@@ -1,5 +1,9 @@
 package com.comhu.bidmonitor.bid.collection;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.comhu.bidmonitor.bid.persistence.BidCollectionRun;
 import com.comhu.bidmonitor.bid.persistence.BidCollectionRunRepository;
 import com.comhu.bidmonitor.bid.persistence.BidNotice;
@@ -15,6 +19,7 @@ import com.comhu.bidmonitor.dto.BidQualificationDto;
 import com.comhu.bidmonitor.service.G2bApiService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -361,6 +366,64 @@ class ManualBidCollectionCoordinatorTests {
         assertEquals(BidCollectionRun.Status.FAILED, latestRun("KOGAS").getStatus());
         assertEquals(BidCollectionRun.Status.SUCCESS, latestRun("G2B").getStatus());
         assertTrue(noticeRepository.findByIdentity("G2B", "AFTER-KOGAS", null).isPresent());
+    }
+
+    @Test
+    void collectionFailureLogsSafeMessageAndDebugStack() {
+        Logger logger = (Logger) LoggerFactory.getLogger(ManualBidCollectionCoordinator.class);
+        Level originalLevel = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+        try {
+            ManualBidCollectionSource failingKogas = new ManualBidCollectionSource() {
+                @Override
+                public String sourceCode() {
+                    return "KOGAS";
+                }
+
+                @Override
+                public CollectionBatch collect(LocalDate startDate, LocalDate endDate, Set<String> codes) {
+                    throw new IllegalStateException(
+                            "KOGAS 공개 페이지 통신에 실패했습니다. https://private.example/response",
+                            new IllegalStateException("responseBody=private-data Authorization=hidden")
+                    );
+                }
+            };
+            ManualBidCollectionCoordinator coordinator = coordinator(
+                    failingKogas,
+                    source("G2B", true, List.of(candidate("G2B", "AFTER-LOG-FAILURE", null, "정상 공고")), 1)
+            );
+
+            ManualBidCollectionResult result = coordinator.collect(START, END, LICENSE_CODES);
+
+            assertEquals(ManualBidCollectionResult.Status.PARTIAL_SUCCESS, result.status());
+            ILoggingEvent warning = appender.list.stream()
+                    .filter(event -> event.getLevel() == Level.WARN)
+                    .findFirst()
+                    .orElseThrow();
+            ILoggingEvent debug = appender.list.stream()
+                    .filter(event -> event.getLevel() == Level.DEBUG)
+                    .findFirst()
+                    .orElseThrow();
+            assertTrue(warning.getFormattedMessage().contains("sourceCode=KOGAS"));
+            assertTrue(warning.getFormattedMessage().contains("errorType=IllegalStateException"));
+            assertTrue(warning.getFormattedMessage().contains(
+                    "errorMessage=KOGAS 공개 페이지 통신에 실패했습니다. [REDACTED_URL]"
+            ));
+            assertNull(warning.getThrowableProxy());
+            assertTrue(debug.getFormattedMessage().contains(IllegalStateException.class.getName()));
+            assertTrue(debug.getFormattedMessage().contains("ManualBidCollectionCoordinatorTests"));
+            assertNull(debug.getThrowableProxy());
+            assertFalse(warning.getFormattedMessage().contains("private.example"));
+            assertFalse(debug.getFormattedMessage().contains("private-data"));
+            assertFalse(debug.getFormattedMessage().contains("hidden"));
+        } finally {
+            logger.setLevel(originalLevel);
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test

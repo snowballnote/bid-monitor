@@ -24,6 +24,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.Locale;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Service
@@ -31,6 +32,13 @@ public class ManualBidCollectionCoordinator {
 
     private static final String COLLECTION_FAILED = "COLLECTION_FAILED";
     private static final String ALREADY_RUNNING = "ALREADY_RUNNING";
+    private static final Pattern LOG_URL_PATTERN = Pattern.compile("(?i)https?://\\S+");
+    private static final Pattern LOG_SECRET_PATTERN = Pattern.compile(
+            "(?i)\\b(password|passwd|token|secret|authorization|credential)\\s*[:=]\\s*\\S+"
+    );
+    private static final Pattern LOG_SENSITIVE_MESSAGE_PATTERN = Pattern.compile(
+            "(?i)\\b(password|passwd|token|secret|authorization|credential|responsebody)\\b"
+    );
 
     private final BidCollectionPersistenceService persistenceService;
     private final BidSourceStateRepository stateRepository;
@@ -162,8 +170,12 @@ public class ManualBidCollectionCoordinator {
                     executions.put(sourceCode, new ExecutionContext(lockedRun, batch.apiCallCount()));
                     collectedResults.add(BidSourceCollectionResult.success(sourceCode, batch.candidates()));
                 } catch (RuntimeException exception) {
-                    log.warn("Bid collection failed: sourceCode={}, errorType={}",
-                            sourceCode, exception.getClass().getSimpleName());
+                    log.warn("Bid collection failed: sourceCode={}, errorType={}, errorMessage={}",
+                            sourceCode, exception.getClass().getSimpleName(), safeLogMessage(exception.getMessage()));
+                    if (log.isDebugEnabled()) {
+                        log.debug("Bid collection stack trace: sourceCode={}\n{}",
+                                sourceCode, safeStackTrace(exception));
+                    }
                     Integer apiCallCount = exception instanceof ManualBidCollectionSource.MeasuredCollectionException measured
                             ? measured.getApiCallCount()
                             : null;
@@ -201,6 +213,37 @@ public class ManualBidCollectionCoordinator {
             Instant abortedAt = clock.instant();
             acquiredLocks.forEach(lockedRun -> lockService.abortAndRelease(lockedRun, abortedAt));
         }
+    }
+
+    private String safeLogMessage(String message) {
+        if (message == null || message.isBlank()) {
+            return "(no message)";
+        }
+        String singleLine = message.replaceAll("[\\r\\n\\t]+", " ").strip();
+        singleLine = LOG_URL_PATTERN.matcher(singleLine).replaceAll("[REDACTED_URL]");
+        singleLine = LOG_SECRET_PATTERN.matcher(singleLine).replaceAll("$1=[REDACTED]");
+        if (LOG_SENSITIVE_MESSAGE_PATTERN.matcher(singleLine).find()) {
+            return "[REDACTED]";
+        }
+        return singleLine.length() <= 500 ? singleLine : singleLine.substring(0, 500) + "...";
+    }
+
+    private String safeStackTrace(Throwable failure) {
+        StringBuilder trace = new StringBuilder();
+        Throwable current = failure;
+        for (int causeDepth = 0; current != null && causeDepth < 8; causeDepth++) {
+            if (causeDepth > 0) {
+                trace.append("Caused by: ");
+            }
+            trace.append(current.getClass().getName()).append(System.lineSeparator());
+            StackTraceElement[] frames = current.getStackTrace();
+            int frameCount = Math.min(frames.length, 100);
+            for (int index = 0; index < frameCount; index++) {
+                trace.append("\tat ").append(frames[index]).append(System.lineSeparator());
+            }
+            current = current.getCause();
+        }
+        return trace.toString().stripTrailing();
     }
 
     private void finishExecutions(

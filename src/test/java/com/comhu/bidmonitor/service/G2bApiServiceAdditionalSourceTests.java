@@ -1,5 +1,9 @@
 package com.comhu.bidmonitor.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
 import com.comhu.bidmonitor.bid.source.d2b.D2bDailyQuotaExceededException;
 import com.comhu.bidmonitor.classifier.BidAwardMethodClassifier;
@@ -8,6 +12,7 @@ import com.comhu.bidmonitor.dto.BidQualificationDto;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -186,6 +191,50 @@ class G2bApiServiceAdditionalSourceTests {
 
         assertEquals(1, result.size());
         assertEquals("KOGAS", result.getFirst().getSourceCode());
+    }
+
+    @Test
+    void failedCollectorLogsMessageAndDebugStack() {
+        Logger logger = (Logger) LoggerFactory.getLogger(G2bApiService.class);
+        Level originalLevel = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+        try {
+            G2bApiService service = new EmptyG2bFixtureService(List.of(
+                    failingCollector("KOGAS", new IllegalStateException(
+                            "KOGAS 목록 표를 찾을 수 없습니다.",
+                            new IllegalStateException("responseBody=https://private.example token=hidden")
+                    )),
+                    collector("D2B", List.of(candidate("D2B-00", "D2B-ID", null)))
+            ));
+
+            query(service);
+
+            ILoggingEvent warning = appender.list.stream()
+                    .filter(event -> event.getLevel() == Level.WARN)
+                    .findFirst()
+                    .orElseThrow();
+            ILoggingEvent debug = appender.list.stream()
+                    .filter(event -> event.getLevel() == Level.DEBUG)
+                    .findFirst()
+                    .orElseThrow();
+            assertTrue(warning.getFormattedMessage().contains("errorType=IllegalStateException"));
+            assertTrue(warning.getFormattedMessage().contains("errorMessage=KOGAS 목록 표를 찾을 수 없습니다."));
+            assertNull(warning.getThrowableProxy());
+            assertTrue(debug.getFormattedMessage().contains("sourceCode=KOGAS"));
+            assertTrue(debug.getFormattedMessage().contains(IllegalStateException.class.getName()));
+            assertTrue(debug.getFormattedMessage().contains("G2bApiServiceAdditionalSourceTests"));
+            assertNull(debug.getThrowableProxy());
+            assertFalse(warning.getFormattedMessage().contains("private.example"));
+            assertFalse(debug.getFormattedMessage().contains("private.example"));
+            assertFalse(debug.getFormattedMessage().contains("hidden"));
+        } finally {
+            logger.setLevel(originalLevel);
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test
