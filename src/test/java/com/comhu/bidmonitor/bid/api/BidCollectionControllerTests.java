@@ -31,6 +31,7 @@ import java.util.Set;
 
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.containsString;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -166,6 +167,27 @@ class BidCollectionControllerTests {
                 .andExpect(jsonPath("$.size").value(2))
                 .andExpect(jsonPath("$.totalCount").value(3))
                 .andExpect(jsonPath("$.totalPages").value(2));
+    }
+
+    @Test
+    void excludesRejectedNoticesFromDefaultPagesAndTotalCountWhileKeepingThemStored() throws Exception {
+        saveNotice("G2B", "review-target", "", LocalDateTime.of(2026, 9, 22, 9, 0), '6', "검토대상");
+        saveNotice("KOGAS", "unknown", "", LocalDateTime.of(2026, 9, 22, 10, 0), '7', "추가확인필요");
+        saveNotice("D2B", "excluded-english", "", LocalDateTime.of(2026, 9, 22, 11, 0), '8', "EXCLUDED");
+        saveNotice("KOREA_EXPRESSWAY", "excluded-korean", "", LocalDateTime.of(2026, 9, 22, 12, 0), '9', "제외");
+
+        assertEquals(4, noticeRepository.findAll().size());
+        mockMvc.perform(get("/api/bid-notices").param("page", "0").param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].sourceNoticeId").value("unknown"))
+                .andExpect(jsonPath("$.totalCount").value(2))
+                .andExpect(jsonPath("$.totalPages").value(2));
+        mockMvc.perform(get("/api/bid-notices").param("page", "1").param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].sourceNoticeId").value("review-target"))
+                .andExpect(jsonPath("$.totalCount").value(2));
     }
 
     @Test
@@ -438,6 +460,17 @@ class BidCollectionControllerTests {
             LocalDateTime publishedAt,
             char hashCharacter
     ) {
+        saveNotice(sourceCode, sourceNoticeId, revision, publishedAt, hashCharacter, "MATCHED");
+    }
+
+    private void saveNotice(
+            String sourceCode,
+            String sourceNoticeId,
+            String revision,
+            LocalDateTime publishedAt,
+            char hashCharacter,
+            String analysisStatus
+    ) {
         noticeRepository.save(BidNotice.builder()
                 .sourceCode(sourceCode)
                 .sourceNoticeId(sourceNoticeId)
@@ -454,7 +487,7 @@ class BidCollectionControllerTests {
                 .noticeStatusCode("OPEN")
                 .detailUrl("https://example.test/" + sourceNoticeId)
                 .relevant(true)
-                .analysisStatus("MATCHED")
+                .analysisStatus(analysisStatus)
                 .analysisResult("internal")
                 .contentHash(String.valueOf(hashCharacter).repeat(64))
                 .firstSeenAt(Instant.parse("2026-09-22T01:00:00Z"))

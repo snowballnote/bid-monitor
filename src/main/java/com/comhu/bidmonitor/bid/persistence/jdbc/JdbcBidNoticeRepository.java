@@ -138,7 +138,10 @@ public class JdbcBidNoticeRepository implements BidNoticeRepository {
             int page,
             int size
     ) {
-        StringBuilder where = new StringBuilder(" FROM bid_notice WHERE 1 = 1");
+        StringBuilder where = new StringBuilder("""
+                 FROM bid_notice
+                 WHERE COALESCE(UPPER(TRIM(analysis_status)), '') NOT IN ('EXCLUDED', '제외')
+                """);
         List<Object> parameters = new ArrayList<>();
         if (startDate != null) {
             where.append(" AND published_at >= ?");
