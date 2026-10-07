@@ -22,7 +22,6 @@ import java.util.stream.Collectors;
 @Service
 public class BidQualificationEvaluationService {
 
-    private static final String REQUIRED_LICENSE_CODE = "6146";
     private static final Set<String> REFERENCE_SITE_DOMAINS = Set.of("smpp.go.kr");
 
     private final BidAwardMethodClassifier bidAwardMethodClassifier;
@@ -237,21 +236,13 @@ public class BidQualificationEvaluationService {
     ) {
         List<LicenseRequirementGroup> safeGroups = licenseGroups == null ? List.of() : licenseGroups;
         List<String> closestMissingCodes = null;
-        boolean hasRequiredLicense = false;
         boolean hasUnknownLicenseCode = false;
 
         for (LicenseRequirementGroup group : safeGroups) {
             List<LicenseRequirement> requirements = group == null || group.getRequirements() == null
                     ? List.of()
                     : group.getRequirements();
-            boolean groupHasRequiredLicense = requirements.stream()
-                    .filter(requirement -> requirement != null)
-                    .map(LicenseRequirement::getLicenseCode)
-                    .map(this::safeValue)
-                    .anyMatch(REQUIRED_LICENSE_CODE::equals);
-
-            hasRequiredLicense |= groupHasRequiredLicense;
-            if (!groupHasRequiredLicense || requirements.isEmpty()) {
+            if (requirements.isEmpty()) {
                 continue;
             }
 
@@ -276,17 +267,14 @@ public class BidQualificationEvaluationService {
             }
         }
 
-        if (!hasRequiredLicense) {
-            return new LicenseReviewResult(false, "6146 면허조건 확인 필요");
-        }
         if (closestMissingCodes != null) {
             return new LicenseReviewResult(false,
-                    "추가 면허조건 확인 필요: " + String.join(", ", closestMissingCodes));
+                    "허용 면허조건 불일치: " + String.join(", ", closestMissingCodes));
         }
         if (hasUnknownLicenseCode) {
             return new LicenseReviewResult(false, "면허조건 코드 확인 필요");
         }
-        return new LicenseReviewResult(false, "허용 면허조건 확인 필요");
+        return new LicenseReviewResult(false, "면허조건 정보 확인 필요");
     }
 
     private String safeValue(String value) {

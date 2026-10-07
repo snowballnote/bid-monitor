@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 class G2bApiServiceLicenseReviewTests {
 
@@ -45,7 +44,7 @@ class G2bApiServiceLicenseReviewTests {
         applyReview(qualification, DEFAULT_ALLOWED_CODES);
 
         assertEquals("추가확인필요", qualification.getReviewStatus());
-        assertEquals("추가 면허조건 확인 필요: 3572", qualification.getReviewReason());
+        assertEquals("허용 면허조건 불일치: 3572", qualification.getReviewReason());
     }
 
     @Test
@@ -61,14 +60,32 @@ class G2bApiServiceLicenseReviewTests {
     }
 
     @Test
-    void noticeWithout6146CannotBecomeReviewTarget() throws Exception {
+    void defaultAllowedCodesAllowSingle1468Requirement() throws Exception {
         BidQualificationDto qualification = qualification(group("1", "1468"));
 
         applyReview(qualification, DEFAULT_ALLOWED_CODES);
 
-        assertNotEquals("검토대상", qualification.getReviewStatus());
+        assertEquals("검토대상", qualification.getReviewStatus());
+    }
+
+    @Test
+    void clearlyUnallowedLicenseCodeIsReportedAsMismatch() throws Exception {
+        BidQualificationDto qualification = qualification(group("1", "9999"));
+
+        applyReview(qualification, DEFAULT_ALLOWED_CODES);
+
         assertEquals("추가확인필요", qualification.getReviewStatus());
-        assertEquals("6146 면허조건 확인 필요", qualification.getReviewReason());
+        assertEquals("허용 면허조건 불일치: 9999", qualification.getReviewReason());
+    }
+
+    @Test
+    void missingLicenseInformationKeepsTheUnknownReviewFlow() throws Exception {
+        BidQualificationDto qualification = qualification();
+
+        applyReview(qualification, DEFAULT_ALLOWED_CODES);
+
+        assertEquals("추가확인필요", qualification.getReviewStatus());
+        assertEquals("면허조건 정보 확인 필요", qualification.getReviewReason());
     }
 
     @Test

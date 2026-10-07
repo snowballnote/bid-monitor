@@ -79,7 +79,7 @@ class BidQualificationEvaluationServiceTests {
         service.evaluate(notice, ALLOWED_LICENSE_CODES);
 
         assertEquals("추가확인필요", notice.getReviewStatus());
-        assertTrue(notice.getReviewReason().contains("6146 면허조건 확인 필요"));
+        assertTrue(notice.getReviewReason().contains("면허조건 정보 확인 필요"));
         assertTrue(notice.getReviewReason().contains("지역제한 조건 확인 필요"));
     }
 
