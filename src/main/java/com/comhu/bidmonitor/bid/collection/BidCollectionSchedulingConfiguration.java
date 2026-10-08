@@ -56,4 +56,16 @@ public class BidCollectionSchedulingConfiguration {
                 lookbackDays
         );
     }
+
+    @Bean
+    BidCollectionSourceSchedule d2bBidCollectionSourceSchedule(
+            @Value("${bid.collection.scheduler.d2b.interval-seconds:86400}") long intervalSeconds,
+            @Value("${bid.collection.scheduler.d2b.lookback-days:1}") int lookbackDays
+    ) {
+        return new BidCollectionSourceSchedule(
+                "D2B",
+                Duration.ofSeconds(intervalSeconds),
+                lookbackDays
+        );
+    }
 }

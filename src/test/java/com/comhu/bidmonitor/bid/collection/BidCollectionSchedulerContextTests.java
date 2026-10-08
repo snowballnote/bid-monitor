@@ -37,7 +37,7 @@ class BidCollectionSchedulerContextTests {
                 )
                 .run(context -> {
                     assertThat(context).hasSingleBean(BidCollectionScheduler.class);
-                    assertThat(context).getBeans(BidCollectionSourceSchedule.class).hasSize(3);
+                    assertThat(context).getBeans(BidCollectionSourceSchedule.class).hasSize(4);
                     assertThat(context).hasSingleBean(GenericPublicPageSchedule.class);
                     assertThat(context.getBean(GenericPublicPageSchedule.class)).isEqualTo(
                             new GenericPublicPageSchedule(java.time.Duration.ofMinutes(30), 2)
@@ -47,6 +47,12 @@ class BidCollectionSchedulerContextTests {
                             BidCollectionSourceSchedule.class
                     )).isEqualTo(new BidCollectionSourceSchedule(
                             "KOGAS", java.time.Duration.ofHours(12), 3
+                    ));
+                    assertThat(context.getBean(
+                            "d2bBidCollectionSourceSchedule",
+                            BidCollectionSourceSchedule.class
+                    )).isEqualTo(new BidCollectionSourceSchedule(
+                            "D2B", java.time.Duration.ofHours(24), 1
                     ));
                 });
     }

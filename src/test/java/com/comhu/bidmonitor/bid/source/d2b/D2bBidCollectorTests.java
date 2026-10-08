@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -23,6 +24,19 @@ class D2bBidCollectorTests {
 
     private static final LocalDate START = LocalDate.of(2026, 9, 1);
     private static final LocalDate END = LocalDate.of(2026, 9, 21);
+
+    @Test
+    void enablesExecutionOnlyWhenConfiguredAndServiceKeyIsPresent() {
+        assertTrue(new D2bBidCollector(
+                "https://example.test", "test-key", uri -> emptyList(), () -> { }, true
+        ).executionEnabled());
+        assertFalse(new D2bBidCollector(
+                "https://example.test", "", uri -> emptyList(), () -> { }, true
+        ).executionEnabled());
+        assertFalse(new D2bBidCollector(
+                "https://example.test", "test-key", uri -> emptyList(), () -> { }, false
+        ).executionEnabled());
+    }
 
     @Test
     void mapsFourDomesticAndFacilityOperationsAndEnrichesOnlyRelevantNotices() {
@@ -73,6 +87,8 @@ class D2bBidCollectorTests {
         assertEquals("적격심사제", domestic.getSucsfbidMthdNm());
         assertEquals("정정공고", domestic.getNoticeStatus());
         assertEquals("02", domestic.getNoticeStatusCode());
+        assertEquals("20260902", domestic.getBidNtceDt());
+        assertEquals(List.of("6146"), licenseCodes(domestic.getLicenseGroups()));
         assertNull(domestic.getDetailUrl());
         assertNull(domestic.getBidNtceDtlUrl());
 
@@ -271,8 +287,67 @@ class D2bBidCollectorTests {
         assertThrows(IllegalArgumentException.class, () -> collector(uri -> emptyList()).collect(END, START));
     }
 
+    @Test
+    void mapsPublishedD2bLicenseCodesAndOfficialNamesWithoutUsingTheTitle() {
+        assertEquals(List.of("6146"), licenseCodes(D2bBidCollector.parseLicenseGroups("6146")));
+        assertEquals(List.of("1468"), licenseCodes(D2bBidCollector.parseLicenseGroups("1468")));
+        assertEquals(List.of("6146"), licenseCodes(
+                D2bBidCollector.parseLicenseGroups("정보시스템 감리법인")
+        ));
+        assertEquals(List.of("1468"), licenseCodes(
+                D2bBidCollector.parseLicenseGroups("소프트웨어사업자(컴퓨터관련서비스사업)")
+        ));
+        assertEquals(List.of("6146", "1468"), licenseCodes(D2bBidCollector.parseLicenseGroups(
+                "정보시스템 감리법인 / 소프트웨어사업자(컴퓨터관련서비스사업)"
+        )));
+    }
+
+    @Test
+    void preservesUnrelatedOrUnknownLicenseEvidenceForCommonEvaluation() {
+        assertEquals(List.of("9999"), licenseCodes(D2bBidCollector.parseLicenseGroups("기타업종(9999)")));
+        var unknown = D2bBidCollector.parseLicenseGroups("기타 전문면허");
+        assertEquals(1, unknown.size());
+        assertEquals("", unknown.getFirst().getRequirements().getFirst().getLicenseCode());
+        assertTrue(D2bBidCollector.parseLicenseGroups("").isEmpty());
+    }
+
+    @Test
+    void filtersExplicitPublicationDatesOutsideTheRequestedRangeAndKeepsUnknownDates() {
+        RecordingTransport transport = new RecordingTransport(uri -> {
+            if (path(uri).endsWith("Detail")) {
+                return detail("");
+            }
+            if (!path(uri).equals("getDmstcCmpetBidPblancList")
+                    || !"정보시스템 감리".equals(query(uri).get("bidNm"))) {
+                return emptyList();
+            }
+            return list(
+                    item(common("BEFORE", "정보시스템 감리", "1") + "<pblancDate>20260831</pblancDate>"),
+                    item(common("START", "정보시스템 감리", "1") + "<pblancDate>20260901</pblancDate>"),
+                    item(common("END", "정보시스템 감리", "1") + "<pblancDate>20260921</pblancDate>"),
+                    item(common("AFTER", "정보시스템 감리", "1") + "<pblancDate>20260922</pblancDate>"),
+                    item(common("UNKNOWN", "정보시스템 감리", "1"))
+            );
+        });
+
+        List<String> noticeNumbers = collector(transport).collect(START, END).stream()
+                .map(BidQualificationDto::getBidNtceNo)
+                .toList();
+
+        assertEquals(List.of("START", "END", "UNKNOWN"), noticeNumbers);
+    }
+
     private static D2bBidCollector collector(D2bBidCollector.Transport transport) {
         return new D2bBidCollector("https://example.test/BidPblancInfoService", "test-key", transport);
+    }
+
+    private static List<String> licenseCodes(
+            List<com.comhu.bidmonitor.dto.LicenseRequirementGroup> groups
+    ) {
+        return groups.stream()
+                .flatMap(group -> group.getRequirements().stream())
+                .map(requirement -> requirement.getLicenseCode())
+                .toList();
     }
 
     private static BidQualificationDto find(List<BidQualificationDto> values, String noticeNumber) {

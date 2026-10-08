@@ -2,6 +2,8 @@ package com.comhu.bidmonitor.bid.source.d2b;
 
 import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
+import com.comhu.bidmonitor.dto.LicenseRequirement;
+import com.comhu.bidmonitor.dto.LicenseRequirementGroup;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,9 +32,13 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** 방위사업청 공식 공공데이터 OpenAPI에서 D2B 입찰 후보를 수집한다. */
 @Component
@@ -44,6 +50,11 @@ public class D2bBidCollector implements BidCandidateCollector {
 
     private static final Logger log = LoggerFactory.getLogger(D2bBidCollector.class);
     private static final DateTimeFormatter REQUEST_DATE = DateTimeFormatter.BASIC_ISO_DATE;
+    private static final Pattern LICENSE_CODE = Pattern.compile("(?<!\\d)(\\d{4})(?!\\d)");
+    private static final String AUDIT_LICENSE_CODE = "6146";
+    private static final String AUDIT_LICENSE_NAME = "정보시스템 감리법인";
+    private static final String SOFTWARE_LICENSE_CODE = "1468";
+    private static final String SOFTWARE_LICENSE_NAME = "소프트웨어사업자(컴퓨터관련서비스사업)";
     private static final List<String> SEARCH_TERMS = List.of(
             "정보시스템 감리", "정보화 감리", "개인정보 영향평가", "개인정보영향평가", "감리"
     );
@@ -57,21 +68,33 @@ public class D2bBidCollector implements BidCandidateCollector {
     private final String serviceKey;
     private final Transport transport;
     private final CallQuota callQuota;
+    private final boolean configuredExecutionEnabled;
 
     @Autowired
     public D2bBidCollector(
             @Value("${d2b.api.base-url}") String baseUrl,
             @Value("${d2b.api.service-key:}") String serviceKey,
+            @Value("${bid-source.d2b.enabled:false}") boolean configuredExecutionEnabled,
             D2bDailyQuotaService dailyQuotaService
     ) {
-        this(baseUrl, serviceKey, new JdkTransport(), dailyQuotaService::reserve);
+        this(baseUrl, serviceKey, new JdkTransport(), dailyQuotaService::reserve, configuredExecutionEnabled);
     }
 
     D2bBidCollector(String baseUrl, String serviceKey, Transport transport) {
-        this(baseUrl, serviceKey, transport, () -> { });
+        this(baseUrl, serviceKey, transport, () -> { }, false);
     }
 
     D2bBidCollector(String baseUrl, String serviceKey, Transport transport, CallQuota callQuota) {
+        this(baseUrl, serviceKey, transport, callQuota, false);
+    }
+
+    D2bBidCollector(
+            String baseUrl,
+            String serviceKey,
+            Transport transport,
+            CallQuota callQuota,
+            boolean configuredExecutionEnabled
+    ) {
         if (baseUrl == null || baseUrl.isBlank()) {
             throw new IllegalArgumentException("D2B API 기본 URL이 비어 있습니다.");
         }
@@ -79,6 +102,7 @@ public class D2bBidCollector implements BidCandidateCollector {
         this.serviceKey = serviceKey == null ? "" : serviceKey.trim();
         this.transport = transport;
         this.callQuota = callQuota;
+        this.configuredExecutionEnabled = configuredExecutionEnabled;
     }
 
     @Override
@@ -88,8 +112,7 @@ public class D2bBidCollector implements BidCandidateCollector {
 
     @Override
     public boolean executionEnabled() {
-        // Operational activation remains a separate, explicit step.
-        return false;
+        return configuredExecutionEnabled && !serviceKey.isBlank();
     }
 
     @Override
@@ -173,6 +196,9 @@ public class D2bBidCollector implements BidCandidateCollector {
                     }
                     ListedNotice notice = new ListedNotice(operation, fields(item));
                     validateIdentity(notice);
+                    if (!isWithinRequestedPeriod(notice, startDate, endDate)) {
+                        continue;
+                    }
                     notices.putIfAbsent(notice.key(), notice);
                 }
                 page++;
@@ -236,11 +262,66 @@ public class D2bBidCollector implements BidCandidateCollector {
         dto.setNoticeStatus(firstValue(values, "pblancSe", "progrsSttus"));
         dto.setNoticeStatusCode(values.getOrDefault("pblancSeCode", ""));
         dto.setSucsfbidMthdNm(values.getOrDefault("sucbidrDecsnMth", ""));
-        dto.setLicenseLimit(values.getOrDefault("lcnsLmttList", ""));
+        String licenseLimit = values.getOrDefault("lcnsLmttList", "");
+        dto.setLicenseLimit(licenseLimit);
         dto.setParticipationRegion(values.getOrDefault("areaLmttList", ""));
         dto.setAttachments(List.of());
-        dto.setLicenseGroups(List.of());
+        dto.setLicenseGroups(parseLicenseGroups(licenseLimit));
         return dto;
+    }
+
+    static List<LicenseRequirementGroup> parseLicenseGroups(String licenseLimit) {
+        if (licenseLimit == null || licenseLimit.isBlank()) {
+            return List.of();
+        }
+        String normalized = licenseLimit.replaceAll("\\s+", "");
+        Set<String> codes = new LinkedHashSet<>();
+        Matcher matcher = LICENSE_CODE.matcher(licenseLimit);
+        while (matcher.find()) {
+            codes.add(matcher.group(1));
+        }
+        if (normalized.contains(AUDIT_LICENSE_NAME.replace(" ", ""))) {
+            codes.add(AUDIT_LICENSE_CODE);
+        }
+        if (normalized.contains(SOFTWARE_LICENSE_NAME.replace(" ", ""))) {
+            codes.add(SOFTWARE_LICENSE_CODE);
+        }
+        if (codes.isEmpty()) {
+            String raw = licenseLimit.trim();
+            return List.of(new LicenseRequirementGroup("1", List.of(
+                    new LicenseRequirement("1", "", raw, raw)
+            )));
+        }
+        List<LicenseRequirement> requirements = new ArrayList<>();
+        for (String code : codes) {
+            String name = switch (code) {
+                case AUDIT_LICENSE_CODE -> AUDIT_LICENSE_NAME;
+                case SOFTWARE_LICENSE_CODE -> SOFTWARE_LICENSE_NAME;
+                default -> "";
+            };
+            requirements.add(new LicenseRequirement(
+                    Integer.toString(requirements.size() + 1), code, name, licenseLimit.trim()
+            ));
+        }
+        return List.of(new LicenseRequirementGroup("1", List.copyOf(requirements)));
+    }
+
+    private static boolean isWithinRequestedPeriod(
+            ListedNotice notice,
+            LocalDate startDate,
+            LocalDate endDate
+    ) {
+        String value = firstValue(notice.values(), "pblancDate", "ntatPlanDate");
+        String digits = value.replaceAll("[^0-9]", "");
+        if (digits.length() < 8) {
+            return true;
+        }
+        try {
+            LocalDate publishedDate = LocalDate.parse(digits.substring(0, 8), REQUEST_DATE);
+            return !publishedDate.isBefore(startDate) && !publishedDate.isAfter(endDate);
+        } catch (RuntimeException ignored) {
+            return true;
+        }
     }
 
     static boolean isRelevantTitle(String title) {

@@ -243,7 +243,7 @@ class ManualBidCollectionCoordinatorTests {
     }
 
     @Test
-    void productionRegistryKeepsD2bDisabledAfterQuotaProtectionIsAdded() {
+    void productionRegistryKeepsD2bDisabledWithoutServiceKey() {
         ManualBidCollectionSource d2b = sourceRegistry.sources().stream()
                 .filter(source -> source.sourceCode().equals("D2B"))
                 .findFirst()

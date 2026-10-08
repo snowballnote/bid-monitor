@@ -1,6 +1,7 @@
 package com.comhu.bidmonitor.bid.collection;
 
 import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
+import com.comhu.bidmonitor.bid.source.d2b.D2bBidCollector;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceExecutionEligibilityService;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
 import com.comhu.bidmonitor.service.G2bApiService;
@@ -12,6 +13,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -50,6 +52,43 @@ class ManualBidCollectionSourceRegistryTests {
         verify(kogas, never()).collect(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
         verify(expressway, never()).collect(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
         verify(d2b, never()).collect(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void executesEnabledD2bThroughTheExistingCommonReviewPath() {
+        G2bApiService g2b = mock(G2bApiService.class);
+        BidSourceExecutionEligibilityService eligibility = mock(BidSourceExecutionEligibilityService.class);
+        D2bBidCollector d2b = mock(D2bBidCollector.class);
+        BidQualificationDto collected = new BidQualificationDto();
+        collected.setSourceCode("D2B");
+        BidQualificationDto reviewed = new BidQualificationDto();
+        reviewed.setSourceCode("D2B");
+        when(d2b.sourceCode()).thenReturn("D2B");
+        when(d2b.executionEnabled()).thenReturn(true);
+        when(d2b.collectMeasured(START, END)).thenReturn(
+                new D2bBidCollector.CollectionResult(List.of(collected), 7)
+        );
+        when(g2b.processAdditionalBidQualificationList(d2b, List.of(collected), Set.of("6146", "1468")))
+                .thenReturn(List.of(reviewed));
+
+        ManualBidCollectionSourceRegistry registry = new ManualBidCollectionSourceRegistry(
+                g2b, List.of(d2b), eligibility
+        );
+        ManualBidCollectionSource source = registry.sources().stream()
+                .filter(candidate -> candidate.sourceCode().equals("D2B"))
+                .findFirst()
+                .orElseThrow();
+
+        ManualBidCollectionSource.CollectionBatch result = source.collect(
+                START, END, Set.of("6146", "1468")
+        );
+
+        assertTrue(source.executionEnabled());
+        assertEquals(List.of(reviewed), result.candidates());
+        assertEquals(7, result.apiCallCount());
+        verify(g2b).processAdditionalBidQualificationList(
+                d2b, List.of(collected), Set.of("6146", "1468")
+        );
     }
 
     @Test
