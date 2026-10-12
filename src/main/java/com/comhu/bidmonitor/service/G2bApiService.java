@@ -2,6 +2,8 @@ package com.comhu.bidmonitor.service;
 
 import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
 import com.comhu.bidmonitor.classifier.BidAwardMethodClassifier;
+import com.comhu.bidmonitor.classifier.BidRelevance;
+import com.comhu.bidmonitor.classifier.BidRelevanceClassifier;
 import com.comhu.bidmonitor.dto.BidAttachmentDto;
 import com.comhu.bidmonitor.dto.BidDocumentAnalysisDto;
 import com.comhu.bidmonitor.dto.BidDto;
@@ -82,15 +84,6 @@ public class G2bApiService {
             "개인정보 영향평가",
             "개인정보영향평가",
             "감리"
-    );
-    private static final List<String> G2B_SUPERVISION_TITLE_CONTEXTS = List.of(
-            "정보시스템",
-            "정보화",
-            "전산",
-            "소프트웨어",
-            "시스템",
-            "ict",
-            "it감리"
     );
     private static final Set<String> DEFAULT_ALLOWED_LICENSE_CODES = Set.of("6146", "1468");
     private static final Set<String> PDF_ANALYSIS_DOCUMENT_TYPES =
@@ -250,25 +243,35 @@ public class G2bApiService {
 
     private final BidQualificationEvaluationService qualificationEvaluationService;
     private final List<BidCandidateCollector> additionalBidCandidateCollectors;
+    private final BidRelevanceClassifier bidRelevanceClassifier;
 
     /** 직접 생성하는 기존 단위 테스트와의 호환을 위한 기본 생성자다. */
     public G2bApiService() {
-        this(new BidAwardMethodClassifier(), List.of());
+        this(new BidAwardMethodClassifier(), List.of(), new BidRelevanceClassifier());
     }
 
     /** 실행 환경에서는 별도 책임으로 분리된 Spring 관리 classifier를 주입받는다. */
     public G2bApiService(BidAwardMethodClassifier bidAwardMethodClassifier) {
-        this(bidAwardMethodClassifier, List.of());
+        this(bidAwardMethodClassifier, List.of(), new BidRelevanceClassifier());
     }
 
     /** 나라장터에 없는 연계기관 후보 수집기를 목록으로 주입해 기존 판정 흐름에 합류시킨다. */
     @Autowired
     public G2bApiService(
             BidQualificationEvaluationService qualificationEvaluationService,
-            List<BidCandidateCollector> additionalBidCandidateCollectors
+            List<BidCandidateCollector> additionalBidCandidateCollectors,
+            BidRelevanceClassifier bidRelevanceClassifier
     ) {
         this.qualificationEvaluationService = qualificationEvaluationService;
         this.additionalBidCandidateCollectors = List.copyOf(additionalBidCandidateCollectors);
+        this.bidRelevanceClassifier = bidRelevanceClassifier;
+    }
+
+    public G2bApiService(
+            BidQualificationEvaluationService qualificationEvaluationService,
+            List<BidCandidateCollector> additionalBidCandidateCollectors
+    ) {
+        this(qualificationEvaluationService, additionalBidCandidateCollectors, new BidRelevanceClassifier());
     }
 
     /** 기존 직접 생성 호출은 공통 판정 서비스를 구성해 같은 실행 경로를 사용한다. */
@@ -276,7 +279,16 @@ public class G2bApiService {
             BidAwardMethodClassifier bidAwardMethodClassifier,
             List<BidCandidateCollector> additionalBidCandidateCollectors
     ) {
-        this(new BidQualificationEvaluationService(bidAwardMethodClassifier), additionalBidCandidateCollectors);
+        this(bidAwardMethodClassifier, additionalBidCandidateCollectors, new BidRelevanceClassifier());
+    }
+
+    public G2bApiService(
+            BidAwardMethodClassifier bidAwardMethodClassifier,
+            List<BidCandidateCollector> additionalBidCandidateCollectors,
+            BidRelevanceClassifier bidRelevanceClassifier
+    ) {
+        this(new BidQualificationEvaluationService(bidAwardMethodClassifier),
+                additionalBidCandidateCollectors, bidRelevanceClassifier);
     }
 
     // application.properties에 설정한 나라장터 API 기본 주소를 가져옴
@@ -1936,16 +1948,8 @@ public class G2bApiService {
     }
 
     private boolean isRelevantTitleSearchBid(BidDto bid) {
-        String normalizedTitle = getSafeValue(bid == null ? null : bid.getBidNtceNm())
-                .replaceAll("\\s+", "")
-                .toLowerCase(Locale.ROOT);
-        if (normalizedTitle.contains("개인정보영향평가")) {
-            return true;
-        }
-        if (!normalizedTitle.contains("감리")) {
-            return false;
-        }
-        return G2B_SUPERVISION_TITLE_CONTEXTS.stream().anyMatch(normalizedTitle::contains);
+        String title = bid == null ? null : bid.getBidNtceNm();
+        return bidRelevanceClassifier.classify(title) != BidRelevance.IRRELEVANT;
     }
 
     /**

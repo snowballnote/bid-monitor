@@ -91,6 +91,33 @@ class G2bApiServiceTitleSearchTests {
     }
 
     @Test
+    void keepsIndustryCodeCandidatesEvenWhenTitleLooksIrrelevant() {
+        TitleSearchFixtureService service = new TitleSearchFixtureService();
+        service.industries.put("6146", List.of(
+                bid("G2B-LICENSED", "건설공사 감리 용역")
+        ));
+
+        List<BidDto> result = service.getBidDtoList(DATE, DATE);
+
+        assertEquals(List.of("G2B-LICENSED"),
+                result.stream().map(BidDto::getBidNtceNo).toList());
+    }
+
+    @Test
+    void titleSearchExcludesOnlyClearlyIrrelevantAndKeepsUnknown() {
+        TitleSearchFixtureService service = new TitleSearchFixtureService();
+        service.titles.put("감리", List.of(
+                bid("G2B-UNKNOWN", "감리 용역"),
+                bid("G2B-IRRELEVANT", "정보통신공사 감리 용역")
+        ));
+
+        List<BidDto> result = service.getBidDtoList(DATE, DATE);
+
+        assertEquals(List.of("G2B-UNKNOWN"),
+                result.stream().map(BidDto::getBidNtceNo).toList());
+    }
+
+    @Test
     void titleOnlyCandidateUsesExistingDetailAnalysisPipeline() {
         DetailFixtureService service = new DetailFixtureService();
         service.titles.put("개인정보 영향평가", List.of(

@@ -1,6 +1,8 @@
 package com.comhu.bidmonitor.bid.source.lh;
 
 import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
+import com.comhu.bidmonitor.classifier.BidRelevance;
+import com.comhu.bidmonitor.classifier.BidRelevanceClassifier;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
 import com.comhu.bidmonitor.dto.LicenseRequirement;
 import com.comhu.bidmonitor.dto.LicenseRequirementGroup;
@@ -72,18 +74,27 @@ public class LhBidCollector implements BidCandidateCollector {
     private final boolean configuredExecutionEnabled;
     private final Transport transport;
     private final int pageSize;
+    private final BidRelevanceClassifier bidRelevanceClassifier;
 
     @Autowired
     public LhBidCollector(
             @Value("${lh.api.base-url}") String baseUrl,
             @Value("${lh.api.service-key:}") String serviceKey,
-            @Value("${bid-source.lh.enabled:false}") boolean configuredExecutionEnabled
+            @Value("${bid-source.lh.enabled:false}") boolean configuredExecutionEnabled,
+            BidRelevanceClassifier bidRelevanceClassifier
     ) {
-        this(baseUrl, serviceKey, configuredExecutionEnabled, new JdkTransport(), PAGE_SIZE);
+        this(baseUrl, serviceKey, configuredExecutionEnabled, new JdkTransport(), PAGE_SIZE,
+                bidRelevanceClassifier);
+    }
+
+    public LhBidCollector(String baseUrl, String serviceKey, boolean configuredExecutionEnabled) {
+        this(baseUrl, serviceKey, configuredExecutionEnabled, new JdkTransport(), PAGE_SIZE,
+                new BidRelevanceClassifier());
     }
 
     LhBidCollector(String baseUrl, String serviceKey, boolean configuredExecutionEnabled, Transport transport) {
-        this(baseUrl, serviceKey, configuredExecutionEnabled, transport, PAGE_SIZE);
+        this(baseUrl, serviceKey, configuredExecutionEnabled, transport, PAGE_SIZE,
+                new BidRelevanceClassifier());
     }
 
     LhBidCollector(
@@ -93,6 +104,18 @@ public class LhBidCollector implements BidCandidateCollector {
             Transport transport,
             int pageSize
     ) {
+        this(baseUrl, serviceKey, configuredExecutionEnabled, transport, pageSize,
+                new BidRelevanceClassifier());
+    }
+
+    LhBidCollector(
+            String baseUrl,
+            String serviceKey,
+            boolean configuredExecutionEnabled,
+            Transport transport,
+            int pageSize,
+            BidRelevanceClassifier bidRelevanceClassifier
+    ) {
         this.apiUri = validateApiUri(baseUrl);
         this.serviceKey = serviceKey == null ? "" : serviceKey.trim();
         this.configuredExecutionEnabled = configuredExecutionEnabled;
@@ -101,6 +124,7 @@ public class LhBidCollector implements BidCandidateCollector {
             throw new IllegalArgumentException("LH page size must be positive.");
         }
         this.pageSize = pageSize;
+        this.bidRelevanceClassifier = bidRelevanceClassifier;
     }
 
     @Override
@@ -123,6 +147,9 @@ public class LhBidCollector implements BidCandidateCollector {
         LinkedHashMap<NoticeKey, Map<String, String>> uniqueNotices = collectApiNotices(startDate, endDate);
         List<BidQualificationDto> result = new ArrayList<>();
         for (Map<String, String> notice : uniqueNotices.values()) {
+            if (bidRelevanceClassifier.classify(notice.get("bidnmKor")) == BidRelevance.IRRELEVANT) {
+                continue;
+            }
             DetailData detail = DetailData.empty();
             if (needsDetail(notice) && isServiceNotice(notice)) {
                 try {

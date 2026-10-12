@@ -208,6 +208,27 @@ class LhBidCollectorTests {
     }
 
     @Test
+    void excludesOnlyClearlyIrrelevantTitlesAndKeepsRelevantAndUnknown() {
+        LhBidCollector collector = collector(uri -> {
+            if ("ebid.lh.or.kr".equals(uri.getHost())) {
+                return detail(null, "제한경쟁", "적격심사", "미접수");
+            }
+            return response(6,
+                    item("LH-IT", "00", "대기자 통합시스템 구축 1차 감리 용역", ""),
+                    item("LH-UNKNOWN", "00", "감리 용역", ""),
+                    item("LH-WASTE", "00", "건설폐기물 처리 용역", ""),
+                    item("LH-SAFETY", "00", "지하안전평가 용역", ""),
+                    item("LH-TELECOM", "00", "정보통신공사 감리 용역", ""),
+                    item("LH-CONSTRUCTION", "00", "일반 건설 감리 용역", ""));
+        });
+
+        List<BidQualificationDto> result = collector.collect(START, END);
+
+        assertEquals(List.of("LH-IT", "LH-UNKNOWN"), result.stream()
+                .map(BidQualificationDto::getBidNtceNo).toList());
+    }
+
+    @Test
     void detailFailureKeepsApiCandidateForAdditionalReview() {
         LhBidCollector collector = collector(uri -> {
             if ("ebid.lh.or.kr".equals(uri.getHost())) {

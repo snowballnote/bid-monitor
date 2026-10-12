@@ -132,6 +132,30 @@ class D2bBidCollectorTests {
     }
 
     @Test
+    void keepsUnknownButExcludesClearlyIrrelevantTitles() {
+        RecordingTransport transport = new RecordingTransport(uri -> {
+            if (path(uri).endsWith("Detail")) {
+                return detail("<cntrctMth>제한경쟁</cntrctMth>");
+            }
+            if (!path(uri).equals("getDmstcCmpetBidPblancList")
+                    || !"감리".equals(query(uri).get("bidNm"))) {
+                return emptyList();
+            }
+            return list(
+                    item(common("UNKNOWN-1", "감리 용역", "1")),
+                    item(common("CONSTRUCTION-1", "건설공사 감리 용역", "1")),
+                    item(common("IRRELEVANT-1", "건축 감리 용역", "1"))
+            );
+        });
+
+        List<BidQualificationDto> result = collector(transport).collect(START, END);
+
+        assertEquals(List.of("UNKNOWN-1"), result.stream()
+                .map(BidQualificationDto::getBidNtceNo).toList());
+        assertEquals(1, transport.detailCalls.get());
+    }
+
+    @Test
     void keepsDifferentRevisionsAndDeduplicatesSameRevisionAcrossOperationsBeforeDetail() {
         AtomicInteger detailCalls = new AtomicInteger();
         RecordingTransport transport = new RecordingTransport(uri -> {

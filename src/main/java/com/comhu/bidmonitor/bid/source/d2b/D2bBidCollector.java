@@ -1,6 +1,8 @@
 package com.comhu.bidmonitor.bid.source.d2b;
 
 import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
+import com.comhu.bidmonitor.classifier.BidRelevance;
+import com.comhu.bidmonitor.classifier.BidRelevanceClassifier;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
 import com.comhu.bidmonitor.dto.LicenseRequirement;
 import com.comhu.bidmonitor.dto.LicenseRequirementGroup;
@@ -34,7 +36,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -59,26 +60,33 @@ public class D2bBidCollector implements BidCandidateCollector {
     private static final List<String> SEARCH_TERMS = List.of(
             "정보시스템 감리", "정보화 감리", "개인정보 영향평가", "개인정보영향평가", "감리"
     );
-    private static final List<String> IT_CONTEXT = List.of(
-            "정보시스템", "정보화", "전산", "소프트웨어", "시스템", "ict",
-            "플랫폼", "구축", "운영", "유지관리", "클라우드"
-    );
-    private static final List<String> NON_IT_SUPERVISION = List.of("건설", "소방", "전기");
-
     private final String baseUrl;
     private final String serviceKey;
     private final Transport transport;
     private final CallQuota callQuota;
     private final boolean configuredExecutionEnabled;
+    private final BidRelevanceClassifier bidRelevanceClassifier;
 
     @Autowired
     public D2bBidCollector(
             @Value("${d2b.api.base-url}") String baseUrl,
             @Value("${d2b.api.service-key:}") String serviceKey,
             @Value("${bid-source.d2b.enabled:false}") boolean configuredExecutionEnabled,
+            D2bDailyQuotaService dailyQuotaService,
+            BidRelevanceClassifier bidRelevanceClassifier
+    ) {
+        this(baseUrl, serviceKey, new JdkTransport(), dailyQuotaService::reserve,
+                configuredExecutionEnabled, bidRelevanceClassifier);
+    }
+
+    public D2bBidCollector(
+            String baseUrl,
+            String serviceKey,
+            boolean configuredExecutionEnabled,
             D2bDailyQuotaService dailyQuotaService
     ) {
-        this(baseUrl, serviceKey, new JdkTransport(), dailyQuotaService::reserve, configuredExecutionEnabled);
+        this(baseUrl, serviceKey, new JdkTransport(), dailyQuotaService::reserve,
+                configuredExecutionEnabled, new BidRelevanceClassifier());
     }
 
     D2bBidCollector(String baseUrl, String serviceKey, Transport transport) {
@@ -96,6 +104,18 @@ public class D2bBidCollector implements BidCandidateCollector {
             CallQuota callQuota,
             boolean configuredExecutionEnabled
     ) {
+        this(baseUrl, serviceKey, transport, callQuota, configuredExecutionEnabled,
+                new BidRelevanceClassifier());
+    }
+
+    D2bBidCollector(
+            String baseUrl,
+            String serviceKey,
+            Transport transport,
+            CallQuota callQuota,
+            boolean configuredExecutionEnabled,
+            BidRelevanceClassifier bidRelevanceClassifier
+    ) {
         if (baseUrl == null || baseUrl.isBlank()) {
             throw new IllegalArgumentException("D2B API 기본 URL이 비어 있습니다.");
         }
@@ -104,6 +124,7 @@ public class D2bBidCollector implements BidCandidateCollector {
         this.transport = transport;
         this.callQuota = callQuota;
         this.configuredExecutionEnabled = configuredExecutionEnabled;
+        this.bidRelevanceClassifier = bidRelevanceClassifier;
     }
 
     @Override
@@ -192,10 +213,10 @@ public class D2bBidCollector implements BidCandidateCollector {
                 totalCount = integer(text(first(document, "totalCount")), 0);
                 for (Element item : elements(document, "item")) {
                     String title = firstText(item, operation.titleField, "bidNm", "othbcNtatNm", "cntrwkNm");
-                    if (!isRelevantTitle(title)) {
+                    ListedNotice notice = new ListedNotice(operation, fields(item));
+                    if (bidRelevanceClassifier.classify(title) == BidRelevance.IRRELEVANT) {
                         continue;
                     }
-                    ListedNotice notice = new ListedNotice(operation, fields(item));
                     validateIdentity(notice);
                     if (!isWithinRequestedPeriod(notice, startDate, endDate)) {
                         continue;
@@ -372,22 +393,6 @@ public class D2bBidCollector implements BidCandidateCollector {
         } catch (RuntimeException ignored) {
             return true;
         }
-    }
-
-    static boolean isRelevantTitle(String title) {
-        String normalized = title == null ? "" : title.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
-        if (normalized.contains("개인정보영향평가")) {
-            return true;
-        }
-        if (!normalized.contains("감리")) {
-            return false;
-        }
-        boolean hasItContext = IT_CONTEXT.stream().anyMatch(normalized::contains)
-                || normalized.matches(".*(^|[^a-z])it([^a-z]|$).*");
-        if (NON_IT_SUPERVISION.stream().anyMatch(normalized::contains) && !hasItContext) {
-            return false;
-        }
-        return hasItContext;
     }
 
     private static void validateIdentity(ListedNotice notice) {
