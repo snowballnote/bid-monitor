@@ -156,7 +156,9 @@ public class ManualBidCollectionSourceRegistry {
                                 measured.apiCallCount()
                         );
                     } catch (D2bBidCollector.CollectionException exception) {
-                        throw new MeasuredCollectionException(exception.getApiCallCount(), exception);
+                        throw new MeasuredCollectionException(
+                                exception.getApiCallCount(), exception.getErrorCode(), exception
+                        );
                     }
                 }
                 return CollectionBatch.unmeasured(g2bApiService.getAdditionalBidQualificationList(

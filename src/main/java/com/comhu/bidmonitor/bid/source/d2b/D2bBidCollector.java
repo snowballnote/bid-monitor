@@ -51,6 +51,7 @@ public class D2bBidCollector implements BidCandidateCollector {
     private static final Logger log = LoggerFactory.getLogger(D2bBidCollector.class);
     private static final DateTimeFormatter REQUEST_DATE = DateTimeFormatter.BASIC_ISO_DATE;
     private static final Pattern LICENSE_CODE = Pattern.compile("(?<!\\d)(\\d{4})(?!\\d)");
+    private static final Pattern SAFE_RESULT_CODE = Pattern.compile("[A-Za-z0-9_-]{1,40}");
     private static final String AUDIT_LICENSE_CODE = "6146";
     private static final String AUDIT_LICENSE_NAME = "정보시스템 감리법인";
     private static final String SOFTWARE_LICENSE_CODE = "1468";
@@ -130,7 +131,7 @@ public class D2bBidCollector implements BidCandidateCollector {
         RequestCounter counter = new RequestCounter();
         LinkedHashMap<CandidateKey, ListedNotice> listed = new LinkedHashMap<>();
         int successfulOperations = 0;
-        List<String> failedOperations = new ArrayList<>();
+        List<FailureDiagnostic> failureDiagnostics = new ArrayList<>();
 
         for (Operation operation : Operation.values()) {
             try {
@@ -139,15 +140,17 @@ public class D2bBidCollector implements BidCandidateCollector {
                 }
                 successfulOperations++;
             } catch (RuntimeException exception) {
-                failedOperations.add(operation.listPath);
-                log.warn("D2B list operation failed: operation={}, errorType={}",
-                        operation.listPath, exception.getClass().getSimpleName());
+                FailureDiagnostic diagnostic = diagnose(exception, FailureStage.LIST);
+                failureDiagnostics.add(diagnostic);
+                logFailure(operation, diagnostic);
             }
         }
 
         if (successfulOperations == 0) {
-            throw new CollectionException("D2B 목록 오퍼레이션 조회에 실패했습니다: "
-                    + String.join(", ", failedOperations), counter.count());
+            FailureDiagnostic diagnostic = failureDiagnostics.isEmpty()
+                    ? FailureDiagnostic.fallback(FailureStage.LIST, IllegalStateException.class)
+                    : failureDiagnostics.getFirst();
+            throw new CollectionException("D2B list operations failed", counter.count(), diagnostic.errorCode());
         }
 
         List<BidQualificationDto> result = new ArrayList<>();
@@ -157,9 +160,7 @@ public class D2bBidCollector implements BidCandidateCollector {
                 try {
                     detail = readDetail(notice, counter);
                 } catch (RuntimeException exception) {
-                    log.warn("D2B detail operation failed: operation={}, sourceNoticeId={}, errorType={}",
-                            notice.operation.detailPath, notice.sourceNoticeId(),
-                            exception.getClass().getSimpleName());
+                    logFailure(notice.operation, diagnose(exception, FailureStage.DETAIL));
                 }
             }
             result.add(toQualification(notice, detail));
@@ -229,9 +230,58 @@ public class D2bBidCollector implements BidCandidateCollector {
         Document document = parseXml(body);
         String resultCode = text(first(document, "resultCode"));
         if (!resultCode.isBlank() && !"00".equals(resultCode) && !"0".equals(resultCode)) {
-            throw new IllegalStateException("D2B API가 오류 코드를 반환했습니다: " + resultCode);
+            throw new ApiResultException(safeResultCode(resultCode));
         }
         return document;
+    }
+
+    private void logFailure(Operation operation, FailureDiagnostic diagnostic) {
+        log.warn(
+                "D2B operation failed: operation={}, stage={}, exceptionClass={}, httpStatus={}, resultCode={}",
+                operation.name(), diagnostic.stage(), diagnostic.exceptionClass(),
+                diagnostic.httpStatus() == null ? "-" : diagnostic.httpStatus(),
+                diagnostic.resultCode() == null ? "-" : diagnostic.resultCode()
+        );
+    }
+
+    private static FailureDiagnostic diagnose(RuntimeException exception, FailureStage fallbackStage) {
+        Throwable current = exception;
+        for (int depth = 0; current != null && depth < 8; depth++, current = current.getCause()) {
+            if (current instanceof D2bDailyQuotaExceededException) {
+                return new FailureDiagnostic(
+                        FailureStage.QUOTA, current.getClass().getSimpleName(),
+                        null, null, "DAILY_QUOTA_EXCEEDED"
+                );
+            }
+            if (current instanceof HttpStatusException httpFailure) {
+                return new FailureDiagnostic(
+                        FailureStage.HTTP, current.getClass().getSimpleName(),
+                        httpFailure.statusCode(), null, "D2B_HTTP"
+                );
+            }
+            if (current instanceof ApiResultException apiFailure) {
+                return new FailureDiagnostic(
+                        FailureStage.HTTP, current.getClass().getSimpleName(),
+                        null, apiFailure.resultCode(), "D2B_RESULT_CODE"
+                );
+            }
+            if (current instanceof ParseException) {
+                return new FailureDiagnostic(
+                        FailureStage.PARSE, current.getClass().getSimpleName(), null, null, "D2B_PARSE"
+                );
+            }
+            if (current instanceof ConnectionException) {
+                return new FailureDiagnostic(
+                        FailureStage.CONNECTION, current.getClass().getSimpleName(), null, null, "D2B_CONNECTION"
+                );
+            }
+        }
+        return FailureDiagnostic.fallback(fallbackStage, exception.getClass());
+    }
+
+    private static String safeResultCode(String resultCode) {
+        String normalized = resultCode == null ? "" : resultCode.trim();
+        return SAFE_RESULT_CODE.matcher(normalized).matches() ? normalized : null;
     }
 
     BidQualificationDto toQualification(ListedNotice notice, Element detail) {
@@ -361,7 +411,7 @@ public class D2bBidCollector implements BidCandidateCollector {
             builder.setErrorHandler(new DefaultHandler());
             return builder.parse(new InputSource(new StringReader(xml)));
         } catch (Exception exception) {
-            throw new IllegalStateException("D2B API XML 응답을 처리할 수 없습니다.", exception);
+            throw new ParseException(exception);
         }
     }
 
@@ -490,6 +540,29 @@ public class D2bBidCollector implements BidCandidateCollector {
         }
     }
 
+    enum FailureStage {
+        LIST,
+        DETAIL,
+        PARSE,
+        QUOTA,
+        HTTP,
+        CONNECTION
+    }
+
+    private record FailureDiagnostic(
+            FailureStage stage,
+            String exceptionClass,
+            Integer httpStatus,
+            String resultCode,
+            String errorCode
+    ) {
+        private static FailureDiagnostic fallback(FailureStage stage, Class<?> exceptionClass) {
+            return new FailureDiagnostic(
+                    stage, exceptionClass.getSimpleName(), null, null, "D2B_" + stage.name()
+            );
+        }
+    }
+
     record ListedNotice(Operation operation, Map<String, String> values) {
         private String value(String name) {
             return values.getOrDefault(name, "");
@@ -527,14 +600,58 @@ public class D2bBidCollector implements BidCandidateCollector {
 
     public static class CollectionException extends IllegalStateException {
         private final int apiCallCount;
+        private final String errorCode;
 
-        CollectionException(String message, int apiCallCount) {
+        CollectionException(String message, int apiCallCount, String errorCode) {
             super(message);
             this.apiCallCount = apiCallCount;
+            this.errorCode = errorCode;
         }
 
         public int getApiCallCount() {
             return apiCallCount;
+        }
+
+        public String getErrorCode() {
+            return errorCode;
+        }
+    }
+
+    static final class HttpStatusException extends IllegalStateException {
+        private final int statusCode;
+
+        HttpStatusException(int statusCode) {
+            super("D2B HTTP request failed");
+            this.statusCode = statusCode;
+        }
+
+        int statusCode() {
+            return statusCode;
+        }
+    }
+
+    private static final class ApiResultException extends IllegalStateException {
+        private final String resultCode;
+
+        private ApiResultException(String resultCode) {
+            super("D2B API returned an error result");
+            this.resultCode = resultCode;
+        }
+
+        private String resultCode() {
+            return resultCode;
+        }
+    }
+
+    private static final class ParseException extends IllegalStateException {
+        private ParseException(Throwable cause) {
+            super("D2B response parsing failed", cause);
+        }
+    }
+
+    static final class ConnectionException extends IllegalStateException {
+        ConnectionException(Throwable cause) {
+            super("D2B connection failed", cause);
         }
     }
 
@@ -598,7 +715,7 @@ public class D2bBidCollector implements BidCandidateCollector {
                 HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
                 try (InputStream input = response.body()) {
                     if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                        throw new IllegalStateException("D2B API HTTP 요청에 실패했습니다: " + response.statusCode());
+                        throw new HttpStatusException(response.statusCode());
                     }
                     byte[] bytes = input.readNBytes(MAX_RESPONSE_BYTES + 1);
                     if (bytes.length > MAX_RESPONSE_BYTES) {
@@ -607,10 +724,10 @@ public class D2bBidCollector implements BidCandidateCollector {
                     return new String(bytes, StandardCharsets.UTF_8);
                 }
             } catch (IOException exception) {
-                throw new IllegalStateException("D2B API 통신에 실패했습니다.", exception);
+                throw new ConnectionException(exception);
             } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
-                throw new IllegalStateException("D2B API 통신이 중단되었습니다.", exception);
+                throw new ConnectionException(exception);
             }
         }
     }

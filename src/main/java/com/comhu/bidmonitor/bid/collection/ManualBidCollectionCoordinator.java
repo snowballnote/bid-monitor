@@ -179,8 +179,12 @@ public class ManualBidCollectionCoordinator {
                     Integer apiCallCount = exception instanceof ManualBidCollectionSource.MeasuredCollectionException measured
                             ? measured.getApiCallCount()
                             : null;
+                    String errorCode = exception instanceof ManualBidCollectionSource.MeasuredCollectionException measured
+                            && measured.getErrorCode() != null
+                            ? measured.getErrorCode()
+                            : COLLECTION_FAILED;
                     executions.put(sourceCode, new ExecutionContext(lockedRun, apiCallCount));
-                    collectedResults.add(BidSourceCollectionResult.failure(sourceCode, COLLECTION_FAILED));
+                    collectedResults.add(BidSourceCollectionResult.failure(sourceCode, errorCode));
                 }
             }
 

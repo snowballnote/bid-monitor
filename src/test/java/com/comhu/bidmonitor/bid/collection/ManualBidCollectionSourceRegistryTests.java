@@ -13,6 +13,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -89,6 +90,32 @@ class ManualBidCollectionSourceRegistryTests {
         verify(g2b).processAdditionalBidQualificationList(
                 d2b, List.of(collected), Set.of("6146", "1468")
         );
+    }
+
+    @Test
+    void preservesSafeD2bFailureCodeInMeasuredFailure() {
+        G2bApiService g2b = mock(G2bApiService.class);
+        BidSourceExecutionEligibilityService eligibility = mock(BidSourceExecutionEligibilityService.class);
+        D2bBidCollector d2b = mock(D2bBidCollector.class);
+        D2bBidCollector.CollectionException failure = mock(D2bBidCollector.CollectionException.class);
+        when(d2b.sourceCode()).thenReturn("D2B");
+        when(d2b.executionEnabled()).thenReturn(true);
+        when(failure.getApiCallCount()).thenReturn(0);
+        when(failure.getErrorCode()).thenReturn("DAILY_QUOTA_EXCEEDED");
+        when(d2b.collectMeasured(START, END)).thenThrow(failure);
+
+        ManualBidCollectionSource source = new ManualBidCollectionSourceRegistry(
+                g2b, List.of(d2b), eligibility
+        ).sources().stream().filter(candidate -> candidate.sourceCode().equals("D2B"))
+                .findFirst().orElseThrow();
+
+        ManualBidCollectionSource.MeasuredCollectionException measured = assertThrows(
+                ManualBidCollectionSource.MeasuredCollectionException.class,
+                () -> source.collect(START, END, Set.of("6146"))
+        );
+
+        assertEquals(0, measured.getApiCallCount());
+        assertEquals("DAILY_QUOTA_EXCEEDED", measured.getErrorCode());
     }
 
     @Test

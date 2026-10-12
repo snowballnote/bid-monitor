@@ -36,14 +36,24 @@ public interface ManualBidCollectionSource {
 
     class MeasuredCollectionException extends RuntimeException {
         private final int apiCallCount;
+        private final String errorCode;
 
         public MeasuredCollectionException(int apiCallCount, Throwable cause) {
-            super(cause);
+            this(apiCallCount, null, cause);
+        }
+
+        public MeasuredCollectionException(int apiCallCount, String errorCode, Throwable cause) {
+            super("Measured collection failed", cause);
             this.apiCallCount = apiCallCount;
+            this.errorCode = errorCode;
         }
 
         public int getApiCallCount() {
             return apiCallCount;
+        }
+
+        public String getErrorCode() {
+            return errorCode;
         }
     }
 }

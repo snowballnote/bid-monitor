@@ -454,16 +454,20 @@ class ManualBidCollectionCoordinatorTests {
 
             @Override
             public CollectionBatch collect(LocalDate startDate, LocalDate endDate, Set<String> codes) {
-                throw new MeasuredCollectionException(4, new IllegalStateException("fixture failure"));
+                throw new MeasuredCollectionException(
+                        4, "D2B_CONNECTION", new IllegalStateException("fixture failure")
+                );
             }
         };
 
-        assertThrows(
+        ManualBidCollectionException failure = assertThrows(
                 ManualBidCollectionException.class,
                 () -> coordinator(measuredFailure).collect(START, END, LICENSE_CODES)
         );
 
+        assertEquals("D2B_CONNECTION", failure.getResult().sourceResults().getFirst().errorCode());
         assertEquals(4, latestRun("D2B").getApiCallCount());
+        assertEquals("D2B_CONNECTION", latestRun("D2B").getErrorCode());
     }
 
     @Test

@@ -1,8 +1,13 @@
 package com.comhu.bidmonitor.bid.source.d2b;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -183,7 +188,7 @@ class D2bBidCollectorTests {
                 () -> collector(transport).collect(START, END)
         );
 
-        assertTrue(exception.getMessage().contains("D2B 목록 오퍼레이션"));
+        assertEquals("D2B_PARSE", ((D2bBidCollector.CollectionException) exception).getErrorCode());
         assertTrue(!exception.getMessage().contains("test-key"));
     }
 
@@ -226,6 +231,103 @@ class D2bBidCollectorTests {
 
         assertEquals(0, transport.uris.size());
         assertEquals(0, failure.getApiCallCount());
+        assertEquals("DAILY_QUOTA_EXCEEDED", failure.getErrorCode());
+    }
+
+    @Test
+    void logsSafeHttpAndResultCodeDiagnosticsWithoutUrlKeyOrMessage() {
+        Logger logger = (Logger) LoggerFactory.getLogger(D2bBidCollector.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            String serviceKey = "TOP-SECRET-SERVICE-KEY";
+            String baseUrl = "https://private.example.test/BidPblancInfoService";
+            D2bBidCollector httpCollector = new D2bBidCollector(
+                    baseUrl, serviceKey,
+                    uri -> { throw new D2bBidCollector.HttpStatusException(503); }, () -> { }
+            );
+
+            D2bBidCollector.CollectionException httpFailure = assertThrows(
+                    D2bBidCollector.CollectionException.class,
+                    () -> httpCollector.collectMeasured(START, END)
+            );
+            assertEquals("D2B_HTTP", httpFailure.getErrorCode());
+
+            D2bBidCollector resultCollector = new D2bBidCollector(
+                    baseUrl, serviceKey,
+                    uri -> "<response><header><resultCode>30</resultCode>"
+                            + "<resultMsg>" + baseUrl + "?serviceKey=" + serviceKey + "</resultMsg>"
+                            + "</header></response>",
+                    () -> { }
+            );
+            D2bBidCollector.CollectionException resultFailure = assertThrows(
+                    D2bBidCollector.CollectionException.class,
+                    () -> resultCollector.collectMeasured(START, END)
+            );
+            assertEquals("D2B_RESULT_CODE", resultFailure.getErrorCode());
+
+            String output = appender.list.stream()
+                    .map(ILoggingEvent::getFormattedMessage)
+                    .reduce("", (left, right) -> left + "\n" + right);
+            assertTrue(output.contains("operation=DOMESTIC_COMPETITIVE"));
+            assertTrue(output.contains("stage=HTTP"));
+            assertTrue(output.contains("exceptionClass=HttpStatusException"));
+            assertTrue(output.contains("httpStatus=503"));
+            assertTrue(output.contains("resultCode=30"));
+            assertFalse(output.contains(baseUrl));
+            assertFalse(output.contains(serviceKey));
+            assertFalse(output.contains("resultMsg"));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    void distinguishesConnectionAndDetailFailuresWithoutLoggingMessages() {
+        Logger logger = (Logger) LoggerFactory.getLogger(D2bBidCollector.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            String sensitiveMessage = "https://private.example.test?serviceKey=TOP-SECRET";
+            D2bBidCollector connectionCollector = new D2bBidCollector(
+                    "https://example.test", "test-key",
+                    uri -> { throw new D2bBidCollector.ConnectionException(new IOException(sensitiveMessage)); },
+                    () -> { }
+            );
+            D2bBidCollector.CollectionException connectionFailure = assertThrows(
+                    D2bBidCollector.CollectionException.class,
+                    () -> connectionCollector.collectMeasured(START, END)
+            );
+            assertEquals("D2B_CONNECTION", connectionFailure.getErrorCode());
+
+            RecordingTransport detailTransport = new RecordingTransport(uri -> {
+                String path = path(uri);
+                if (path.endsWith("Detail")) {
+                    throw new IllegalStateException(sensitiveMessage);
+                }
+                if (path.equals("getDmstcCmpetBidPblancList")) {
+                    return list(item(common("DETAIL-1", "정보시스템 감리", "1")));
+                }
+                return emptyList();
+            });
+            assertEquals(1, collector(detailTransport).collect(START, END).size());
+
+            String output = appender.list.stream()
+                    .map(ILoggingEvent::getFormattedMessage)
+                    .reduce("", (left, right) -> left + "\n" + right);
+            assertTrue(output.contains("stage=CONNECTION"));
+            assertTrue(output.contains("exceptionClass=ConnectionException"));
+            assertTrue(output.contains("stage=DETAIL"));
+            assertTrue(output.contains("exceptionClass=IllegalStateException"));
+            assertFalse(output.contains("private.example.test"));
+            assertFalse(output.contains("TOP-SECRET"));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test
