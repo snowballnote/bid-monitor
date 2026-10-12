@@ -25,7 +25,14 @@ class G2bApiServiceTitleSearchTests {
     @Test
     void mergesIndustryAndRelevantTitleSearchResultsWithoutDuplicates() {
         TitleSearchFixtureService service = new TitleSearchFixtureService();
-        service.industry = List.of(bid("G2B-6146", "기존 업종코드 공고"));
+        service.industries.put("6146", List.of(
+                bid("G2B-SHARED", "두 업종 공통 공고"),
+                bid("G2B-6146", "기존 업종코드 공고")
+        ));
+        service.industries.put("1468", List.of(
+                bid("G2B-SHARED", "두 업종 공통 공고"),
+                bid("G2B-1468", "소프트웨어사업자 단독 공고")
+        ));
         service.titles.put("정보시스템 감리", List.of(
                 bid("G2B-6146", "기존 업종코드 공고"),
                 bid("G2B-INFO", "차세대 정보시스템 감리 용역")
@@ -45,8 +52,9 @@ class G2bApiServiceTitleSearchTests {
 
         List<BidDto> result = service.getBidDtoList(DATE, DATE);
 
-        assertEquals(List.of("G2B-6146", "G2B-INFO", "G2B-PIA", "G2B-IT"),
+        assertEquals(List.of("G2B-SHARED", "G2B-6146", "G2B-1468", "G2B-INFO", "G2B-PIA", "G2B-IT"),
                 result.stream().map(BidDto::getBidNtceNo).toList());
+        assertEquals(List.of("6146:1", "1468:1"), service.industryRequests);
     }
 
     @Test
@@ -70,14 +78,16 @@ class G2bApiServiceTitleSearchTests {
     @Test
     void titleSearchFailureDoesNotAffectIndustryCodeResults() {
         TitleSearchFixtureService service = new TitleSearchFixtureService();
-        service.industry = List.of(bid("G2B-6146", "기존 업종코드 공고"));
+        service.industries.put("6146", List.of(bid("G2B-6146", "기존 업종코드 공고")));
+        service.industries.put("1468", List.of(bid("G2B-1468", "소프트웨어사업자 단독 공고")));
         service.failedKeywords.addAll(List.of(
                 "정보시스템 감리", "정보화 감리", "개인정보 영향평가", "개인정보영향평가", "감리"
         ));
 
         List<BidDto> result = service.getBidDtoList(DATE, DATE);
 
-        assertEquals(List.of("G2B-6146"), result.stream().map(BidDto::getBidNtceNo).toList());
+        assertEquals(List.of("G2B-6146", "G2B-1468"),
+                result.stream().map(BidDto::getBidNtceNo).toList());
     }
 
     @Test
@@ -120,6 +130,23 @@ class G2bApiServiceTitleSearchTests {
         assertTrue(pagingService.titleRequests.contains("정보시스템 감리:2"));
     }
 
+    @Test
+    void industrySearchUsesBothAllowedCodesWithExistingRequestParameters() {
+        CapturingRequestService requestService = new CapturingRequestService();
+
+        requestService.requestIndustry(DATE, DATE, "6146", 1);
+        requestService.requestIndustry(DATE, DATE, "1468", 2);
+
+        assertTrue(requestService.requestUrls.get(0).contains("indstrytyCd=6146"));
+        assertTrue(requestService.requestUrls.get(0).contains("pageNo=1"));
+        assertTrue(requestService.requestUrls.get(1).contains("indstrytyCd=1468"));
+        assertTrue(requestService.requestUrls.get(1).contains("pageNo=2"));
+        assertTrue(requestService.requestUrls.stream().allMatch(url ->
+                url.contains("/getBidPblancListInfoServcPPSSrch")
+                        && url.contains("inqryDiv=1")
+                        && url.contains("numOfRows=100")));
+    }
+
     private static BidDto bid(String noticeId, String title) {
         BidDto bid = new BidDto();
         bid.setBidNtceNo(noticeId);
@@ -143,15 +170,23 @@ class G2bApiServiceTitleSearchTests {
     }
 
     private static class TitleSearchFixtureService extends G2bApiService {
-        private List<BidDto> industry = List.of();
+        private final Map<String, List<BidDto>> industries = new HashMap<>();
         protected final Map<String, List<BidDto>> titles = new HashMap<>();
         private final Map<String, List<BidDto>> titleSecondPages = new HashMap<>();
         private final Map<String, Integer> titleTotals = new HashMap<>();
         private final Set<String> failedKeywords = new HashSet<>();
+        private final List<String> industryRequests = new ArrayList<>();
         private final List<String> titleRequests = new ArrayList<>();
 
         @Override
-        protected String requestBidListPage(LocalDate startDate, LocalDate endDate, int pageNo) {
+        protected String requestBidListPage(
+                LocalDate startDate,
+                LocalDate endDate,
+                String industryCode,
+                int pageNo
+        ) {
+            industryRequests.add(industryCode + ":" + pageNo);
+            List<BidDto> industry = industries.getOrDefault(industryCode, List.of());
             return response(pageNo == 1 ? industry : List.of(), industry.size());
         }
 
@@ -187,6 +222,16 @@ class G2bApiServiceTitleSearchTests {
 
     private static final class CapturingRequestService extends G2bApiService {
         private String requestUrl;
+        private final List<String> requestUrls = new ArrayList<>();
+
+        private void requestIndustry(
+                LocalDate startDate,
+                LocalDate endDate,
+                String industryCode,
+                int pageNo
+        ) {
+            requestBidListPage(startDate, endDate, industryCode, pageNo);
+        }
 
         private void requestTitle(LocalDate startDate, LocalDate endDate, String keyword, int pageNo) {
             requestBidTitleSearchPage(startDate, endDate, keyword, pageNo);
@@ -195,6 +240,7 @@ class G2bApiServiceTitleSearchTests {
         @Override
         protected String executeBidListRequest(String requestUrl) {
             this.requestUrl = requestUrl;
+            requestUrls.add(requestUrl);
             return "";
         }
     }

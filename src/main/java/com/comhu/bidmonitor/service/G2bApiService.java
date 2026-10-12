@@ -75,6 +75,7 @@ public class G2bApiService {
     );
 
     private static final int BID_LIST_PAGE_SIZE = 100;
+    private static final List<String> G2B_INDUSTRY_SEARCH_CODES = List.of("6146", "1468");
     private static final List<String> G2B_TITLE_SEARCH_KEYWORDS = List.of(
             "정보시스템 감리",
             "정보화 감리",
@@ -324,7 +325,7 @@ public class G2bApiService {
      * 사용자가 지정한 기간의 용역 감리 입찰공고 목록을 조회한다.
      */
     public String getBidList(LocalDate startDate, LocalDate endDate) {
-        String responseBody = requestBidListPage(startDate, endDate, 1);
+        String responseBody = requestBidListPage(startDate, endDate, "6146", 1);
 
         // 공개 메서드를 직접 호출한 경우에도 나라장터 오류 응답을 정상 결과로 오인하지 않는다.
         parseBidListPage(responseBody);
@@ -334,7 +335,12 @@ public class G2bApiService {
     /**
      * 지정한 기간과 페이지 번호로 나라장터 용역 감리 공고를 조회한다.
      */
-    protected String requestBidListPage(LocalDate startDate, LocalDate endDate, int pageNo) {
+    protected String requestBidListPage(
+            LocalDate startDate,
+            LocalDate endDate,
+            String industryCode,
+            int pageNo
+    ) {
         String inquiryStartDateTime = startDate.format(DateTimeFormatter.ofPattern("yyyyMMdd")) + "0000";
         String inquiryEndDateTime = endDate.format(DateTimeFormatter.ofPattern("yyyyMMdd")) + "2359";
 
@@ -348,7 +354,7 @@ public class G2bApiService {
                 + "&inqryDiv=1"
                 + "&inqryBgnDt=" + inquiryStartDateTime
                 + "&inqryEndDt=" + inquiryEndDateTime
-                + "&indstrytyCd=6146";
+                + "&indstrytyCd=" + industryCode;
 
         return executeBidListRequest(requestUrl);
     }
@@ -1860,14 +1866,16 @@ public class G2bApiService {
                 chunkEndDate = endDate;
             }
 
-            BidListPage firstPage = fetchBidListPage(chunkStartDate, chunkEndDate, 1);
-            addUniqueBids(uniqueBids, firstPage.bidList());
+            for (String industryCode : G2B_INDUSTRY_SEARCH_CODES) {
+                BidListPage firstPage = fetchBidListPage(chunkStartDate, chunkEndDate, industryCode, 1);
+                addUniqueBids(uniqueBids, firstPage.bidList());
 
-            // 첫 페이지의 totalCount로 전체 페이지 수를 계산해 나머지 페이지를 모두 조회한다.
-            int totalPages = (firstPage.totalCount() + BID_LIST_PAGE_SIZE - 1) / BID_LIST_PAGE_SIZE;
-            for (int pageNo = 2; pageNo <= totalPages; pageNo++) {
-                BidListPage page = fetchBidListPage(chunkStartDate, chunkEndDate, pageNo);
-                addUniqueBids(uniqueBids, page.bidList());
+                // 첫 페이지의 totalCount로 전체 페이지 수를 계산해 나머지 페이지를 모두 조회한다.
+                int totalPages = (firstPage.totalCount() + BID_LIST_PAGE_SIZE - 1) / BID_LIST_PAGE_SIZE;
+                for (int pageNo = 2; pageNo <= totalPages; pageNo++) {
+                    BidListPage page = fetchBidListPage(chunkStartDate, chunkEndDate, industryCode, pageNo);
+                    addUniqueBids(uniqueBids, page.bidList());
+                }
             }
 
             addTitleSearchBids(uniqueBids, chunkStartDate, chunkEndDate);
@@ -1881,8 +1889,13 @@ public class G2bApiService {
     /**
      * 지정한 구간의 한 페이지를 조회하고 응답 상태와 공고 목록을 함께 해석한다.
      */
-    private BidListPage fetchBidListPage(LocalDate startDate, LocalDate endDate, int pageNo) {
-        return parseBidListPage(requestBidListPage(startDate, endDate, pageNo));
+    private BidListPage fetchBidListPage(
+            LocalDate startDate,
+            LocalDate endDate,
+            String industryCode,
+            int pageNo
+    ) {
+        return parseBidListPage(requestBidListPage(startDate, endDate, industryCode, pageNo));
     }
 
     private BidListPage fetchBidTitleSearchPage(
