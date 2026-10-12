@@ -129,9 +129,36 @@ class BidCollectionControllerTests {
                 .andExpect(jsonPath("$.items[0].id").doesNotExist())
                 .andExpect(jsonPath("$.items[0].contentHash").doesNotExist())
                 .andExpect(jsonPath("$.items[0].noticeStatusCode").doesNotExist())
-                .andExpect(jsonPath("$.items[0].analysisStatus").doesNotExist())
+                .andExpect(jsonPath("$.items[0].analysisStatus").value("MATCHED"))
                 .andExpect(jsonPath("$.items[0].analysisResult").doesNotExist())
                 .andExpect(jsonPath("$.items[0].relevant").doesNotExist());
+    }
+
+    @Test
+    void returnsStructuredStoredAnalysisWithoutExposingInternalJson() throws Exception {
+        saveNotice(
+                "D2B", "analysis", "1", LocalDateTime.of(2026, 9, 22, 9, 0), 'a', "MATCHED",
+                """
+                        {"reviewStatus":"검토대상","reviewReason":"허용 업종 일치",
+                         "externalCheckStatus":"NOT_DETECTED","externalSiteCheckRequired":false,
+                         "externalSiteUrls":[],"awardMethodCategory":"QUALIFICATION_REVIEW",
+                         "awardMethodStatus":"CONFIRMED","awardMethodReason":"적격심사 확인",
+                         "awardMethodSource":"STRUCTURED_DETAIL","budgetAmount":"1000000",
+                         "licenseLimit":"정보시스템 감리법인","participationRegion":"제한없음",
+                         "awardMethodName":"적격심사","attachments":[]}
+                        """
+        );
+
+        mockMvc.perform(get("/api/bid-notices"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].reviewStatus").value("검토대상"))
+                .andExpect(jsonPath("$.items[0].reviewReason").value("허용 업종 일치"))
+                .andExpect(jsonPath("$.items[0].budgetAmount").value("1000000"))
+                .andExpect(jsonPath("$.items[0].licenseLimit").value("정보시스템 감리법인"))
+                .andExpect(jsonPath("$.items[0].participationRegion").value("제한없음"))
+                .andExpect(jsonPath("$.items[0].awardMethodName").value("적격심사"))
+                .andExpect(jsonPath("$.items[0].attachments").isEmpty())
+                .andExpect(jsonPath("$.items[0].analysisResult").doesNotExist());
     }
 
     @Test
@@ -269,6 +296,23 @@ class BidCollectionControllerTests {
                 .andExpect(jsonPath("$.sources[0].updatedCount").value(1));
 
         verify(coordinator).collect(START, END, Set.of("6146", "1468"), Set.of("G2B"));
+    }
+
+    @Test
+    void forwardsRequestedAllowedLicenseCodesToManualCollection() throws Exception {
+        when(coordinator.collect(any(), any(), any(), any())).thenReturn(result(
+                ManualBidCollectionResult.Status.SUCCESS, List.of(), Map.of()
+        ));
+
+        mockMvc.perform(post("/api/bid-collections")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"startDate":"2026-09-21","endDate":"2026-09-22",
+                                 "allowedLicenseCodes":["6146","1468","9999"]}
+                                """))
+                .andExpect(status().isOk());
+
+        verify(coordinator).collect(START, END, Set.of("6146", "1468", "9999"), Set.of());
     }
 
     @Test
@@ -471,6 +515,18 @@ class BidCollectionControllerTests {
             char hashCharacter,
             String analysisStatus
     ) {
+        saveNotice(sourceCode, sourceNoticeId, revision, publishedAt, hashCharacter, analysisStatus, "internal");
+    }
+
+    private void saveNotice(
+            String sourceCode,
+            String sourceNoticeId,
+            String revision,
+            LocalDateTime publishedAt,
+            char hashCharacter,
+            String analysisStatus,
+            String analysisResult
+    ) {
         noticeRepository.save(BidNotice.builder()
                 .sourceCode(sourceCode)
                 .sourceNoticeId(sourceNoticeId)
@@ -488,7 +544,7 @@ class BidCollectionControllerTests {
                 .detailUrl("https://example.test/" + sourceNoticeId)
                 .relevant(true)
                 .analysisStatus(analysisStatus)
-                .analysisResult("internal")
+                .analysisResult(analysisResult)
                 .contentHash(String.valueOf(hashCharacter).repeat(64))
                 .firstSeenAt(Instant.parse("2026-09-22T01:00:00Z"))
                 .lastSeenAt(Instant.parse("2026-09-22T02:00:00Z"))

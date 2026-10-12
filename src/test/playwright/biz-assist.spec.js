@@ -77,6 +77,62 @@ test.beforeAll(() => {
 
 async function mockApis(page, bids = [bidNotice]) {
     let collectionRequestCount = 0;
+    const bidRequestSequence = [];
+
+    const storedBids = bids.map((bid) => ({
+        sourceCode: bid.sourceCode || "G2B",
+        sourceNoticeId: bid.sourceNoticeId || bid.bidNtceNo,
+        revision: bid.revision || "",
+        noticeNumber: bid.bidNtceNo,
+        title: bid.bidNtceNm,
+        orderingOrganization: bid.ntceInsttNm,
+        publishedAt: "2026-09-01T09:00:00",
+        submissionDeadlineAt: bid.bidClseDt?.replace(" ", "T"),
+        bidOpeningAt: null,
+        contractMethod: bid.contractMethod,
+        bidMethod: bid.bidForm,
+        noticeStatus: bid.noticeStatus,
+        detailUrl: bid.bidNtceDtlUrl,
+        analysisStatus: bid.reviewStatus,
+        externalCheckStatus: bid.externalCheckStatus,
+        externalSiteCheckRequired: bid.externalSiteCheckRequired,
+        externalSiteUrls: bid.externalSiteUrls,
+        externalCheckReason: bid.externalCheckReason,
+        awardMethodCategory: bid.awardMethodCategory,
+        awardMethodStatus: bid.awardMethodStatus,
+        awardMethodReason: bid.awardMethodReason,
+        awardMethodSource: bid.awardMethodSource,
+        reviewStatus: bid.reviewStatus,
+        reviewReason: bid.reviewReason,
+        budgetAmount: bid.asignBdgtAmt,
+        licenseLimit: bid.licenseLimit,
+        participationRegion: bid.participationRegion,
+        awardMethodName: bid.sucsfbidMthdNm,
+        attachments: bid.attachments
+    }));
+
+    await page.route("**/api/bid-collections", async (route) => {
+        bidRequestSequence.push({
+            method: route.request().method(),
+            path: "/api/bid-collections",
+            body: route.request().postDataJSON()
+        });
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+            status: "SUCCESS", sources: []
+        }) });
+    });
+
+    await page.route("**/api/bid-notices?*", async (route) => {
+        const url = new URL(route.request().url());
+        bidRequestSequence.push({ method: route.request().method(), path: "/api/bid-notices" });
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+            items: storedBids,
+            page: Number(url.searchParams.get("page") || 0),
+            size: 100,
+            totalCount: storedBids.length,
+            totalPages: storedBids.length > 0 ? 1 : 0
+        }) });
+    });
 
     await page.route("**/api/bids/**", (route) => route.fulfill({
         status: 200,
@@ -105,7 +161,9 @@ async function mockApis(page, bids = [bidNotice]) {
         await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(notices) });
     });
 
-    return () => collectionRequestCount;
+    const getCollectionRequestCount = () => collectionRequestCount;
+    getCollectionRequestCount.bidRequestSequence = bidRequestSequence;
+    return getCollectionRequestCount;
 }
 
 test("홈과 다섯 업무 메뉴가 Biz Assist 앱 셸에서 연결된다", async ({ page }) => {
@@ -175,6 +233,28 @@ test("홈과 다섯 업무 메뉴가 Biz Assist 앱 셸에서 연결된다", asy
     await page.getByRole("link", { name: "외부 중요공지", exact: true }).click();
     await expect(page).toHaveURL(/\/notices\/$/);
     await expect(page.getByRole("link", { name: "외부 중요공지", exact: true })).toHaveAttribute("aria-current", "page");
+});
+
+test("실시간 분석 조회는 수집 완료 후 저장된 공고를 표시한다", async ({ page }) => {
+    const apiState = await mockApis(page);
+    await page.goto("/bids/");
+    await expect(page.locator("#bid-list")).toContainText(bidNotice.bidNtceNm);
+
+    apiState.bidRequestSequence.length = 0;
+    await page.locator("#start-date").fill("2026-09-14");
+    await page.locator("#end-date").fill("2026-09-14");
+    await page.locator("#range-search-form").getByRole("button").click();
+
+    await expect.poll(() => apiState.bidRequestSequence.length).toBeGreaterThanOrEqual(2);
+    expect(apiState.bidRequestSequence[0].path).toBe("/api/bid-collections");
+    expect(apiState.bidRequestSequence[0].method).toBe("POST");
+    expect(apiState.bidRequestSequence[0].body).toEqual({
+        startDate: "2026-09-14",
+        endDate: "2026-09-14",
+        allowedLicenseCodes: ["6146", "1468"]
+    });
+    expect(apiState.bidRequestSequence[1].path).toBe("/api/bid-notices");
+    await expect(page.locator("#bid-list")).toContainText(bidNotice.bidNtceNm);
 });
 
 test("원문 URL이 없거나 유효하지 않으면 상세 모달에 깨진 링크를 표시하지 않는다", async ({ page }) => {

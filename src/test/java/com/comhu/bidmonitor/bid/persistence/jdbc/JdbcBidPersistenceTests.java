@@ -85,6 +85,8 @@ class JdbcBidPersistenceTests {
 
         BidNoticeSaveResult repeated = noticeRepository.save(
                 notice("D2B", "2026:1:77", "1", 'b').toBuilder()
+                        .analysisStatus("UNKNOWN")
+                        .analysisResult("{\"reason\":\"재판정 필요\"}")
                         .firstSeenAt(later)
                         .lastSeenAt(later)
                         .build()
@@ -94,6 +96,8 @@ class JdbcBidPersistenceTests {
         assertEquals(first.getId(), repeated.notice().getId());
         assertEquals(FIRST_SEEN, repeated.notice().getFirstSeenAt());
         assertEquals(later, repeated.notice().getLastSeenAt());
+        assertEquals("UNKNOWN", repeated.notice().getAnalysisStatus());
+        assertEquals("{\"reason\":\"재판정 필요\"}", repeated.notice().getAnalysisResult());
         assertEquals(1, noticeRepository.findAll().size());
         assertTrue(noticeRepository.findVersions(first.getId()).isEmpty());
     }

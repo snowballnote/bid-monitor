@@ -83,6 +83,10 @@ class BidCollectionPersistenceServiceTests {
         assertEquals("전자입찰", savedG2b.getBidMethod());
         assertEquals("NORMAL", savedG2b.getNoticeStatusCode());
         assertTrue(savedG2b.getAnalysisResult().contains("reviewStatus"));
+        assertTrue(savedG2b.getAnalysisResult().contains("budgetAmount"));
+        assertTrue(savedG2b.getAnalysisResult().contains("100000000"));
+        assertTrue(savedG2b.getAnalysisResult().contains("정보시스템 감리법인"));
+        assertTrue(savedG2b.getAnalysisResult().contains("공고문.pdf"));
         assertNull(repository.findByIdentity("D2B", "2026:11:D2B-1", "3")
                 .orElseThrow().getDetailUrl());
     }

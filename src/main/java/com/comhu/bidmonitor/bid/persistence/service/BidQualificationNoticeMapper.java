@@ -91,6 +91,11 @@ public class BidQualificationNoticeMapper {
         result.put("awardMethodSource", nullable(source.getAwardMethodSource()));
         result.put("reviewStatus", nullable(source.getReviewStatus()));
         result.put("reviewReason", nullable(source.getReviewReason()));
+        result.put("budgetAmount", nullable(source.getAsignBdgtAmt()));
+        result.put("licenseLimit", nullable(source.getLicenseLimit()));
+        result.put("participationRegion", nullable(source.getParticipationRegion()));
+        result.put("awardMethodName", nullable(source.getSucsfbidMthdNm()));
+        result.put("attachments", source.getAttachments() == null ? List.of() : source.getAttachments());
         try {
             return objectMapper.writeValueAsString(result);
         } catch (JsonProcessingException exception) {

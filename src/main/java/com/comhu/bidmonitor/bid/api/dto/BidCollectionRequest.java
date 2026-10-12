@@ -8,6 +8,7 @@ import java.util.Set;
 public record BidCollectionRequest(
         @JsonFormat(pattern = "yyyy-MM-dd") LocalDate startDate,
         @JsonFormat(pattern = "yyyy-MM-dd") LocalDate endDate,
-        Set<String> sourceCodes
+        Set<String> sourceCodes,
+        Set<String> allowedLicenseCodes
 ) {
 }

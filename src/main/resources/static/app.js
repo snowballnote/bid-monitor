@@ -995,30 +995,73 @@ function setSelectedPeriod(startDate, endDate) {
     currentPeriod.textContent = `조회기간: ${startDate} ~ ${endDate}`;
 }
 
-/**
- * 조회 시점의 localStorage 허용 업종코드를 백엔드 판정 파라미터에 포함한다.
- */
-function createBidRequestUrl(url) {
-    const requestUrl = new URL(url, window.location.origin);
-    requestUrl.searchParams.set("allowedLicenseCodes", allowedLicenseCodes.join(","));
-    return `${requestUrl.pathname}${requestUrl.search}`;
+function displayDateTime(value) {
+    return typeof value === "string" ? value.replace("T", " ") : value;
 }
 
-/** 공통 오류 처리를 유지하면서 전달받은 API에서 공고를 조회한다. */
-async function fetchBids(url, startDate, endDate) {
+/** 저장 공고 응답을 기존 실시간 분석 화면 모델로 변환한다. */
+function normalizeStoredBid(bid) {
+    return {
+        ...bid,
+        bidNtceNo: bid.noticeNumber,
+        bidNtceNm: bid.title,
+        ntceInsttNm: bid.orderingOrganization,
+        bidNtceDt: displayDateTime(bid.publishedAt),
+        bidClseDt: displayDateTime(bid.submissionDeadlineAt),
+        bidOpeningDt: displayDateTime(bid.bidOpeningAt),
+        bidForm: bid.bidMethod,
+        bidNtceDtlUrl: bid.detailUrl,
+        asignBdgtAmt: bid.budgetAmount,
+        sucsfbidMthdNm: bid.awardMethodName,
+        reviewStatus: bid.reviewStatus || bid.analysisStatus,
+        externalSiteUrls: Array.isArray(bid.externalSiteUrls) ? bid.externalSiteUrls : [],
+        attachments: Array.isArray(bid.attachments) ? bid.attachments : []
+    };
+}
+
+/** 선택 기간에 저장된 공고를 페이지 끝까지 조회한다. */
+async function fetchStoredBids(startDate, endDate) {
+    const bids = [];
+    let page = 0;
+    let totalPages = 1;
+    while (page < totalPages) {
+        const query = new URLSearchParams({ startDate, endDate, page: String(page), size: "100" });
+        const response = await fetch(`/api/bid-notices?${query}`);
+        if (!response.ok) {
+            throw new Error(`저장 공고 조회 실패: ${response.status}`);
+        }
+        const result = await response.json();
+        if (!result || !Array.isArray(result.items) || !Number.isInteger(result.totalPages)) {
+            throw new Error("저장 공고 응답 형식이 올바르지 않습니다.");
+        }
+        bids.push(...result.items.map(normalizeStoredBid));
+        totalPages = result.totalPages;
+        page += 1;
+    }
+    return bids;
+}
+
+/** 활성 수집처를 공통 파이프라인으로 수집한 뒤 저장 결과를 조회한다. */
+async function loadBidsByRange(startDate, endDate, collect = true) {
     setSelectedPeriod(startDate, endDate);
     prepareForLoading();
     validationMessage.classList.add("hidden");
 
     try {
-        // 코드 추가·삭제 후 다시 조회하면 현재 화면의 최신 허용 코드가 즉시 판정에 사용된다.
-        const response = await fetch(createBidRequestUrl(url));
-        if (!response.ok) {
-            throw new Error(`공고 조회 실패: ${response.status}`);
+        if (collect) {
+            const collectionResponse = await fetch("/api/bid-collections", {
+                method: "POST",
+                headers: {"Content-Type": "application/json", "Accept": "application/json"},
+                body: JSON.stringify({startDate, endDate, allowedLicenseCodes})
+            });
+            const collectionResult = await collectionResponse.json().catch(() => null);
+            if (!collectionResponse.ok
+                    || !collectionResult
+                    || !["SUCCESS", "PARTIAL_SUCCESS"].includes(collectionResult.status)) {
+                throw new Error(`공고 수집 실패: ${collectionResponse.status}`);
+            }
         }
-
-        const bids = await response.json();
-        renderBids(bids);
+        renderBids(await fetchStoredBids(startDate, endDate));
     } catch (error) {
         console.error(error);
         loadingMessage.classList.add("hidden");
@@ -1028,12 +1071,6 @@ async function fetchBids(url, startDate, endDate) {
             button.disabled = false;
         });
     }
-}
-
-/** 기간 조회 API의 쿼리 문자열을 안전하게 생성해 조회한다. */
-function loadBidsByRange(startDate, endDate) {
-    const query = new URLSearchParams({ startDate, endDate });
-    return fetchBids(`/api/bids/target/qualification/range?${query}`, startDate, endDate);
 }
 
 /** 오늘을 포함하도록 빠른 조회 일수만큼 시작일을 계산한다. */
@@ -1112,6 +1149,6 @@ document.addEventListener("keydown", (event) => {
 loadAllowedLicenseCodes();
 renderAllowedLicenseCodes();
 
-// 최초 접속은 기존 API로 오늘 공고를 조회한다.
+// 최초 접속은 추가 수집 없이 오늘 저장된 공고를 조회한다.
 const today = formatDate(new Date());
-fetchBids("/api/bids/target/qualification", today, today);
+loadBidsByRange(today, today, false);

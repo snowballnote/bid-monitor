@@ -85,8 +85,14 @@ public class JdbcBidNoticeRepository implements BidNoticeRepository {
         Instant effectiveLastSeen = later(existing.getLastSeenAt(), normalized.getLastSeenAt());
         if (existing.getContentHash().equals(normalized.getContentHash())) {
             jdbcTemplate.update(
-                    "UPDATE bid_notice SET last_seen_at = ? WHERE id = ?",
+                    """
+                    UPDATE bid_notice
+                    SET last_seen_at = ?, analysis_status = ?, analysis_result = ?
+                    WHERE id = ?
+                    """,
                     Timestamp.from(effectiveLastSeen),
+                    normalized.getAnalysisStatus(),
+                    normalized.getAnalysisResult(),
                     existing.getId()
             );
             BidNotice unchanged = findById(existing.getId()).orElseThrow();

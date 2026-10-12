@@ -1,5 +1,8 @@
 package com.comhu.bidmonitor.bid.api;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.comhu.bidmonitor.bid.api.dto.BidCollectionRequest;
 import com.comhu.bidmonitor.bid.api.dto.BidCollectionResponse;
 import com.comhu.bidmonitor.bid.api.dto.BidCollectionRunResponse;
@@ -49,6 +52,7 @@ public class BidCollectionController {
     private final BidSourceStateRepository stateRepository;
     private final ManualBidCollectionSourceRegistry sourceRegistry;
     private final BidSourceCatalogService sourceCatalogService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public BidCollectionController(
             ManualBidCollectionCoordinator coordinator,
@@ -70,7 +74,7 @@ public class BidCollectionController {
     public BidCollectionResponse collect(@RequestBody BidCollectionRequest request) {
         validate(request);
         ManualBidCollectionResult result = coordinator.collect(
-                request.startDate(), request.endDate(), DEFAULT_ALLOWED_LICENSE_CODES,
+                request.startDate(), request.endDate(), allowedLicenseCodes(request),
                 request.sourceCodes() == null ? Set.of() : request.sourceCodes()
         );
         return BidCollectionResponse.from(result);
@@ -111,7 +115,7 @@ public class BidCollectionController {
                 parsedPage,
                 parsedSize
         );
-        return BidNoticeListResponse.from(result, parsedPage, parsedSize);
+        return BidNoticeListResponse.from(result, parsedPage, parsedSize, objectMapper);
     }
 
     @GetMapping("/bid-sources/status")
@@ -143,6 +147,13 @@ public class BidCollectionController {
         if (request.startDate().isAfter(request.endDate())) {
             throw new IllegalArgumentException("startDate must not be after endDate.");
         }
+    }
+
+    private Set<String> allowedLicenseCodes(BidCollectionRequest request) {
+        if (request.allowedLicenseCodes() == null || request.allowedLicenseCodes().isEmpty()) {
+            return DEFAULT_ALLOWED_LICENSE_CODES;
+        }
+        return Set.copyOf(request.allowedLicenseCodes());
     }
 
     private LocalDate parseDate(String value, String field) {
@@ -208,10 +219,11 @@ public class BidCollectionController {
         private static BidNoticeListResponse from(
                 BidNoticeRepository.BidNoticePage result,
                 int page,
-                int size
+                int size,
+                ObjectMapper objectMapper
         ) {
             List<BidNoticeResponse> items = result.items().stream()
-                    .map(BidNoticeResponse::from)
+                    .map(notice -> BidNoticeResponse.from(notice, objectMapper))
                     .toList();
             long totalPages = result.totalCount() / size
                     + (result.totalCount() % size == 0 ? 0 : 1);
@@ -233,11 +245,28 @@ public class BidCollectionController {
             String bidMethod,
             String noticeStatus,
             String detailUrl,
+            String analysisStatus,
+            String externalCheckStatus,
+            Boolean externalSiteCheckRequired,
+            List<String> externalSiteUrls,
+            String externalCheckReason,
+            String awardMethodCategory,
+            String awardMethodStatus,
+            String awardMethodReason,
+            String awardMethodSource,
+            String reviewStatus,
+            String reviewReason,
+            String budgetAmount,
+            String licenseLimit,
+            String participationRegion,
+            String awardMethodName,
+            List<Map<String, Object>> attachments,
             Instant firstSeenAt,
             Instant lastSeenAt
     ) {
 
-        private static BidNoticeResponse from(BidNotice notice) {
+        private static BidNoticeResponse from(BidNotice notice, ObjectMapper objectMapper) {
+            JsonNode analysis = parseAnalysis(notice.getAnalysisResult(), objectMapper);
             return new BidNoticeResponse(
                     notice.getSourceCode(),
                     notice.getSourceNoticeId(),
@@ -252,9 +281,69 @@ public class BidCollectionController {
                     notice.getBidMethod(),
                     notice.getNoticeStatus(),
                     notice.getDetailUrl(),
+                    notice.getAnalysisStatus(),
+                    text(analysis, "externalCheckStatus"),
+                    bool(analysis, "externalSiteCheckRequired"),
+                    stringArray(analysis, "externalSiteUrls", objectMapper),
+                    text(analysis, "externalCheckReason"),
+                    text(analysis, "awardMethodCategory"),
+                    text(analysis, "awardMethodStatus"),
+                    text(analysis, "awardMethodReason"),
+                    text(analysis, "awardMethodSource"),
+                    firstNonBlank(text(analysis, "reviewStatus"), notice.getAnalysisStatus()),
+                    text(analysis, "reviewReason"),
+                    text(analysis, "budgetAmount"),
+                    text(analysis, "licenseLimit"),
+                    text(analysis, "participationRegion"),
+                    text(analysis, "awardMethodName"),
+                    objectArray(analysis, "attachments", objectMapper),
                     notice.getFirstSeenAt(),
                     notice.getLastSeenAt()
             );
+        }
+
+        private static JsonNode parseAnalysis(String value, ObjectMapper objectMapper) {
+            if (value == null || value.isBlank()) {
+                return objectMapper.createObjectNode();
+            }
+            try {
+                JsonNode parsed = objectMapper.readTree(value);
+                return parsed != null && parsed.isObject() ? parsed : objectMapper.createObjectNode();
+            } catch (Exception ignored) {
+                return objectMapper.createObjectNode();
+            }
+        }
+
+        private static String text(JsonNode analysis, String field) {
+            JsonNode value = analysis.path(field);
+            return value.isTextual() ? value.textValue() : null;
+        }
+
+        private static Boolean bool(JsonNode analysis, String field) {
+            JsonNode value = analysis.path(field);
+            return value.isBoolean() ? value.booleanValue() : null;
+        }
+
+        private static List<String> stringArray(JsonNode analysis, String field, ObjectMapper objectMapper) {
+            JsonNode value = analysis.path(field);
+            return value.isArray()
+                    ? objectMapper.convertValue(value, new TypeReference<List<String>>() { })
+                    : List.of();
+        }
+
+        private static List<Map<String, Object>> objectArray(
+                JsonNode analysis,
+                String field,
+                ObjectMapper objectMapper
+        ) {
+            JsonNode value = analysis.path(field);
+            return value.isArray()
+                    ? objectMapper.convertValue(value, new TypeReference<List<Map<String, Object>>>() { })
+                    : List.of();
+        }
+
+        private static String firstNonBlank(String first, String second) {
+            return first != null && !first.isBlank() ? first : second;
         }
     }
 }
