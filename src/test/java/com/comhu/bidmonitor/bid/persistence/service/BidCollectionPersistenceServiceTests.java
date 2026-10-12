@@ -117,6 +117,20 @@ class BidCollectionPersistenceServiceTests {
     }
 
     @Test
+    void storesLhCandidateWithSlashSeparatedDateTime() {
+        BidQualificationDto lh = candidate("LH", "2603627", "00", "LH service notice");
+        lh.setBidClseDt("2026/10/19 10:00");
+
+        BidCollectionPersistenceResult result = service.persist(List.of(
+                BidSourceCollectionResult.success("LH", List.of(lh))
+        ), COLLECTED_AT);
+
+        assertEquals(1, result.successfulSourceCount());
+        BidNotice saved = repository.findByIdentity("LH", "2603627", "00").orElseThrow();
+        assertEquals(LocalDateTime.of(2026, 10, 19, 10, 0), saved.getSubmissionDeadlineAt());
+    }
+
+    @Test
     void separatesSameNoticeIdBySourceAndRevision() {
         BidQualificationDto g2b = candidate("G2B", "SHARED", null, "G2B");
         BidQualificationDto d2bFirst = candidate("D2B", "SHARED", "1", "D2B 1차");

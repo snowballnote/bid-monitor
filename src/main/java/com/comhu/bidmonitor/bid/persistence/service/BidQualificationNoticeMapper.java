@@ -25,6 +25,7 @@ public class BidQualificationNoticeMapper {
             DateTimeFormatter.ISO_LOCAL_DATE_TIME,
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"),
+            DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm"),
             DateTimeFormatter.ofPattern("yyyyMMddHHmmss"),
             DateTimeFormatter.ofPattern("yyyyMMddHHmm")
     );

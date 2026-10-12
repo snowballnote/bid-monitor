@@ -35,7 +35,7 @@ class BidSourceCatalogServiceTests {
     );
 
     @Test
-    void alwaysIncludesFourFixedSourcesEvenWhenKogasAndD2bAreDisabled() {
+    void alwaysIncludesFiveFixedSourcesEvenWhenOptionalCollectorsAreDisabled() {
         when(registrations.findAllLatestFirst()).thenReturn(List.of());
         when(states.findAll()).thenReturn(List.of(
                 BidSourceState.builder()
@@ -50,11 +50,12 @@ class BidSourceCatalogServiceTests {
 
         List<BidSourceCatalogItem> catalog = service.catalog();
 
-        assertEquals(List.of("G2B", "KOREA_EXPRESSWAY", "KOGAS", "D2B"),
+        assertEquals(List.of("G2B", "KOREA_EXPRESSWAY", "KOGAS", "D2B", "LH"),
                 catalog.stream().map(BidSourceCatalogItem::sourceCode).toList());
         assertTrue(item(catalog, "G2B").executionEnabled());
         assertFalse(item(catalog, "KOGAS").executionEnabled());
         assertFalse(item(catalog, "D2B").executionEnabled());
+        assertFalse(item(catalog, "LH").executionEnabled());
         assertEquals(Instant.parse("2026-10-01T01:00:00Z"), item(catalog, "G2B").lastSuccessAt());
         assertEquals(Instant.parse("2026-09-30T01:00:00Z"), item(catalog, "G2B").lastFailureAt());
         assertTrue(catalog.stream().allMatch(source -> source.sourceType()

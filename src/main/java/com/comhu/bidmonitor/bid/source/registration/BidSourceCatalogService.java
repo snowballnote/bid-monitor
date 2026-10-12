@@ -24,7 +24,8 @@ public class BidSourceCatalogService {
             new FixedSource("G2B", "나라장터", "https://www.g2b.go.kr/", "OFFICIAL_API"),
             new FixedSource("KOREA_EXPRESSWAY", "한국도로공사", "https://ebid.ex.co.kr/", "PUBLIC_PAGE"),
             new FixedSource("KOGAS", "한국가스공사", "https://bid.kogas.or.kr:9443/", "PUBLIC_PAGE"),
-            new FixedSource("D2B", "D2B", "https://www.d2b.go.kr/", "OFFICIAL_API")
+            new FixedSource("D2B", "D2B", "https://www.d2b.go.kr/", "OFFICIAL_API"),
+            new FixedSource("LH", "한국토지주택공사", "https://ebid.lh.or.kr/", "OFFICIAL_API")
     );
 
     private final BidSourceRegistrationRepository registrations;
