@@ -151,6 +151,23 @@ class PostgresqlFlywayBaselineTests {
     }
 
     @Test
+    void performanceEvidenceMigrationCreatesOneToManyStorageAndPreservesLegacyData() throws IOException {
+        String sql = Files.readString(Path.of(
+                "src/main/resources/db/migration/postgresql/V6__performance_evidence.sql"));
+
+        assertTrue(sql.contains("CREATE TABLE performance_evidence"));
+        assertTrue(sql.contains("REFERENCES performance_entry (id) ON DELETE CASCADE"));
+        assertTrue(sql.contains("ck_performance_evidence_row_type"));
+        assertTrue(sql.contains("ck_performance_evidence_source"));
+        assertTrue(sql.contains("CREATE INDEX ix_performance_evidence_entry"));
+        assertTrue(sql.contains("FROM performance_entry e"));
+        assertTrue(sql.contains("FROM performance_additional_evidence a"));
+        assertTrue(sql.contains("performance evidence backfill count mismatch"));
+        assertFalse(sql.contains("UNIQUE (entry_id, evidence_type)"));
+        assertFalse(Pattern.compile("(?i)DROP\\s+(TABLE|COLUMN)\\s+performance_").matcher(sql).find());
+    }
+
+    @Test
     @EnabledIfEnvironmentVariable(named = "BIZ_ASSIST_POSTGRES_TEST_ENABLED", matches = "(?i)true")
     void migratesEmptyPostgresqlAndRoundTripsDatesTimesAndLocatorHashes() throws Exception {
         String url = "jdbc:postgresql://" + env("DB_HOST") + ":" + env("DB_PORT") + "/" + env("DB_NAME");

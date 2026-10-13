@@ -38,6 +38,9 @@ public final class PerformanceModels {
                                     String filename, String ext) { }
     public record EvidenceInput(Long selectedFileId, String selectedDriveFileId,
                                 String selectedUploadedFileId, EvidenceType evidenceType) { }
+    public record Evidence(String id, String entryId, EvidenceType evidenceType,
+                           Long selectedFileId, String selectedDriveFileId, String selectedUploadedFileId,
+                           String filename, String fileExt, Instant createdAt, Instant updatedAt) { }
     public record Entry(String id, String projectId, EntryInput info, String selectedFilename,
                         String selectedExt, BusinessStatus resolvedStatus, List<EvidenceSelection> evidenceFiles) {
         public Entry(String id, String projectId, EntryInput info, String selectedFilename,
