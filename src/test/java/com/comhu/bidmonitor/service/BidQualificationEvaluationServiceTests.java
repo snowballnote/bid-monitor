@@ -136,6 +136,37 @@ class BidQualificationEvaluationServiceTests {
     }
 
     @Test
+    void evaluatesArbitraryConfiguredIndustryCodesWithoutCodeChanges() {
+        BidQualificationDto matching = eligibleNotice("동적 업종 공고");
+        matching.setLicenseGroups(List.of(group("6525")));
+        BidQualificationDto arbitrary = eligibleNotice("새 업종 공고");
+        arbitrary.setLicenseGroups(List.of(group("9999")));
+
+        service.evaluate(matching, Set.of("1468", "6525"));
+        service.evaluate(arbitrary, Set.of("9999"));
+
+        assertEquals("검토대상", matching.getReviewStatus());
+        assertEquals("검토대상", arbitrary.getReviewStatus());
+    }
+
+    @Test
+    void rejectsRequirementOutsideCurrentSettingAndPreservesAndWithinGroup() {
+        BidQualificationDto removedCode = eligibleNotice("삭제된 업종 공고");
+        BidQualificationDto andGroup = eligibleNotice("복수 필수 업종 공고");
+        andGroup.setLicenseGroups(List.of(new LicenseRequirementGroup("1", List.of(
+                requirement("6146"), requirement("6525")
+        ))));
+
+        service.evaluate(removedCode, Set.of("1468"));
+        service.evaluate(andGroup, Set.of("6525"));
+
+        assertEquals("추가확인필요", removedCode.getReviewStatus());
+        assertTrue(removedCode.getReviewReason().contains("6146"));
+        assertEquals("추가확인필요", andGroup.getReviewStatus());
+        assertTrue(andGroup.getReviewReason().contains("6146"));
+    }
+
+    @Test
     void failedAttachmentAnalysisRemainsUnknown() {
         BidQualificationDto notice = eligibleNotice("정보시스템 감리 용역");
         BidAttachmentDto failed = new BidAttachmentDto();
@@ -162,6 +193,14 @@ class BidQualificationEvaluationServiceTests {
                 new LicenseRequirement("1", "6146", "정보시스템 감리법인", "정보시스템 감리법인/6146")
         ))));
         return notice;
+    }
+
+    private LicenseRequirementGroup group(String code) {
+        return new LicenseRequirementGroup("1", List.of(requirement(code)));
+    }
+
+    private LicenseRequirement requirement(String code) {
+        return new LicenseRequirement("1", code, "면허 " + code, "면허/" + code);
     }
 
     private BidAttachmentDto analyzedAttachmentWithRequiredDocument(String document) {

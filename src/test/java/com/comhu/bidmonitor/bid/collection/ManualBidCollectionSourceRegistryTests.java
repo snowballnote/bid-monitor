@@ -56,6 +56,25 @@ class ManualBidCollectionSourceRegistryTests {
     }
 
     @Test
+    void forwardsCollectionIndustrySnapshotUnchangedToG2bService() {
+        G2bApiService g2b = mock(G2bApiService.class);
+        BidSourceExecutionEligibilityService eligibility = mock(BidSourceExecutionEligibilityService.class);
+        Set<String> snapshot = Set.of("1468", "6525");
+        BidQualificationDto reviewed = new BidQualificationDto();
+        reviewed.setSourceCode("G2B");
+        when(g2b.getG2bTargetBidQualificationList(START, END, snapshot))
+                .thenReturn(List.of(reviewed));
+
+        ManualBidCollectionSource source = new ManualBidCollectionSourceRegistry(
+                g2b, List.of(), eligibility
+        ).sources().stream().filter(candidate -> candidate.sourceCode().equals("G2B"))
+                .findFirst().orElseThrow();
+
+        assertEquals(List.of(reviewed), source.collect(START, END, snapshot).candidates());
+        verify(g2b).getG2bTargetBidQualificationList(START, END, snapshot);
+    }
+
+    @Test
     void executesEnabledD2bThroughTheExistingCommonReviewPath() {
         G2bApiService g2b = mock(G2bApiService.class);
         BidSourceExecutionEligibilityService eligibility = mock(BidSourceExecutionEligibilityService.class);

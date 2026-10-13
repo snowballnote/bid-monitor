@@ -142,6 +142,16 @@ CREATE TABLE IF NOT EXISTS bid_collection_run_notice (
 CREATE INDEX IF NOT EXISTS ix_bid_collection_run_notice_notice
     ON bid_collection_run_notice (bid_notice_id);
 
+CREATE TABLE IF NOT EXISTS allowed_industry_code (
+    code VARCHAR(4) PRIMARY KEY,
+    created_at TIMESTAMP NOT NULL
+);
+
+INSERT INTO allowed_industry_code (code, created_at)
+SELECT seed.code, CURRENT_TIMESTAMP
+FROM (VALUES ('6146'), ('1468')) seed(code)
+WHERE NOT EXISTS (SELECT 1 FROM allowed_industry_code);
+
 CREATE TABLE IF NOT EXISTS bid_collection_lock (
     source_code VARCHAR(50) NOT NULL,
     query_start_date DATE NOT NULL,

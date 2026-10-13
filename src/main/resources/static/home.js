@@ -65,7 +65,7 @@ function renderRecentNotices(notices) {
 
 async function loadBidSummary() {
     try {
-        const bids = await fetchJson("/api/bids/target/qualification?allowedLicenseCodes=6146,1468");
+        const bids = await fetchJson("/api/bids/target/qualification");
         if (!Array.isArray(bids)) throw new Error("입찰공고 응답 형식이 올바르지 않습니다.");
         bidCheckCount.textContent = `${bids.filter((bid) => bid.reviewStatus === "추가확인필요").length}건`;
         bidSummaryMessage.textContent = "추가 확인 필요 공고";

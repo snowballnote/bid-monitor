@@ -2,6 +2,7 @@ package com.comhu.bidmonitor.bid.collection;
 
 import com.comhu.bidmonitor.bid.persistence.BidSourceState;
 import com.comhu.bidmonitor.bid.persistence.BidSourceStateRepository;
+import com.comhu.bidmonitor.bid.settings.AllowedIndustryCodeProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,12 +41,16 @@ class BidCollectionSchedulerTests {
     @Mock
     private ManualBidCollectionSourceRegistry sourceRegistry;
 
+    @Mock
+    private AllowedIndustryCodeProvider allowedIndustryCodeProvider;
+
     private InMemoryStateRepository stateRepository;
     private BidCollectionScheduler scheduler;
 
     @BeforeEach
     void setUp() {
         stateRepository = new InMemoryStateRepository();
+        when(allowedIndustryCodeProvider.currentCodes()).thenReturn(Set.of("6146", "1468"));
         scheduler = new BidCollectionScheduler(
                 coordinator,
                 sourceRegistry,
@@ -58,10 +63,26 @@ class BidCollectionSchedulerTests {
                         new BidCollectionSourceSchedule("D2B", Duration.ofHours(1), 1)
                 ),
                 new GenericPublicPageSchedule(Duration.ofHours(1), 3),
+                allowedIndustryCodeProvider,
                 "Asia/Seoul",
                 300,
                 3600
         );
+    }
+
+    @Test
+    void readsCurrentAllowedIndustryCodesForEachScheduledCollection() {
+        when(sourceRegistry.sources()).thenReturn(List.of(source("G2B", true)));
+        when(allowedIndustryCodeProvider.currentCodes())
+                .thenReturn(Set.of("1468", "6525"))
+                .thenReturn(Set.of("9999"));
+
+        scheduler.runDueCollections();
+        stateRepository.save(state("G2B").toBuilder().nextRunAt(null).build());
+        scheduler.runDueCollections();
+
+        verify(coordinator).collectScheduled(TODAY, TODAY, Set.of("1468", "6525"), "G2B");
+        verify(coordinator).collectScheduled(TODAY, TODAY, Set.of("9999"), "G2B");
     }
 
     @Test

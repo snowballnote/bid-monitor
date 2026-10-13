@@ -78,6 +78,7 @@ test.beforeAll(() => {
 async function mockApis(page, bids = [bidNotice], options = {}) {
     let collectionRequestCount = 0;
     const bidRequestSequence = [];
+    let allowedIndustryCodes = ["6146", "1468"];
 
     const storedBids = bids.map((bid) => ({
         sourceCode: bid.sourceCode || "G2B",
@@ -110,6 +111,17 @@ async function mockApis(page, bids = [bidNotice], options = {}) {
         awardMethodName: bid.sucsfbidMthdNm,
         attachments: bid.attachments
     }));
+
+    await page.route("**/api/settings/allowed-industry-codes", async (route) => {
+        if (route.request().method() === "PUT") {
+            allowedIndustryCodes = [...new Set(route.request().postDataJSON().codes)].sort();
+        }
+        await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify(allowedIndustryCodes)
+        });
+    });
 
     await page.route("**/api/bid-collections", async (route) => {
         bidRequestSequence.push({
@@ -171,8 +183,27 @@ async function mockApis(page, bids = [bidNotice], options = {}) {
 
     const getCollectionRequestCount = () => collectionRequestCount;
     getCollectionRequestCount.bidRequestSequence = bidRequestSequence;
+    getCollectionRequestCount.getAllowedIndustryCodes = () => [...allowedIndustryCodes];
     return getCollectionRequestCount;
 }
+
+test("허용 업종코드는 브라우저 저장값 대신 서버 설정을 사용한다", async ({ page }) => {
+    await page.addInitScript(() => {
+        localStorage.setItem("bidAllowedLicenseCodes", JSON.stringify(["9999"]));
+    });
+    const apiState = await mockApis(page);
+    await page.goto("/bids/");
+
+    await expect(page.locator("#license-code-tags")).toContainText("6146");
+    await expect(page.locator("#license-code-tags")).toContainText("1468");
+    await expect(page.locator("#license-code-tags")).not.toContainText("9999");
+
+    await page.locator("#license-code-input").fill("6525");
+    await page.locator("#license-code-form").getByRole("button").click();
+
+    await expect(page.locator("#license-code-tags")).toContainText("6525");
+    expect(apiState.getAllowedIndustryCodes()).toEqual(["1468", "6146", "6525"]);
+});
 
 test("홈과 다섯 업무 메뉴가 Biz Assist 앱 셸에서 연결된다", async ({ page }) => {
     await mockApis(page);
@@ -258,8 +289,7 @@ test("실시간 분석 조회는 수집 완료 후 저장된 공고를 표시한
     expect(apiState.bidRequestSequence[0].method).toBe("POST");
     expect(apiState.bidRequestSequence[0].body).toEqual({
         startDate: "2026-09-14",
-        endDate: "2026-09-14",
-        allowedLicenseCodes: ["6146", "1468"]
+        endDate: "2026-09-14"
     });
     expect(apiState.bidRequestSequence[1].path).toBe("/api/bid-notices");
     expect(apiState.bidRequestSequence[1].runIds).toEqual(["101", "202"]);

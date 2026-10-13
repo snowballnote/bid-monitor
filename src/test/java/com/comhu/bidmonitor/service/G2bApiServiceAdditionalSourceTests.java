@@ -352,7 +352,11 @@ class G2bApiServiceAdditionalSourceTests {
         }
 
         @Override
-        public List<BidDto> getBidDtoList(LocalDate startDate, LocalDate endDate) {
+        public List<BidDto> getBidDtoList(
+                LocalDate startDate,
+                LocalDate endDate,
+                Set<String> allowedIndustryCodes
+        ) {
             return List.of();
         }
     }
@@ -367,7 +371,11 @@ class G2bApiServiceAdditionalSourceTests {
         }
 
         @Override
-        public List<BidDto> getBidDtoList(LocalDate startDate, LocalDate endDate) {
+        public List<BidDto> getBidDtoList(
+                LocalDate startDate,
+                LocalDate endDate,
+                Set<String> allowedIndustryCodes
+        ) {
             BidDto bid = new BidDto();
             bid.setBidNtceNo("G2B-ONLY-00");
             return List.of(bid);

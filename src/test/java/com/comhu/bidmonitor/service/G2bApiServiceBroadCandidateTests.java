@@ -38,7 +38,8 @@ class G2bApiServiceBroadCandidateTests {
 
         List<BidDto> result = service.getTargetBidList(
                 LocalDate.of(2026, 8, 1),
-                LocalDate.of(2026, 8, 1)
+                LocalDate.of(2026, 8, 1),
+                Set.of("6146", "1468")
         );
 
         assertEquals(List.of("FAST-QUALIFIED"), result.stream().map(BidDto::getBidNtceNo).toList());
@@ -50,7 +51,11 @@ class G2bApiServiceBroadCandidateTests {
         private final BidAwardMethodClassifier classifier = new BidAwardMethodClassifier();
 
         @Override
-        public List<BidDto> getBidDtoList(LocalDate startDate, LocalDate endDate) {
+        public List<BidDto> getBidDtoList(
+                LocalDate startDate,
+                LocalDate endDate,
+                Set<String> allowedIndustryCodes
+        ) {
             BidDto listItem = new BidDto();
             listItem.setBidNtceNo("LINKED-2026-0001");
             listItem.setBidNtceNm("연계기관 정보시스템 감리 용역");
@@ -76,7 +81,11 @@ class G2bApiServiceBroadCandidateTests {
     private static final class FastFilterFixtureService extends G2bApiService {
 
         @Override
-        public List<BidDto> getBidDtoList(LocalDate startDate, LocalDate endDate) {
+        public List<BidDto> getBidDtoList(
+                LocalDate startDate,
+                LocalDate endDate,
+                Set<String> allowedIndustryCodes
+        ) {
             BidDto target = new BidDto();
             target.setBidNtceNo("FAST-QUALIFIED");
             target.setSucsfbidMthdCd("낙030001");

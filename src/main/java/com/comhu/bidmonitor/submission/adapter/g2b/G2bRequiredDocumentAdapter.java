@@ -4,6 +4,7 @@ import com.comhu.bidmonitor.dto.BidAttachmentDto;
 import com.comhu.bidmonitor.dto.BidDocumentAnalysisDto;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
 import com.comhu.bidmonitor.service.G2bApiService;
+import com.comhu.bidmonitor.bid.settings.AllowedIndustryCodeProvider;
 import com.comhu.bidmonitor.submission.port.RequiredDocumentFallbackPort;
 import org.springframework.stereotype.Component;
 
@@ -14,9 +15,14 @@ import java.util.List;
 public class G2bRequiredDocumentAdapter implements RequiredDocumentFallbackPort {
 
     private final G2bApiService g2bApiService;
+    private final AllowedIndustryCodeProvider allowedIndustryCodeProvider;
 
-    public G2bRequiredDocumentAdapter(G2bApiService g2bApiService) {
+    public G2bRequiredDocumentAdapter(
+            G2bApiService g2bApiService,
+            AllowedIndustryCodeProvider allowedIndustryCodeProvider
+    ) {
         this.g2bApiService = g2bApiService;
+        this.allowedIndustryCodeProvider = allowedIndustryCodeProvider;
     }
 
     @Override
@@ -24,7 +30,9 @@ public class G2bRequiredDocumentAdapter implements RequiredDocumentFallbackPort 
         if (bidNoticeNo == null || bidNoticeNo.isBlank()) {
             return List.of();
         }
-        BidQualificationDto qualification = g2bApiService.getBidQualification(bidNoticeNo.trim());
+        BidQualificationDto qualification = g2bApiService.getBidQualification(
+                bidNoticeNo.trim(), allowedIndustryCodeProvider.currentCodes()
+        );
         if (qualification.getAttachments() == null) {
             return List.of();
         }

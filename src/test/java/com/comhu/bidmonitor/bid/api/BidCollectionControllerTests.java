@@ -10,6 +10,7 @@ import com.comhu.bidmonitor.bid.persistence.BidNoticeRepository;
 import com.comhu.bidmonitor.bid.persistence.BidSourceState;
 import com.comhu.bidmonitor.bid.persistence.BidSourceStateRepository;
 import com.comhu.bidmonitor.bid.persistence.service.BidSourcePersistenceResult;
+import com.comhu.bidmonitor.bid.settings.AllowedIndustryCodeProvider;
 import com.comhu.bidmonitor.service.G2bApiService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -72,6 +74,9 @@ class BidCollectionControllerTests {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private AllowedIndustryCodeProvider allowedIndustryCodeProvider;
+
     @MockitoBean
     private ManualBidCollectionCoordinator coordinator;
 
@@ -80,6 +85,7 @@ class BidCollectionControllerTests {
 
     @BeforeEach
     void clearTables() {
+        allowedIndustryCodeProvider.replaceCodes(List.of("6146", "1468"));
         jdbcTemplate.update("DELETE FROM bid_collection_run_notice");
         jdbcTemplate.update("DELETE FROM bid_notice_version");
         jdbcTemplate.update("DELETE FROM bid_notice");
@@ -335,7 +341,8 @@ class BidCollectionControllerTests {
     }
 
     @Test
-    void forwardsRequestedAllowedLicenseCodesToManualCollection() throws Exception {
+    void usesServerAllowedIndustryCodesInsteadOfRequestValues() throws Exception {
+        allowedIndustryCodeProvider.replaceCodes(List.of("1468", "6525"));
         when(coordinator.collect(any(), any(), any(), any())).thenReturn(result(
                 ManualBidCollectionResult.Status.SUCCESS, List.of(), Map.of()
         ));
@@ -348,7 +355,62 @@ class BidCollectionControllerTests {
                                 """))
                 .andExpect(status().isOk());
 
-        verify(coordinator).collect(START, END, Set.of("6146", "1468", "9999"), Set.of());
+        verify(coordinator).collect(START, END, Set.of("1468", "6525"), Set.of());
+    }
+
+    @Test
+    void getsAndAtomicallyReplacesAllowedIndustryCodes() throws Exception {
+        mockMvc.perform(get("/api/settings/allowed-industry-codes"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("[\"1468\",\"6146\"]"));
+
+        mockMvc.perform(put("/api/settings/allowed-industry-codes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"codes\":[\"1468\",\"6525\"]}"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("[\"1468\",\"6525\"]"));
+
+        mockMvc.perform(get("/api/settings/allowed-industry-codes"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("[\"1468\",\"6525\"]"));
+    }
+
+    @Test
+    void rejectsEmptyAndInvalidAllowedIndustryCodesAndDeduplicatesInput() throws Exception {
+        mockMvc.perform(put("/api/settings/allowed-industry-codes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"codes\":[]}"))
+                .andExpect(status().isBadRequest());
+        for (String invalidCode : List.of("123", "12345", "12A4")) {
+            mockMvc.perform(put("/api/settings/allowed-industry-codes")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"codes\":[\"" + invalidCode + "\"]}"))
+                    .andExpect(status().isBadRequest());
+        }
+
+        mockMvc.perform(put("/api/settings/allowed-industry-codes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"codes\":[\"6525\",\"6525\"]}"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("[\"6525\"]"));
+        assertEquals(1L, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM allowed_industry_code", Long.class
+        ));
+    }
+
+    @Test
+    void nextManualCollectionUsesChangedSettingWithoutRestart() throws Exception {
+        when(coordinator.collect(any(), any(), any(), any())).thenReturn(result(
+                ManualBidCollectionResult.Status.SUCCESS, List.of(), Map.of()
+        ));
+        allowedIndustryCodeProvider.replaceCodes(List.of("1468", "6525"));
+
+        mockMvc.perform(post("/api/bid-collections")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"startDate\":\"2026-09-21\",\"endDate\":\"2026-09-22\"}"))
+                .andExpect(status().isOk());
+
+        verify(coordinator).collect(START, END, Set.of("1468", "6525"), Set.of());
     }
 
     @Test
@@ -509,6 +571,45 @@ class BidCollectionControllerTests {
                         .param("endDate", "2026-09-22"))
                 .andExpect(status().isOk())
                 .andExpect(content().json("[]"));
+    }
+
+    @Test
+    void g2bQualificationEndpointUsesServerSettingAndIgnoresLegacyQueryValue() throws Exception {
+        allowedIndustryCodeProvider.replaceCodes(List.of("1468", "6525"));
+        when(g2bApiService.getTargetBidQualificationList(START, END, Set.of("1468", "6525")))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/bids/target/qualification/range")
+                        .param("startDate", "2026-09-21")
+                        .param("endDate", "2026-09-22")
+                        .param("allowedLicenseCodes", "6146"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("[]"));
+
+        verify(g2bApiService).getTargetBidQualificationList(
+                START, END, Set.of("1468", "6525")
+        );
+    }
+
+    @Test
+    void legacyG2bListEndpointsUseCurrentServerIndustryCodes() throws Exception {
+        allowedIndustryCodeProvider.replaceCodes(List.of("1468", "6525"));
+        when(g2bApiService.getBidDtoList(Set.of("1468", "6525"))).thenReturn(List.of());
+        when(g2bApiService.getTargetBidList(Set.of("1468", "6525"))).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/bids"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("[]"));
+        mockMvc.perform(get("/api/bids/dto"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("[]"));
+        mockMvc.perform(get("/api/bids/target"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("[]"));
+
+        verify(g2bApiService, org.mockito.Mockito.times(2))
+                .getBidDtoList(Set.of("1468", "6525"));
+        verify(g2bApiService).getTargetBidList(Set.of("1468", "6525"));
     }
 
     private ManualBidCollectionResult result(

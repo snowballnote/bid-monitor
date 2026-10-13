@@ -19,47 +19,42 @@ const analysisModalContent = document.getElementById("analysis-modal-content");
 const analysisModalClose = document.getElementById("analysis-modal-close");
 const analysisModalTitle = document.getElementById("document-analysis-title");
 
-const LICENSE_STORAGE_KEY = "bidAllowedLicenseCodes";
-const DEFAULT_LICENSE_CODES = ["6146", "1468"];
 let allowedLicenseCodes = [];
 let lastAnalysisTrigger = null;
 
 /**
- * 저장된 허용 업종코드를 불러오며, 최초 접속이나 잘못된 저장값은 기본값으로 초기화한다.
+ * 서버에 저장된 현재 허용 업종코드를 불러온다.
  */
-function loadAllowedLicenseCodes() {
-    try {
-        const storedValue = localStorage.getItem(LICENSE_STORAGE_KEY);
-        if (storedValue === null) {
-            allowedLicenseCodes = [...DEFAULT_LICENSE_CODES];
-            saveAllowedLicenseCodes();
-            return;
-        }
-
-        const parsedCodes = JSON.parse(storedValue);
-        if (!Array.isArray(parsedCodes)) {
-            throw new Error("허용 업종코드 저장 형식이 올바르지 않습니다.");
-        }
-
-        const validCodes = parsedCodes.filter(
-            (code, index) => /^[0-9]{4}$/.test(code) && parsedCodes.indexOf(code) === index
-        );
-        allowedLicenseCodes = validCodes.length > 0 ? validCodes : [...DEFAULT_LICENSE_CODES];
-        saveAllowedLicenseCodes();
-    } catch (error) {
-        console.error(error);
-        allowedLicenseCodes = [...DEFAULT_LICENSE_CODES];
-        saveAllowedLicenseCodes();
+async function loadAllowedLicenseCodes() {
+    const response = await fetch("/api/settings/allowed-industry-codes", {
+        headers: {Accept: "application/json"}
+    });
+    if (!response.ok) {
+        throw new Error(`허용 업종코드 조회 실패: ${response.status}`);
     }
+    const codes = await response.json();
+    if (!Array.isArray(codes) || codes.length === 0
+            || codes.some((code) => !/^[0-9]{4}$/.test(code))) {
+        throw new Error("허용 업종코드 응답 형식이 올바르지 않습니다.");
+    }
+    allowedLicenseCodes = [...new Set(codes)];
 }
 
-/** 허용 업종코드 변경 내용을 브라우저에 즉시 저장한다. */
-function saveAllowedLicenseCodes() {
-    try {
-        localStorage.setItem(LICENSE_STORAGE_KEY, JSON.stringify(allowedLicenseCodes));
-    } catch (error) {
-        console.error("허용 업종코드를 저장하지 못했습니다.", error);
+/** 허용 업종코드 전체 목록을 서버에서 원자적으로 교체한다. */
+async function replaceAllowedLicenseCodes(codes) {
+    const response = await fetch("/api/settings/allowed-industry-codes", {
+        method: "PUT",
+        headers: {"Content-Type": "application/json", Accept: "application/json"},
+        body: JSON.stringify({codes})
+    });
+    if (!response.ok) {
+        throw new Error(`허용 업종코드 저장 실패: ${response.status}`);
     }
+    const savedCodes = await response.json();
+    if (!Array.isArray(savedCodes) || savedCodes.length === 0) {
+        throw new Error("허용 업종코드 응답 형식이 올바르지 않습니다.");
+    }
+    allowedLicenseCodes = savedCodes;
 }
 
 /** 코드 관리 안내 메시지를 표시하거나 초기화한다. */
@@ -93,7 +88,7 @@ function renderAllowedLicenseCodes() {
 }
 
 /** 허용 업종코드를 추가하고 저장값과 화면을 즉시 갱신한다. */
-function addAllowedLicenseCode(code) {
+async function addAllowedLicenseCode(code) {
     if (!/^[0-9]{4}$/.test(code)) {
         showLicenseCodeMessage("허용 업종코드는 숫자 4자리로 입력해 주세요.");
         return;
@@ -103,24 +98,34 @@ function addAllowedLicenseCode(code) {
         return;
     }
 
-    allowedLicenseCodes.push(code);
-    saveAllowedLicenseCodes();
-    renderAllowedLicenseCodes();
-    licenseCodeInput.value = "";
-    showLicenseCodeMessage("");
+    try {
+        await replaceAllowedLicenseCodes([...allowedLicenseCodes, code]);
+        renderAllowedLicenseCodes();
+        licenseCodeInput.value = "";
+        showLicenseCodeMessage("");
+    } catch (error) {
+        console.error(error);
+        showLicenseCodeMessage("허용 업종코드를 저장하지 못했습니다.");
+    }
 }
 
 /** 최소 한 개를 유지하면서 선택한 허용 업종코드를 삭제한다. */
-function removeAllowedLicenseCode(code) {
+async function removeAllowedLicenseCode(code) {
     if (allowedLicenseCodes.length === 1) {
         showLicenseCodeMessage("허용 업종코드는 최소 1개 이상 유지해야 합니다.");
         return;
     }
 
-    allowedLicenseCodes = allowedLicenseCodes.filter((allowedCode) => allowedCode !== code);
-    saveAllowedLicenseCodes();
-    renderAllowedLicenseCodes();
-    showLicenseCodeMessage("");
+    try {
+        await replaceAllowedLicenseCodes(
+            allowedLicenseCodes.filter((allowedCode) => allowedCode !== code)
+        );
+        renderAllowedLicenseCodes();
+        showLicenseCodeMessage("");
+    } catch (error) {
+        console.error(error);
+        showLicenseCodeMessage("허용 업종코드를 저장하지 못했습니다.");
+    }
 }
 
 /**
@@ -1054,7 +1059,7 @@ async function loadBidsByRange(startDate, endDate, collect = true) {
             const collectionResponse = await fetch("/api/bid-collections", {
                 method: "POST",
                 headers: {"Content-Type": "application/json", "Accept": "application/json"},
-                body: JSON.stringify({startDate, endDate, allowedLicenseCodes})
+                body: JSON.stringify({startDate, endDate})
             });
             const collectionResult = await collectionResponse.json().catch(() => null);
             if (!collectionResponse.ok
@@ -1156,8 +1161,12 @@ document.addEventListener("keydown", (event) => {
 });
 
 // 화면을 열 때 저장값을 불러오고 현재 허용 코드를 태그로 표시한다.
-loadAllowedLicenseCodes();
-renderAllowedLicenseCodes();
+loadAllowedLicenseCodes()
+    .then(renderAllowedLicenseCodes)
+    .catch((error) => {
+        console.error(error);
+        showLicenseCodeMessage("허용 업종코드를 불러오지 못했습니다.");
+    });
 
 // 최초 접속은 추가 수집 없이 오늘 저장된 공고를 조회한다.
 const today = formatDate(new Date());

@@ -77,7 +77,6 @@ public class G2bApiService {
     );
 
     private static final int BID_LIST_PAGE_SIZE = 100;
-    private static final List<String> G2B_INDUSTRY_SEARCH_CODES = List.of("6146", "1468");
     private static final List<String> G2B_TITLE_SEARCH_KEYWORDS = List.of(
             "정보시스템 감리",
             "정보화 감리",
@@ -85,7 +84,6 @@ public class G2bApiService {
             "개인정보영향평가",
             "감리"
     );
-    private static final Set<String> DEFAULT_ALLOWED_LICENSE_CODES = Set.of("6146", "1468");
     private static final Set<String> PDF_ANALYSIS_DOCUMENT_TYPES =
             Set.of("공고문", "과업지시서", "제안요청서");
     private static final Set<String> HWPX_ANALYSIS_DOCUMENT_TYPES =
@@ -299,50 +297,6 @@ public class G2bApiService {
     // 실제 인증키가 GitHub에 노출되지 않도록 소스코드에는 직접 작성하지 않음
     @Value("${g2b.api.service-key}")
     private String serviceKey;
-
-    /**
-     * 나라장터 용역 입찰공고 목록을 테스트용으로 조회한다.
-     */
-    public String getBidList() {
-        // 실행 당일의 입찰공고를 조회하기 위해 현재 날짜를 yyyyMMdd 형식으로 만든다.
-        String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-        //String today = "20260713"; // 테스트
-        String inquiryStartDateTime = today + "0000";
-        String inquiryEndDateTime = today + "2359";
-
-        // 브라우저에서 정상 호출된 URL과 동일한 형태로 전체 요청 주소를 직접 만든다.
-        // ServiceKey가 이미 URL Encoding된 값이므로 RestClient가 다시 인코딩하지 않도록
-        // 최종 문자열을 URI 객체로 변환해 그대로 전달한다.
-        String requestUrl = baseUrl
-                + "/getBidPblancListInfoServcPPSSrch"
-                + "?ServiceKey=" + serviceKey
-                + "&numOfRows=10"
-                + "&pageNo=1"
-                + "&type=json"
-                + "&inqryDiv=1"
-                + "&inqryBgnDt=" + inquiryStartDateTime
-                + "&inqryEndDt=" + inquiryEndDateTime
-                // 업종코드 6146에 해당하는 용역 입찰공고만 조회한다.
-                + "&indstrytyCd=6146";
-
-        RestClient restClient = RestClient.create();
-
-        return restClient.get()
-                .uri(URI.create(requestUrl))
-                .retrieve()
-                .body(String.class);
-    }
-
-    /**
-     * 사용자가 지정한 기간의 용역 감리 입찰공고 목록을 조회한다.
-     */
-    public String getBidList(LocalDate startDate, LocalDate endDate) {
-        String responseBody = requestBidListPage(startDate, endDate, "6146", 1);
-
-        // 공개 메서드를 직접 호출한 경우에도 나라장터 오류 응답을 정상 결과로 오인하지 않는다.
-        parseBidListPage(responseBody);
-        return responseBody;
-    }
 
     /**
      * 지정한 기간과 페이지 번호로 나라장터 용역 감리 공고를 조회한다.
@@ -618,14 +572,7 @@ public class G2bApiService {
     }
 
     /**
-     * 입찰공고의 면허, 참가가능지역 및 낙찰 관련 참가조건을 하나의 DTO로 조합한다.
-     */
-    public BidQualificationDto getBidQualification(String bidNtceNo) {
-        return getBidQualification(bidNtceNo, DEFAULT_ALLOWED_LICENSE_CODES);
-    }
-
-    /**
-     * 브라우저에서 전달한 허용 업종코드를 기준으로 특정 공고의 참가조건을 자동 판정한다.
+     * 서버 설정에서 전달한 허용 업종코드를 기준으로 특정 공고의 참가조건을 자동 판정한다.
      */
     public BidQualificationDto getBidQualification(String bidNtceNo, Set<String> allowedLicenseCodes) {
         // 공고번호 직접조회로 과거 공고를 포함한 기본 입찰정보를 가져온다.
@@ -727,12 +674,10 @@ public class G2bApiService {
         }
     }
 
-    /**
-     * 전달값이 없으면 기본 허용코드를 사용하고, 공백값과 중복값은 제거한다.
-     */
+    /** 전달된 실행 스냅샷에서 공백값과 중복값을 제거한다. */
     private Set<String> normalizeAllowedLicenseCodes(Set<String> allowedLicenseCodes) {
         if (allowedLicenseCodes == null || allowedLicenseCodes.isEmpty()) {
-            return DEFAULT_ALLOWED_LICENSE_CODES;
+            throw new IllegalArgumentException("허용 업종코드는 최소 1개 이상이어야 합니다.");
         }
 
         Set<String> normalizedCodes = allowedLicenseCodes.stream()
@@ -740,7 +685,10 @@ public class G2bApiService {
                 .map(String::trim)
                 .filter(code -> !code.isEmpty())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        return normalizedCodes.isEmpty() ? DEFAULT_ALLOWED_LICENSE_CODES : normalizedCodes;
+        if (normalizedCodes.isEmpty()) {
+            throw new IllegalArgumentException("허용 업종코드는 최소 1개 이상이어야 합니다.");
+        }
+        return Set.copyOf(normalizedCodes);
     }
 
     /**
@@ -1812,60 +1760,28 @@ public class G2bApiService {
         return String.join(",", values);
     }
 
-    /**
-     * 나라장터 응답의 입찰공고 항목만 BidDto 목록으로 변환한다.
-     */
-    public List<BidDto> getBidDtoList() {
-        // 기존 API 호출 결과를 JSON 트리로 읽어 필요한 배열 경로만 선택한다.
-        String responseBody = getBidList();
-        ObjectMapper objectMapper = new ObjectMapper();
-        List<BidDto> bidList = new ArrayList<>();
-
-        try {
-            JsonNode items = objectMapper.readTree(responseBody)
-                    .path("response")
-                    .path("body")
-                    .path("items");
-
-            // 각 입찰공고에서 화면에 필요한 필드만 BidDto에 담는다.
-            for (JsonNode item : items) {
-                bidList.add(new BidDto(
-                        item.path("bidNtceNo").asText(),
-                        item.path("bidNtceNm").asText(),
-                        item.path("ntceInsttNm").asText(),
-                        item.path("bidNtceDt").asText(),
-                        item.path("bidClseDt").asText(),
-                        item.path("asignBdgtAmt").asText(),
-                        item.path("sucsfbidMthdNm").asText(),
-                        item.path("bidNtceDtlUrl").asText(),
-                        // 낙찰방법 및 심사 조건을 자동 판단에 사용할 수 있도록 함께 담는다.
-                        item.path("sucsfbidMthdCd").asText(),
-                        item.path("techAbltEvlRt").asText(),
-                        item.path("bidPrceEvlRt").asText(),
-                        item.path("sucsfbidMthdAppStd").asText(),
-                        item.path("arsltCmptYn").asText(),
-                        item.path("pqEvalYn").asText(),
-                        item.path("tpEvalYn").asText(),
-                        item.path("cmmnSpldmdAgrmntRcptdocMethd").asText()
-                ));
-            }
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("나라장터 API 응답을 JSON으로 변환할 수 없습니다.", e);
-        }
-
-        return bidList;
+    public List<BidDto> getBidDtoList(Set<String> allowedIndustryCodes) {
+        LocalDate today = LocalDate.now();
+        return getBidDtoList(today, today, allowedIndustryCodes);
     }
 
     /**
      * 지정한 기간의 입찰공고 응답을 BidDto 목록으로 변환한다.
      */
-    public List<BidDto> getBidDtoList(LocalDate startDate, LocalDate endDate) {
+    public List<BidDto> getBidDtoList(
+            LocalDate startDate,
+            LocalDate endDate,
+            Set<String> allowedIndustryCodes
+    ) {
         if (startDate == null || endDate == null) {
             throw new IllegalArgumentException("조회 시작일과 종료일을 모두 입력해야 합니다.");
         }
         if (startDate.isAfter(endDate)) {
             throw new IllegalArgumentException("조회 시작일은 종료일보다 늦을 수 없습니다.");
         }
+        List<String> industryCodes = normalizeAllowedLicenseCodes(allowedIndustryCodes).stream()
+                .sorted()
+                .toList();
 
         // 공고번호 삽입 순서를 유지하면서 구간 경계 등에서 발생할 수 있는 중복을 제거한다.
         Map<String, BidDto> uniqueBids = new LinkedHashMap<>();
@@ -1878,7 +1794,7 @@ public class G2bApiService {
                 chunkEndDate = endDate;
             }
 
-            for (String industryCode : G2B_INDUSTRY_SEARCH_CODES) {
+            for (String industryCode : industryCodes) {
                 BidListPage firstPage = fetchBidListPage(chunkStartDate, chunkEndDate, industryCode, 1);
                 addUniqueBids(uniqueBids, firstPage.bidList());
 
@@ -2040,8 +1956,8 @@ public class G2bApiService {
     /**
      * 대리님 요청 조건에 맞는 낙찰방법의 공고만 조회한다.
      */
-    public List<BidDto> getTargetBidList() {
-        return getBidDtoList().stream()
+    public List<BidDto> getTargetBidList(Set<String> allowedIndustryCodes) {
+        return getBidDtoList(allowedIndustryCodes).stream()
                 // 협상에 의한 계약(낙030005)은 대상에서 제외한다.
                 .filter(bid -> !"낙030005".equals(bid.getSucsfbidMthdCd()))
                 // 소액수의견적: 코드가 낙030029이거나 낙찰방법명에 소액수의견적이 포함된 공고
@@ -2056,9 +1972,13 @@ public class G2bApiService {
     /**
      * 지정한 기간의 공고 중 소액수의견적 또는 적격심사제 대상 공고만 반환한다.
      */
-    public List<BidDto> getTargetBidList(LocalDate startDate, LocalDate endDate) {
+    public List<BidDto> getTargetBidList(
+            LocalDate startDate,
+            LocalDate endDate,
+            Set<String> allowedIndustryCodes
+    ) {
         // 기간 조회 결과에 기존과 동일한 대상 공고 조건을 적용한다.
-        return getBidDtoList(startDate, endDate).stream()
+        return getBidDtoList(startDate, endDate, allowedIndustryCodes).stream()
                 .filter(this::isTargetBid)
                 .collect(Collectors.toList());
     }
@@ -2078,14 +1998,7 @@ public class G2bApiService {
     }
 
     /**
-     * 오늘의 대상 공고에 참가조건 자동 판정을 적용한 결과를 반환한다.
-     */
-    public List<BidQualificationDto> getTargetBidQualificationList() {
-        return getTargetBidQualificationList(DEFAULT_ALLOWED_LICENSE_CODES);
-    }
-
-    /**
-     * 오늘의 대상 공고를 브라우저에서 전달한 허용 업종코드로 자동 판정한다.
+     * 오늘의 대상 공고를 서버 설정의 허용 업종코드 스냅샷으로 자동 판정한다.
      */
     public List<BidQualificationDto> getTargetBidQualificationList(Set<String> allowedLicenseCodes) {
         LocalDate today = LocalDate.now();
@@ -2093,14 +2006,7 @@ public class G2bApiService {
     }
 
     /**
-     * 지정한 기간의 대상 공고에 기존 참가조건 자동 판정을 적용해 반환한다.
-     */
-    public List<BidQualificationDto> getTargetBidQualificationList(LocalDate startDate, LocalDate endDate) {
-        return getTargetBidQualificationList(startDate, endDate, DEFAULT_ALLOWED_LICENSE_CODES);
-    }
-
-    /**
-     * 지정한 기간의 대상 공고를 브라우저에서 전달한 허용 업종코드로 자동 판정한다.
+     * 지정한 기간의 대상 공고를 서버 설정의 허용 업종코드 스냅샷으로 자동 판정한다.
      */
     public List<BidQualificationDto> getTargetBidQualificationList(
             LocalDate startDate,
@@ -2186,7 +2092,7 @@ public class G2bApiService {
     ) {
         Set<String> normalizedCodes = normalizeAllowedLicenseCodes(allowedLicenseCodes);
         LinkedHashMap<CandidateKey, BidQualificationDto> uniqueCandidates = new LinkedHashMap<>();
-        getBidDtoList(startDate, endDate).stream()
+        getBidDtoList(startDate, endDate, normalizedCodes).stream()
                 .map(BidDto::getBidNtceNo)
                 .map(bidNtceNo -> getBidQualification(bidNtceNo, normalizedCodes))
                 .forEach(candidate -> {

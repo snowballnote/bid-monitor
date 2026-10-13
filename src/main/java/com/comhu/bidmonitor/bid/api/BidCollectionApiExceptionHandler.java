@@ -10,7 +10,10 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-@RestControllerAdvice(assignableTypes = BidCollectionController.class)
+@RestControllerAdvice(assignableTypes = {
+        BidCollectionController.class,
+        AllowedIndustryCodeController.class
+})
 public class BidCollectionApiExceptionHandler {
 
     private static final String ALREADY_RUNNING = "ALREADY_RUNNING";

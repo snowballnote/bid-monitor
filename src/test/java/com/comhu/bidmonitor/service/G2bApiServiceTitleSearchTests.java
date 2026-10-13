@@ -16,6 +16,8 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class G2bApiServiceTitleSearchTests {
@@ -50,11 +52,52 @@ class G2bApiServiceTitleSearchTests {
                 bid("G2B-FIRE", "소방시설 감리용역")
         ));
 
-        List<BidDto> result = service.getBidDtoList(DATE, DATE);
+        List<BidDto> result = service.getBidDtoList(DATE, DATE, Set.of("6146", "1468"));
 
-        assertEquals(List.of("G2B-SHARED", "G2B-6146", "G2B-1468", "G2B-INFO", "G2B-PIA", "G2B-IT"),
+        assertEquals(List.of("G2B-SHARED", "G2B-1468", "G2B-6146", "G2B-INFO", "G2B-PIA", "G2B-IT"),
                 result.stream().map(BidDto::getBidNtceNo).toList());
-        assertEquals(List.of("6146:1", "1468:1"), service.industryRequests);
+        assertEquals(List.of("1468:1", "6146:1"), service.industryRequests);
+    }
+
+    @Test
+    void usesOnlyCurrentAllowedIndustryCodesAndDeduplicatesAcrossDynamicQueries() {
+        TitleSearchFixtureService service = new TitleSearchFixtureService();
+        service.industries.put("1468", List.of(
+                bid("DYNAMIC-SHARED", "공통 공고"),
+                bid("DYNAMIC-1468", "1468 공고")
+        ));
+        service.industries.put("6525", List.of(
+                bid("DYNAMIC-SHARED", "공통 공고"),
+                bid("DYNAMIC-6525", "6525 공고")
+        ));
+
+        List<BidDto> result = service.getBidDtoList(DATE, DATE, Set.of("6525", "1468"));
+
+        assertEquals(List.of("1468:1", "6525:1"), service.industryRequests);
+        assertFalse(service.industryRequests.stream().anyMatch(request -> request.startsWith("6146:")));
+        assertEquals(List.of("DYNAMIC-SHARED", "DYNAMIC-1468", "DYNAMIC-6525"),
+                result.stream().map(BidDto::getBidNtceNo).toList());
+    }
+
+    @Test
+    void arbitrarySingleAllowedCodeDoesNotTriggerSpecialIndustryQueries() {
+        TitleSearchFixtureService service = new TitleSearchFixtureService();
+        service.industries.put("9999", List.of(bid("DYNAMIC-9999", "임의 업종 공고")));
+
+        List<BidDto> result = service.getBidDtoList(DATE, DATE, Set.of("9999"));
+
+        assertEquals(List.of("9999:1"), service.industryRequests);
+        assertEquals(List.of("DYNAMIC-9999"), result.stream().map(BidDto::getBidNtceNo).toList());
+    }
+
+    @Test
+    void rejectsEmptyAllowedIndustrySnapshotWithoutFixedFallback() {
+        TitleSearchFixtureService service = new TitleSearchFixtureService();
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.getBidDtoList(DATE, DATE, Set.of()));
+        assertTrue(service.industryRequests.isEmpty());
+        assertTrue(service.titleRequests.isEmpty());
     }
 
     @Test
@@ -69,7 +112,7 @@ class G2bApiServiceTitleSearchTests {
                 bid("NOTICE-01", "정보시스템 감리 용역 정정공고")
         ));
 
-        List<BidDto> result = service.getBidDtoList(DATE, DATE);
+        List<BidDto> result = service.getBidDtoList(DATE, DATE, Set.of("6146", "1468"));
 
         assertEquals(List.of("NOTICE-00", "NOTICE-01"),
                 result.stream().map(BidDto::getBidNtceNo).toList());
@@ -84,9 +127,9 @@ class G2bApiServiceTitleSearchTests {
                 "정보시스템 감리", "정보화 감리", "개인정보 영향평가", "개인정보영향평가", "감리"
         ));
 
-        List<BidDto> result = service.getBidDtoList(DATE, DATE);
+        List<BidDto> result = service.getBidDtoList(DATE, DATE, Set.of("6146", "1468"));
 
-        assertEquals(List.of("G2B-6146", "G2B-1468"),
+        assertEquals(List.of("G2B-1468", "G2B-6146"),
                 result.stream().map(BidDto::getBidNtceNo).toList());
     }
 
@@ -97,7 +140,7 @@ class G2bApiServiceTitleSearchTests {
                 bid("G2B-LICENSED", "건설공사 감리 용역")
         ));
 
-        List<BidDto> result = service.getBidDtoList(DATE, DATE);
+        List<BidDto> result = service.getBidDtoList(DATE, DATE, Set.of("6146", "1468"));
 
         assertEquals(List.of("G2B-LICENSED"),
                 result.stream().map(BidDto::getBidNtceNo).toList());
@@ -111,7 +154,7 @@ class G2bApiServiceTitleSearchTests {
                 bid("G2B-IRRELEVANT", "정보통신공사 감리 용역")
         ));
 
-        List<BidDto> result = service.getBidDtoList(DATE, DATE);
+        List<BidDto> result = service.getBidDtoList(DATE, DATE, Set.of("6146", "1468"));
 
         assertEquals(List.of("G2B-UNKNOWN"),
                 result.stream().map(BidDto::getBidNtceNo).toList());
@@ -150,11 +193,32 @@ class G2bApiServiceTitleSearchTests {
                 bid("PAGE-2", "정보시스템 감리 용역 정정공고")
         ));
 
-        List<BidDto> result = pagingService.getBidDtoList(DATE, DATE);
+        List<BidDto> result = pagingService.getBidDtoList(DATE, DATE, Set.of("6146", "1468"));
 
         assertEquals(List.of("PAGE-1", "PAGE-2"),
                 result.stream().map(BidDto::getBidNtceNo).toList());
         assertTrue(pagingService.titleRequests.contains("정보시스템 감리:2"));
+    }
+
+    @Test
+    void dynamicIndustrySearchPreservesPaginationAndDateParameters() {
+        TitleSearchFixtureService pagingService = new TitleSearchFixtureService();
+        pagingService.industries.put("6525", List.of(bid("INDUSTRY-PAGE-1", "첫 페이지")));
+        pagingService.industryTotals.put("6525", 101);
+        pagingService.industrySecondPages.put("6525", List.of(
+                bid("INDUSTRY-PAGE-2", "두 번째 페이지")
+        ));
+
+        List<BidDto> result = pagingService.getBidDtoList(DATE, DATE, Set.of("6525"));
+
+        assertEquals(List.of("6525:1", "6525:2"), pagingService.industryRequests);
+        assertEquals(List.of("INDUSTRY-PAGE-1", "INDUSTRY-PAGE-2"),
+                result.stream().map(BidDto::getBidNtceNo).toList());
+
+        CapturingRequestService requestService = new CapturingRequestService();
+        requestService.requestIndustry(DATE, DATE, "6525", 1);
+        assertTrue(requestService.requestUrls.getFirst().contains("inqryBgnDt=202609210000"));
+        assertTrue(requestService.requestUrls.getFirst().contains("inqryEndDt=202609212359"));
     }
 
     @Test
@@ -198,6 +262,8 @@ class G2bApiServiceTitleSearchTests {
 
     private static class TitleSearchFixtureService extends G2bApiService {
         private final Map<String, List<BidDto>> industries = new HashMap<>();
+        private final Map<String, List<BidDto>> industrySecondPages = new HashMap<>();
+        private final Map<String, Integer> industryTotals = new HashMap<>();
         protected final Map<String, List<BidDto>> titles = new HashMap<>();
         private final Map<String, List<BidDto>> titleSecondPages = new HashMap<>();
         private final Map<String, Integer> titleTotals = new HashMap<>();
@@ -213,8 +279,11 @@ class G2bApiServiceTitleSearchTests {
                 int pageNo
         ) {
             industryRequests.add(industryCode + ":" + pageNo);
-            List<BidDto> industry = industries.getOrDefault(industryCode, List.of());
-            return response(pageNo == 1 ? industry : List.of(), industry.size());
+            List<BidDto> firstPage = industries.getOrDefault(industryCode, List.of());
+            List<BidDto> page = pageNo == 1
+                    ? firstPage
+                    : industrySecondPages.getOrDefault(industryCode, List.of());
+            return response(page, industryTotals.getOrDefault(industryCode, firstPage.size()));
         }
 
         @Override

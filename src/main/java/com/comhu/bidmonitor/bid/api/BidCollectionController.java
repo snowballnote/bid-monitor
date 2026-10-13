@@ -18,6 +18,7 @@ import com.comhu.bidmonitor.bid.persistence.BidNoticeRepository;
 import com.comhu.bidmonitor.bid.persistence.BidSourceState;
 import com.comhu.bidmonitor.bid.persistence.BidSourceStateRepository;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceCatalogService;
+import com.comhu.bidmonitor.bid.settings.AllowedIndustryCodeProvider;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -42,7 +43,6 @@ import java.util.regex.Pattern;
 @RequestMapping("/api")
 public class BidCollectionController {
 
-    private static final Set<String> DEFAULT_ALLOWED_LICENSE_CODES = Set.of("6146", "1468");
     private static final Pattern SOURCE_CODE_PATTERN = Pattern.compile("[A-Z][A-Z0-9_]{0,99}");
     private static final int MAX_PAGE_SIZE = 100;
 
@@ -52,6 +52,7 @@ public class BidCollectionController {
     private final BidSourceStateRepository stateRepository;
     private final ManualBidCollectionSourceRegistry sourceRegistry;
     private final BidSourceCatalogService sourceCatalogService;
+    private final AllowedIndustryCodeProvider allowedIndustryCodeProvider;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public BidCollectionController(
@@ -60,7 +61,8 @@ public class BidCollectionController {
             BidNoticeRepository noticeRepository,
             BidSourceStateRepository stateRepository,
             ManualBidCollectionSourceRegistry sourceRegistry,
-            BidSourceCatalogService sourceCatalogService
+            BidSourceCatalogService sourceCatalogService,
+            AllowedIndustryCodeProvider allowedIndustryCodeProvider
     ) {
         this.coordinator = coordinator;
         this.runRepository = runRepository;
@@ -68,13 +70,15 @@ public class BidCollectionController {
         this.stateRepository = stateRepository;
         this.sourceRegistry = sourceRegistry;
         this.sourceCatalogService = sourceCatalogService;
+        this.allowedIndustryCodeProvider = allowedIndustryCodeProvider;
     }
 
     @PostMapping("/bid-collections")
     public BidCollectionResponse collect(@RequestBody BidCollectionRequest request) {
         validate(request);
+        Set<String> allowedIndustryCodes = allowedIndustryCodeProvider.currentCodes();
         ManualBidCollectionResult result = coordinator.collect(
-                request.startDate(), request.endDate(), allowedLicenseCodes(request),
+                request.startDate(), request.endDate(), allowedIndustryCodes,
                 request.sourceCodes() == null ? Set.of() : request.sourceCodes()
         );
         return BidCollectionResponse.from(result);
@@ -150,13 +154,6 @@ public class BidCollectionController {
         if (request.startDate().isAfter(request.endDate())) {
             throw new IllegalArgumentException("startDate must not be after endDate.");
         }
-    }
-
-    private Set<String> allowedLicenseCodes(BidCollectionRequest request) {
-        if (request.allowedLicenseCodes() == null || request.allowedLicenseCodes().isEmpty()) {
-            return DEFAULT_ALLOWED_LICENSE_CODES;
-        }
-        return Set.copyOf(request.allowedLicenseCodes());
     }
 
     private LocalDate parseDate(String value, String field) {

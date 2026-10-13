@@ -2,6 +2,7 @@ package com.comhu.bidmonitor.bid.collection;
 
 import com.comhu.bidmonitor.bid.persistence.BidSourceState;
 import com.comhu.bidmonitor.bid.persistence.BidSourceStateRepository;
+import com.comhu.bidmonitor.bid.settings.AllowedIndustryCodeProvider;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -19,8 +20,6 @@ import java.util.Set;
 @Slf4j
 public class BidCollectionScheduler {
 
-    private static final Set<String> DEFAULT_LICENSE_CODES = Set.of("6146", "1468");
-
     private final ManualBidCollectionCoordinator coordinator;
     private final ManualBidCollectionSourceRegistry sourceRegistry;
     private final BidSourceStateRepository stateRepository;
@@ -30,6 +29,7 @@ public class BidCollectionScheduler {
     private final Duration failureMaxDelay;
     private final Map<String, BidCollectionSourceSchedule> schedules;
     private final GenericPublicPageSchedule genericSchedule;
+    private final AllowedIndustryCodeProvider allowedIndustryCodeProvider;
 
     public BidCollectionScheduler(
             ManualBidCollectionCoordinator coordinator,
@@ -38,6 +38,7 @@ public class BidCollectionScheduler {
             Clock clock,
             List<BidCollectionSourceSchedule> schedules,
             GenericPublicPageSchedule genericSchedule,
+            AllowedIndustryCodeProvider allowedIndustryCodeProvider,
             @Value("${bid.collection.scheduler.zone-id:Asia/Seoul}") String zoneId,
             @Value("${bid.collection.scheduler.failure-base-delay-seconds:300}") long failureBaseDelaySeconds,
             @Value("${bid.collection.scheduler.failure-max-delay-seconds:3600}") long failureMaxDelaySeconds
@@ -52,6 +53,9 @@ public class BidCollectionScheduler {
         this.genericSchedule = java.util.Objects.requireNonNull(
                 genericSchedule, "genericSchedule must not be null"
         );
+        this.allowedIndustryCodeProvider = java.util.Objects.requireNonNull(
+                allowedIndustryCodeProvider, "allowedIndustryCodeProvider must not be null"
+        );
         if (failureMaxDelay.compareTo(failureBaseDelay) < 0) {
             throw new IllegalArgumentException("failureMaxDelay must not be shorter than failureBaseDelay");
         }
@@ -64,6 +68,7 @@ public class BidCollectionScheduler {
     )
     public void runDueCollections() {
         Instant scanTime = clock.instant();
+        Set<String> allowedIndustryCodes = allowedIndustryCodeProvider.currentCodes();
         for (ManualBidCollectionSource source : sourceRegistry.sources()) {
             BidCollectionSourceSchedule schedule = scheduleFor(source);
             if (schedule == null || !source.executionEnabled()) {
@@ -74,7 +79,7 @@ public class BidCollectionScheduler {
             if (state.getNextRunAt() != null && state.getNextRunAt().isAfter(scanTime)) {
                 continue;
             }
-            runSource(source.sourceCode(), schedule, scanTime, state);
+            runSource(source.sourceCode(), schedule, scanTime, state, allowedIndustryCodes);
         }
     }
 
@@ -88,12 +93,13 @@ public class BidCollectionScheduler {
             String sourceCode,
             BidCollectionSourceSchedule schedule,
             Instant attemptStartedAt,
-            BidSourceState stateBeforeAttempt
+            BidSourceState stateBeforeAttempt,
+            Set<String> allowedIndustryCodes
     ) {
         LocalDate endDate = LocalDate.ofInstant(attemptStartedAt, zoneId);
         LocalDate startDate = endDate.minusDays(schedule.lookbackDays() - 1L);
         try {
-            coordinator.collectScheduled(startDate, endDate, DEFAULT_LICENSE_CODES, sourceCode);
+            coordinator.collectScheduled(startDate, endDate, allowedIndustryCodes, sourceCode);
             Instant completedAt = clock.instant();
             BidSourceState current = loadState(sourceCode);
             stateRepository.save(current.toBuilder()
