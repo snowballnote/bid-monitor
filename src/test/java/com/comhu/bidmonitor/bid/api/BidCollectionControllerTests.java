@@ -80,6 +80,7 @@ class BidCollectionControllerTests {
 
     @BeforeEach
     void clearTables() {
+        jdbcTemplate.update("DELETE FROM bid_collection_run_notice");
         jdbcTemplate.update("DELETE FROM bid_notice_version");
         jdbcTemplate.update("DELETE FROM bid_notice");
         jdbcTemplate.update("DELETE FROM bid_collection_lock");
@@ -197,6 +198,39 @@ class BidCollectionControllerTests {
     }
 
     @Test
+    void filtersStoredNoticesBySingleOrMultipleRunIds() throws Exception {
+        BidCollectionRun firstRun = saveRun("G2B", Instant.parse("2026-09-22T01:00:00Z"));
+        BidCollectionRun secondRun = saveRun("D2B", Instant.parse("2026-09-22T01:01:00Z"));
+        BidCollectionRun emptyRun = saveRun("LH", Instant.parse("2026-09-22T01:02:00Z"));
+        saveNotice("G2B", "shared-run", "", LocalDateTime.of(2026, 9, 22, 9, 0), 'a');
+        saveNotice("D2B", "second-run", "", LocalDateTime.of(2026, 9, 22, 10, 0), 'b');
+        saveNotice("G2B", "historical", "", LocalDateTime.of(2026, 9, 22, 11, 0), 'c');
+        BidNotice shared = noticeRepository.findByIdentity("G2B", "shared-run", "").orElseThrow();
+        BidNotice second = noticeRepository.findByIdentity("D2B", "second-run", "").orElseThrow();
+        noticeRepository.linkToRun(firstRun.getId(), shared.getId());
+        noticeRepository.linkToRun(secondRun.getId(), shared.getId());
+        noticeRepository.linkToRun(secondRun.getId(), second.getId());
+
+        mockMvc.perform(get("/api/bid-notices").param("runId", firstRun.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].sourceNoticeId").value("shared-run"));
+        mockMvc.perform(get("/api/bid-notices")
+                        .param("runId", firstRun.getId().toString(), secondRun.getId().toString())
+                        .param("page", "0").param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.totalCount").value(2))
+                .andExpect(jsonPath("$.totalPages").value(2));
+        mockMvc.perform(get("/api/bid-notices").param("runId", emptyRun.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isEmpty())
+                .andExpect(jsonPath("$.totalCount").value(0));
+        mockMvc.perform(get("/api/bid-notices"))
+                .andExpect(jsonPath("$.totalCount").value(3));
+    }
+
+    @Test
     void excludesRejectedNoticesFromDefaultPagesAndTotalCountWhileKeepingThemStored() throws Exception {
         saveNotice("G2B", "review-target", "", LocalDateTime.of(2026, 9, 22, 9, 0), '6', "검토대상");
         saveNotice("KOGAS", "unknown", "", LocalDateTime.of(2026, 9, 22, 10, 0), '7', "추가확인필요");
@@ -248,6 +282,8 @@ class BidCollectionControllerTests {
         mockMvc.perform(get("/api/bid-notices").param("size", "0"))
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/bid-notices").param("size", "101"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/bid-notices").param("runId", "0"))
                 .andExpect(status().isBadRequest());
     }
 
@@ -453,7 +489,7 @@ class BidCollectionControllerTests {
     void returnsUnifiedCatalogWithAllFixedSourcesIncludingDisabledCollectors() throws Exception {
         mockMvc.perform(get("/api/bid-sources/catalog"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(4))
+                .andExpect(jsonPath("$.length()").value(5))
                 .andExpect(jsonPath("$[?(@.sourceCode == 'G2B')].sourceName").value("나라장터"))
                 .andExpect(jsonPath("$[?(@.sourceCode == 'KOREA_EXPRESSWAY')].sourceName")
                         .value("한국도로공사"))
@@ -481,6 +517,17 @@ class BidCollectionControllerTests {
             Map<String, Long> runIds
     ) {
         return new ManualBidCollectionResult(status, START, END, sources, List.of("D2B"), runIds);
+    }
+
+    private BidCollectionRun saveRun(String sourceCode, Instant startedAt) {
+        return runRepository.save(BidCollectionRun.builder()
+                .sourceCode(sourceCode)
+                .triggerType(BidCollectionRun.TriggerType.MANUAL)
+                .queryStartDate(START)
+                .queryEndDate(END)
+                .startedAt(startedAt)
+                .status(BidCollectionRun.Status.RUNNING)
+                .build());
     }
 
     private BidSourcePersistenceResult source(

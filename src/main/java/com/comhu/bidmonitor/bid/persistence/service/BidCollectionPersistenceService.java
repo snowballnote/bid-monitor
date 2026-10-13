@@ -13,6 +13,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 @Slf4j
@@ -45,11 +46,19 @@ public class BidCollectionPersistenceService {
     }
 
     public BidCollectionPersistenceResult persist(List<BidSourceCollectionResult> sourceResults) {
-        return persist(sourceResults, clock.instant());
+        return persist(sourceResults, Map.of(), clock.instant());
     }
 
     public BidCollectionPersistenceResult persist(
             List<BidSourceCollectionResult> sourceResults,
+            Instant collectedAt
+    ) {
+        return persist(sourceResults, Map.of(), collectedAt);
+    }
+
+    public BidCollectionPersistenceResult persist(
+            List<BidSourceCollectionResult> sourceResults,
+            Map<String, Long> runIdsBySource,
             Instant collectedAt
     ) {
         if (sourceResults == null || sourceResults.isEmpty()) {
@@ -57,6 +66,9 @@ public class BidCollectionPersistenceService {
         }
         if (collectedAt == null) {
             throw new IllegalArgumentException("collectedAt is required.");
+        }
+        if (runIdsBySource == null || runIdsBySource.values().stream().anyMatch(id -> id == null || id <= 0)) {
+            throw new IllegalArgumentException("Collection run ids must be positive.");
         }
 
         List<BidSourcePersistenceResult> results = new ArrayList<>();
@@ -66,7 +78,7 @@ public class BidCollectionPersistenceService {
             } else if (sourceResult.status() == BidSourceCollectionResult.Status.FAILED) {
                 results.add(failure(sourceResult.sourceCode(), safeErrorCode(sourceResult.errorCode())));
             } else {
-                results.add(persistSource(sourceResult, collectedAt));
+                results.add(persistSource(sourceResult, runIdsBySource.get(sourceResult.sourceCode()), collectedAt));
             }
         }
 
@@ -79,10 +91,11 @@ public class BidCollectionPersistenceService {
 
     private BidSourcePersistenceResult persistSource(
             BidSourceCollectionResult sourceResult,
+            Long runId,
             Instant collectedAt
     ) {
         try {
-            return transactionTemplate.execute(status -> saveSource(sourceResult, collectedAt));
+            return transactionTemplate.execute(status -> saveSource(sourceResult, runId, collectedAt));
         } catch (RuntimeException exception) {
             log.warn("Bid source persistence failed: sourceCode={}, errorType={}",
                     sourceResult.sourceCode(), exception.getClass().getSimpleName());
@@ -92,6 +105,7 @@ public class BidCollectionPersistenceService {
 
     private BidSourcePersistenceResult saveSource(
             BidSourceCollectionResult sourceResult,
+            Long runId,
             Instant collectedAt
     ) {
         int newCount = 0;
@@ -111,6 +125,9 @@ public class BidCollectionPersistenceService {
             BidNoticeSaveResult saved;
             try {
                 saved = noticeRepository.save(mapped);
+                if (runId != null) {
+                    noticeRepository.linkToRun(runId, saved.notice().getId());
+                }
             } catch (RuntimeException exception) {
                 logCandidateFailure(sourceResult.sourceCode(), candidate, "repository", exception);
                 throw exception;

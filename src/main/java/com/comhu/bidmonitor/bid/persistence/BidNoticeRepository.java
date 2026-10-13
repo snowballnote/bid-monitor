@@ -8,6 +8,8 @@ public interface BidNoticeRepository {
 
     BidNoticeSaveResult save(BidNotice notice);
 
+    void linkToRun(long runId, long bidNoticeId);
+
     Optional<BidNotice> findByIdentity(String sourceCode, String sourceNoticeId, String revision);
 
     Optional<BidNotice> findById(Long id);
@@ -15,6 +17,15 @@ public interface BidNoticeRepository {
     List<BidNotice> findAll();
 
     BidNoticePage findLatest(
+            LocalDate startDate,
+            LocalDate endDate,
+            String sourceCode,
+            int page,
+            int size
+    );
+
+    BidNoticePage findLatestByRunIds(
+            List<Long> runIds,
             LocalDate startDate,
             LocalDate endDate,
             String sourceCode,

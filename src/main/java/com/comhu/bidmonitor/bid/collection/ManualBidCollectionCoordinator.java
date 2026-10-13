@@ -198,7 +198,7 @@ public class ManualBidCollectionCoordinator {
             BidCollectionPersistenceResult persistenceResult;
             boolean allFailed;
             try {
-                persistenceResult = persistenceService.persist(collectedResults, clock.instant());
+                persistenceResult = persistenceService.persist(collectedResults, runIdsBySource, clock.instant());
                 allFailed = false;
             } catch (BidCollectionPersistenceException exception) {
                 persistenceResult = exception.getResult();

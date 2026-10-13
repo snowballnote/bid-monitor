@@ -22,6 +22,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -119,6 +120,23 @@ public class JdbcBidNoticeRepository implements BidNoticeRepository {
     }
 
     @Override
+    public void linkToRun(long runId, long bidNoticeId) {
+        if (runId <= 0 || bidNoticeId <= 0) {
+            throw new IllegalArgumentException("Collection run id and bid notice id must be positive.");
+        }
+        String sql = dialect.isPostgresql()
+                ? """
+                  INSERT INTO bid_collection_run_notice (run_id, bid_notice_id)
+                  VALUES (?, ?) ON CONFLICT (run_id, bid_notice_id) DO NOTHING
+                  """
+                : """
+                  MERGE INTO bid_collection_run_notice (run_id, bid_notice_id)
+                  KEY (run_id, bid_notice_id) VALUES (?, ?)
+                  """;
+        jdbcTemplate.update(sql, runId, bidNoticeId);
+    }
+
+    @Override
     public Optional<BidNotice> findById(Long id) {
         Objects.requireNonNull(id, "Bid notice id is required.");
         return jdbcTemplate.query(
@@ -149,6 +167,43 @@ public class JdbcBidNoticeRepository implements BidNoticeRepository {
                  WHERE COALESCE(UPPER(TRIM(analysis_status)), '') NOT IN ('EXCLUDED', '제외')
                 """);
         List<Object> parameters = new ArrayList<>();
+        addLatestFilters(where, parameters, startDate, endDate, sourceCode);
+        return page(where, parameters, page, size);
+    }
+
+    @Override
+    public BidNoticePage findLatestByRunIds(
+            List<Long> runIds,
+            LocalDate startDate,
+            LocalDate endDate,
+            String sourceCode,
+            int page,
+            int size
+    ) {
+        if (runIds == null || runIds.isEmpty() || runIds.stream().anyMatch(id -> id == null || id <= 0)) {
+            throw new IllegalArgumentException("At least one positive collection run id is required.");
+        }
+        String placeholders = String.join(",", Collections.nCopies(runIds.size(), "?"));
+        StringBuilder where = new StringBuilder("""
+                 FROM bid_notice
+                 WHERE COALESCE(UPPER(TRIM(analysis_status)), '') NOT IN ('EXCLUDED', '제외')
+                   AND EXISTS (
+                       SELECT 1 FROM bid_collection_run_notice run_notice
+                       WHERE run_notice.bid_notice_id = bid_notice.id
+                         AND run_notice.run_id IN (
+                """).append(placeholders).append("))");
+        List<Object> parameters = new ArrayList<>(runIds);
+        addLatestFilters(where, parameters, startDate, endDate, sourceCode);
+        return page(where, parameters, page, size);
+    }
+
+    private void addLatestFilters(
+            StringBuilder where,
+            List<Object> parameters,
+            LocalDate startDate,
+            LocalDate endDate,
+            String sourceCode
+    ) {
         if (startDate != null) {
             where.append(" AND published_at >= ?");
             parameters.add(Timestamp.valueOf(startDate.atStartOfDay()));
@@ -161,7 +216,9 @@ public class JdbcBidNoticeRepository implements BidNoticeRepository {
             where.append(" AND source_code = ?");
             parameters.add(sourceCode);
         }
+    }
 
+    private BidNoticePage page(StringBuilder where, List<Object> parameters, int page, int size) {
         Long totalCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*)" + where,
                 Long.class,

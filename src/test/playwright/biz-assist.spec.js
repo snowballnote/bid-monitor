@@ -75,7 +75,7 @@ test.beforeAll(() => {
     fs.mkdirSync(screenshotDirectory, { recursive: true });
 });
 
-async function mockApis(page, bids = [bidNotice]) {
+async function mockApis(page, bids = [bidNotice], options = {}) {
     let collectionRequestCount = 0;
     const bidRequestSequence = [];
 
@@ -118,13 +118,21 @@ async function mockApis(page, bids = [bidNotice]) {
             body: route.request().postDataJSON()
         });
         await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
-            status: "SUCCESS", sources: []
+            status: options.collectionStatus || "SUCCESS",
+            sources: options.collectionSources || [
+                { sourceCode: "G2B", runId: 101, status: "SUCCESS" },
+                { sourceCode: "LH", runId: 202, status: "SUCCESS" }
+            ]
         }) });
     });
 
     await page.route("**/api/bid-notices?*", async (route) => {
         const url = new URL(route.request().url());
-        bidRequestSequence.push({ method: route.request().method(), path: "/api/bid-notices" });
+        bidRequestSequence.push({
+            method: route.request().method(),
+            path: "/api/bid-notices",
+            runIds: url.searchParams.getAll("runId")
+        });
         await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
             items: storedBids,
             page: Number(url.searchParams.get("page") || 0),
@@ -254,7 +262,43 @@ test("실시간 분석 조회는 수집 완료 후 저장된 공고를 표시한
         allowedLicenseCodes: ["6146", "1468"]
     });
     expect(apiState.bidRequestSequence[1].path).toBe("/api/bid-notices");
+    expect(apiState.bidRequestSequence[1].runIds).toEqual(["101", "202"]);
     await expect(page.locator("#bid-list")).toContainText(bidNotice.bidNtceNm);
+});
+
+test("실시간 분석은 성공한 run이 없으면 과거 날짜 공고로 fallback하지 않는다", async ({ page }) => {
+    const apiState = await mockApis(page, [bidNotice], {
+        collectionStatus: "PARTIAL_SUCCESS",
+        collectionSources: [{ sourceCode: "LH", runId: 303, status: "FAILED" }]
+    });
+    await page.goto("/bids/");
+    await expect(page.locator("#bid-list")).toContainText(bidNotice.bidNtceNm);
+
+    apiState.bidRequestSequence.length = 0;
+    await page.locator("#start-date").fill("2026-09-14");
+    await page.locator("#end-date").fill("2026-09-14");
+    await page.locator("#range-search-form").getByRole("button").click();
+
+    await expect.poll(() => apiState.bidRequestSequence.length).toBe(1);
+    expect(apiState.bidRequestSequence[0].path).toBe("/api/bid-collections");
+    await expect(page.locator("#bid-list")).not.toContainText(bidNotice.bidNtceNm);
+});
+
+test("부분 성공은 성공한 source run만 조회한다", async ({ page }) => {
+    const apiState = await mockApis(page, [bidNotice], {
+        collectionStatus: "PARTIAL_SUCCESS",
+        collectionSources: [
+            { sourceCode: "G2B", runId: 404, status: "SUCCESS" },
+            { sourceCode: "LH", runId: 405, status: "FAILED" }
+        ]
+    });
+    await page.goto("/bids/");
+
+    apiState.bidRequestSequence.length = 0;
+    await page.locator("#range-search-form").getByRole("button").click();
+
+    await expect.poll(() => apiState.bidRequestSequence.length).toBeGreaterThanOrEqual(2);
+    expect(apiState.bidRequestSequence[1].runIds).toEqual(["404"]);
 });
 
 test("원문 URL이 없거나 유효하지 않으면 상세 모달에 깨진 링크를 표시하지 않는다", async ({ page }) => {

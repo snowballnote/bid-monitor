@@ -88,6 +88,7 @@ class ManualBidCollectionCoordinatorTests {
 
     @BeforeEach
     void clearTables() {
+        jdbcTemplate.update("DELETE FROM bid_collection_run_notice");
         jdbcTemplate.update("DELETE FROM bid_notice_version");
         jdbcTemplate.update("DELETE FROM bid_notice");
         jdbcTemplate.update("DELETE FROM bid_collection_lock");
@@ -111,8 +112,30 @@ class ManualBidCollectionCoordinatorTests {
         assertEquals(7, run.getApiCallCount());
         assertEquals(1, run.getCollectedCount());
         assertEquals(1, run.getNewCount());
+        assertEquals(1, noticeRepository.findLatestByRunIds(
+                List.of(result.runIdsBySource().get("G2B")), null, null, null, 0, 20
+        ).totalCount());
         assertNotNull(run.getFinishedAt());
         assertEquals(0, activeLockCount());
+    }
+
+    @Test
+    void linksEachSourceNoticeOnlyToItsOwnRun() {
+        ManualBidCollectionCoordinator coordinator = coordinator(
+                source("G2B", true, List.of(candidate("G2B", "G2B-RUN", null, "G2B notice")), 1),
+                source("D2B", true, List.of(candidate("D2B", "D2B-RUN", null, "D2B notice")), 1)
+        );
+
+        ManualBidCollectionResult result = coordinator.collect(START, END, LICENSE_CODES);
+
+        BidNoticeRepository.BidNoticePage g2b = noticeRepository.findLatestByRunIds(
+                List.of(result.runIdsBySource().get("G2B")), null, null, null, 0, 20
+        );
+        BidNoticeRepository.BidNoticePage d2b = noticeRepository.findLatestByRunIds(
+                List.of(result.runIdsBySource().get("D2B")), null, null, null, 0, 20
+        );
+        assertEquals(List.of("G2B"), g2b.items().stream().map(BidNotice::getSourceCode).toList());
+        assertEquals(List.of("D2B"), d2b.items().stream().map(BidNotice::getSourceCode).toList());
     }
 
     @Test

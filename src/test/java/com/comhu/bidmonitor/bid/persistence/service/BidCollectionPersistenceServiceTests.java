@@ -6,6 +6,8 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.comhu.bidmonitor.bid.persistence.BidNotice;
 import com.comhu.bidmonitor.bid.persistence.BidNoticeRepository;
+import com.comhu.bidmonitor.bid.persistence.BidCollectionRun;
+import com.comhu.bidmonitor.bid.persistence.BidCollectionRunRepository;
 import com.comhu.bidmonitor.dto.BidAttachmentDto;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,8 +19,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -46,12 +50,17 @@ class BidCollectionPersistenceServiceTests {
     private BidNoticeRepository repository;
 
     @Autowired
+    private BidCollectionRunRepository runRepository;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @BeforeEach
     void clearBidNotices() {
+        jdbcTemplate.update("DELETE FROM bid_collection_run_notice");
         jdbcTemplate.update("DELETE FROM bid_notice_version");
         jdbcTemplate.update("DELETE FROM bid_notice");
+        jdbcTemplate.update("DELETE FROM bid_collection_run");
     }
 
     @Test
@@ -194,6 +203,34 @@ class BidCollectionPersistenceServiceTests {
     }
 
     @Test
+    void linksNewUnchangedAndUpdatedNoticeToEachCollectionRun() {
+        BidCollectionRun newRun = saveRun("G2B", COLLECTED_AT);
+        BidCollectionRun unchangedRun = saveRun("G2B", COLLECTED_AT.plusSeconds(60));
+        BidCollectionRun updatedRun = saveRun("G2B", COLLECTED_AT.plusSeconds(120));
+        BidQualificationDto original = candidate("G2B", "RUN-LINK", null, "Run linked notice");
+
+        BidSourcePersistenceResult newResult = service.persist(List.of(
+                BidSourceCollectionResult.success("G2B", List.of(original))
+        ), Map.of("G2B", newRun.getId()), COLLECTED_AT).sourceResults().getFirst();
+        BidSourcePersistenceResult unchangedResult = service.persist(List.of(
+                BidSourceCollectionResult.success("G2B", List.of(original))
+        ), Map.of("G2B", unchangedRun.getId()), COLLECTED_AT.plusSeconds(60)).sourceResults().getFirst();
+        BidQualificationDto changed = candidate("G2B", "RUN-LINK", null, "Run linked notice changed");
+        BidSourcePersistenceResult updatedResult = service.persist(List.of(
+                BidSourceCollectionResult.success("G2B", List.of(changed))
+        ), Map.of("G2B", updatedRun.getId()), COLLECTED_AT.plusSeconds(120)).sourceResults().getFirst();
+
+        assertEquals(1, newResult.newCount());
+        assertEquals(1, unchangedResult.unchangedCount());
+        assertEquals(1, updatedResult.changedCount());
+        for (BidCollectionRun run : List.of(newRun, unchangedRun, updatedRun)) {
+            assertEquals(1, repository.findLatestByRunIds(
+                    List.of(run.getId()), null, null, null, 0, 20
+            ).totalCount());
+        }
+    }
+
+    @Test
     void failedSourceDoesNotDiscardSuccessfulSourceResults() {
         BidQualificationDto g2b = candidate("G2B", "PARTIAL-1", null, "성공 공고");
 
@@ -216,16 +253,24 @@ class BidCollectionPersistenceServiceTests {
         BidQualificationDto invalidD2b = candidate("D2B", "ROLLBACK-2", "1", "잘못된 날짜");
         invalidD2b.setBidClseDt("not-a-date");
 
+        BidCollectionRun g2bRun = saveRun("G2B", COLLECTED_AT);
+        BidCollectionRun d2bRun = saveRun("D2B", COLLECTED_AT);
         BidCollectionPersistenceResult result = service.persist(List.of(
                 BidSourceCollectionResult.success("G2B", List.of(valid)),
                 BidSourceCollectionResult.success("D2B", List.of(firstD2b, invalidD2b))
-        ), COLLECTED_AT);
+        ), Map.of("G2B", g2bRun.getId(), "D2B", d2bRun.getId()), COLLECTED_AT);
 
         assertEquals(1, result.successfulSourceCount());
         assertEquals(1, result.failedSourceCount());
         assertEquals(1, repository.findAll().size());
         assertTrue(repository.findByIdentity("G2B", "VALID-1", null).isPresent());
         assertTrue(repository.findByIdentity("D2B", "ROLLBACK-1", "1").isEmpty());
+        assertEquals(1, repository.findLatestByRunIds(
+                List.of(g2bRun.getId()), null, null, null, 0, 20
+        ).totalCount());
+        assertEquals(0, repository.findLatestByRunIds(
+                List.of(d2bRun.getId()), null, null, null, 0, 20
+        ).totalCount());
     }
 
     @Test
@@ -315,5 +360,16 @@ class BidCollectionPersistenceServiceTests {
         candidate.setReviewStatus("검토대상");
         candidate.setReviewReason("테스트 판정");
         return candidate;
+    }
+
+    private BidCollectionRun saveRun(String sourceCode, Instant startedAt) {
+        return runRepository.save(BidCollectionRun.builder()
+                .sourceCode(sourceCode)
+                .triggerType(BidCollectionRun.TriggerType.MANUAL)
+                .queryStartDate(LocalDate.of(2026, 9, 22))
+                .queryEndDate(LocalDate.of(2026, 9, 22))
+                .startedAt(startedAt)
+                .status(BidCollectionRun.Status.RUNNING)
+                .build());
     }
 }

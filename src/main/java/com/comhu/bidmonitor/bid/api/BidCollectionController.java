@@ -92,6 +92,7 @@ public class BidCollectionController {
             @RequestParam(required = false) String startDate,
             @RequestParam(required = false) String endDate,
             @RequestParam(required = false) String sourceCode,
+            @RequestParam(name = "runId", required = false) List<Long> runIds,
             @RequestParam(defaultValue = "0") String page,
             @RequestParam(defaultValue = "20") String size
     ) {
@@ -108,13 +109,15 @@ public class BidCollectionController {
             throw new IllegalArgumentException("size must not exceed " + MAX_PAGE_SIZE + ".");
         }
 
-        BidNoticeRepository.BidNoticePage result = noticeRepository.findLatest(
-                parsedStartDate,
-                parsedEndDate,
-                normalizedSourceCode,
-                parsedPage,
-                parsedSize
-        );
+        List<Long> normalizedRunIds = normalizeRunIds(runIds);
+        BidNoticeRepository.BidNoticePage result = normalizedRunIds.isEmpty()
+                ? noticeRepository.findLatest(
+                        parsedStartDate, parsedEndDate, normalizedSourceCode, parsedPage, parsedSize
+                )
+                : noticeRepository.findLatestByRunIds(
+                        normalizedRunIds, parsedStartDate, parsedEndDate,
+                        normalizedSourceCode, parsedPage, parsedSize
+                );
         return BidNoticeListResponse.from(result, parsedPage, parsedSize, objectMapper);
     }
 
@@ -182,6 +185,16 @@ public class BidCollectionController {
             throw new IllegalArgumentException("Unsupported bid source.");
         }
         return normalized;
+    }
+
+    private List<Long> normalizeRunIds(List<Long> runIds) {
+        if (runIds == null) {
+            return List.of();
+        }
+        if (runIds.stream().anyMatch(runId -> runId == null || runId <= 0)) {
+            throw new IllegalArgumentException("runId must be positive.");
+        }
+        return runIds.stream().distinct().toList();
     }
 
     private int parseNonNegativeInteger(String value, String field) {

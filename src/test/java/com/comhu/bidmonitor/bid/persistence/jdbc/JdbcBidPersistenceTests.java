@@ -57,6 +57,7 @@ class JdbcBidPersistenceTests {
 
     @BeforeEach
     void clearBidPersistenceTables() {
+        jdbcTemplate.update("DELETE FROM bid_collection_run_notice");
         jdbcTemplate.update("DELETE FROM bid_notice_version");
         jdbcTemplate.update("DELETE FROM bid_notice");
         jdbcTemplate.update("DELETE FROM bid_collection_run");
@@ -229,6 +230,31 @@ class JdbcBidPersistenceTests {
     }
 
     @Test
+    void queriesOnlyNoticesLinkedToAnyRequestedRunWithoutDuplicates() {
+        BidCollectionRun firstRun = saveRun("G2B", FIRST_SEEN);
+        BidCollectionRun secondRun = saveRun("D2B", FIRST_SEEN.plusSeconds(60));
+        BidCollectionRun emptyRun = saveRun("LH", FIRST_SEEN.plusSeconds(120));
+        BidNotice shared = noticeRepository.save(notice("G2B", "shared", "", '8')).notice();
+        BidNotice secondOnly = noticeRepository.save(notice("D2B", "second", "", '9')).notice();
+        noticeRepository.save(notice("G2B", "historical", "", '0'));
+
+        noticeRepository.linkToRun(firstRun.getId(), shared.getId());
+        noticeRepository.linkToRun(firstRun.getId(), shared.getId());
+        noticeRepository.linkToRun(secondRun.getId(), shared.getId());
+        noticeRepository.linkToRun(secondRun.getId(), secondOnly.getId());
+
+        BidNoticeRepository.BidNoticePage combined = noticeRepository.findLatestByRunIds(
+                List.of(firstRun.getId(), secondRun.getId()), null, null, null, 0, 20
+        );
+        assertEquals(2, combined.totalCount());
+        assertEquals(2, combined.items().size());
+        assertEquals(0, noticeRepository.findLatestByRunIds(
+                List.of(emptyRun.getId()), null, null, null, 0, 20
+        ).totalCount());
+        assertEquals(3, noticeRepository.findLatest(null, null, null, 0, 20).totalCount());
+    }
+
+    @Test
     void upsertsSourceStateIncludingDailyQuotaAndCooldown() {
         BidSourceState initial = sourceState(20, 100);
         BidSourceState saved = stateRepository.save(initial);
@@ -272,10 +298,22 @@ class JdbcBidPersistenceTests {
                 SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
                 WHERE TABLE_SCHEMA = 'PUBLIC'
                   AND TABLE_NAME IN ('EXTERNAL_NOTICE', 'NOTIFICATION_DELIVERY', 'BID_NOTICE',
-                    'BID_NOTICE_VERSION', 'BID_COLLECTION_RUN', 'BID_SOURCE_STATE')
+                    'BID_NOTICE_VERSION', 'BID_COLLECTION_RUN', 'BID_COLLECTION_RUN_NOTICE',
+                    'BID_SOURCE_STATE')
                 """, String.class);
 
-        assertEquals(6, tables.size());
+        assertEquals(7, tables.size());
+    }
+
+    private BidCollectionRun saveRun(String sourceCode, Instant startedAt) {
+        return runRepository.save(BidCollectionRun.builder()
+                .sourceCode(sourceCode)
+                .triggerType(BidCollectionRun.TriggerType.MANUAL)
+                .queryStartDate(LocalDate.of(2026, 9, 22))
+                .queryEndDate(LocalDate.of(2026, 9, 22))
+                .startedAt(startedAt)
+                .status(BidCollectionRun.Status.RUNNING)
+                .build());
     }
 
     private BidNotice notice(String sourceCode, String sourceNoticeId, String revision, char hashCharacter) {
