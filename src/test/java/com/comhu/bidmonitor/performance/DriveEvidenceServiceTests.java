@@ -48,7 +48,9 @@ class DriveEvidenceServiceTests {
         refresh = new DriveFileIndexRefreshService(port, config, index);
         drive = new DriveEvidenceService(port, config, registry, index);
         company = mock(CompanyFileSearchPort.class);
-        service = new PerformanceService(repository, new PerformanceTableParser(), company, drive);
+        service = new PerformanceService(repository, new PerformanceEvidenceRepository(jdbc),
+                new PerformanceTableParser(), company, mock(PerformanceFileContentPort.class), drive,
+                mock(PerformanceUploadStore.class));
         project = service.create(new ProjectInput("FMS", LocalDate.now())).id();
     }
     @AfterEach void close() { ds.destroy(); }
@@ -220,17 +222,19 @@ class DriveEvidenceServiceTests {
         service.update(project, first.id(), selected(first, ref));
         service.update(project, second.id(), selected(second, ref));
         new ResourceDatabasePopulator(new ClassPathResource("schema.sql")).execute(ds);
-        assertThat(repository.entry(project, first.id()).info().selectedDriveFileId()).isEqualTo(ref);
-        assertThat(repository.entry(project, first.id()).info().selectedFileId()).isNull();
+        assertThat(service.entries(project).stream().filter(e -> e.id().equals(first.id())).findFirst().orElseThrow()
+                .info().selectedDriveFileId()).isEqualTo(ref);
+        assertThat(repository.entry(project, first.id()).info().selectedDriveFileId()).isNull();
         assertThat(repository.project(project).status()).isEqualTo("READY");
         when(port.canDownload(file.path())).thenReturn(true);
         when(port.download(file.path())).thenAnswer(invocation -> new ByteArrayInputStream(new byte[]{1, 2, 3}));
         var legacy = mock(PerformanceFileContentPort.class);
-        byte[] bytes = new PerformanceZipService(repository, legacy, drive).download(project);
+        byte[] bytes = new PerformanceZipService(repository, new PerformanceEvidenceRepository(jdbc), legacy,
+                drive, mock(PerformanceUploadStore.class)).download(project);
         try (var zip = new ZipInputStream(new ByteArrayInputStream(bytes))) {
-            assertThat(zip.getNextEntry().getName()).startsWith("01_실적증명서_(한국관광공사)");
+            assertThat(zip.getNextEntry().getName()).startsWith("실적증명서_(한국관광공사)");
             assertThat(zip.readAllBytes()).containsExactly(1, 2, 3);
-            assertThat(zip.getNextEntry().getName()).startsWith("02_실적증명서_(한국관광공사)");
+            assertThat(zip.getNextEntry().getName()).contains("실적증명서_(한국관광공사)", "_2.");
             assertThat(zip.readAllBytes()).containsExactly(1, 2, 3);
             assertThat(zip.getNextEntry()).isNull();
         }
@@ -247,7 +251,8 @@ class DriveEvidenceServiceTests {
         service.update(project, entry.id(), selected(entry, id));
         when(port.canDownload(file.path())).thenReturn(false);
         var legacy = mock(PerformanceFileContentPort.class);
-        assertThatThrownBy(() -> new PerformanceZipService(repository, legacy, drive).download(project))
+        assertThatThrownBy(() -> new PerformanceZipService(repository, new PerformanceEvidenceRepository(jdbc),
+                legacy, drive, mock(PerformanceUploadStore.class)).download(project))
                 .isInstanceOf(FmsDriveException.class).hasMessageContaining("권한");
         verify(port, never()).download(anyString());
         verifyNoInteractions(legacy);
@@ -413,7 +418,8 @@ class DriveEvidenceServiceTests {
 
     private Entry entry(String number, boolean ongoing) {
         return service.paste(project, new PasteInput(number + "\t" + BUSINESS
-                + (ongoing ? "\t2024.01 ~ 수행중" : "\t2024.01 ~ 2025.12") + "\t100\t한국관광공사", null)).saved().getFirst();
+                + (ongoing ? "\t2024.01 ~ 수행중" : "\t2024.01 ~ 2025.12")
+                + "\t100" + number + "\t한국관광공사", null)).saved().getFirst();
     }
     private FmsDrivePort.Item item(String parent, String name) {
         return new FmsDrivePort.Item(name, parent + "/" + name, false, 3, null);

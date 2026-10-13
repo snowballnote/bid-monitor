@@ -38,7 +38,8 @@ class PerformanceWorkflowTests {
         repository = new PerformanceRepository(jdbc);
         files = mock(CompanyFileSearchPort.class);
         drive = mock(DriveEvidenceService.class);
-        service = new PerformanceService(repository, parser, files, drive);
+        service = new PerformanceService(repository, new PerformanceEvidenceRepository(jdbc), parser, files,
+                mock(PerformanceFileContentPort.class), drive, mock(PerformanceUploadStore.class));
         project = service.create(new ProjectInput("제안 프로젝트", LocalDate.now().plusDays(3))).id();
     }
 
@@ -49,7 +50,9 @@ class PerformanceWorkflowTests {
         service.update(project, entry.id(), input(entry.info(), 7L, EvidenceType.CERTIFICATE, KitcStatus.NEEDED, null, null));
         jdbc.update("UPDATE submission_common_document SET issued_at = DATE '2025-01-01' WHERE document_type = 'BUSINESS_REGISTRATION'");
         new ResourceDatabasePopulator(new ClassPathResource("schema.sql")).execute(dataSource);
-        assertThat(repository.entry(project, entry.id()).info().selectedFileId()).isEqualTo(7L);
+        assertThat(service.entries(project).getFirst().info().selectedFileId()).isEqualTo(7L);
+        assertThat(jdbc.queryForObject("SELECT selected_file_id FROM performance_entry WHERE id = ?", Long.class,
+                entry.id())).isNull();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM submission_common_document", Integer.class)).isEqualTo(12);
         assertThat(jdbc.queryForObject("SELECT issued_at FROM submission_common_document WHERE document_type = 'BUSINESS_REGISTRATION'",
                 LocalDate.class)).isEqualTo(LocalDate.of(2025, 1, 1));
@@ -172,7 +175,7 @@ class PerformanceWorkflowTests {
         service.update(project, entry.id(), input(entry.info(), null, null, KitcStatus.REQUESTED, request, null));
         when(files.findActiveFileById(7L)).thenReturn(Optional.of(file(7, "직접연결.pdf")));
         service.update(project, entry.id(), input(entry.info(), 7L, EvidenceType.CONTRACT, KitcStatus.RECEIVED, request, request.plusDays(1)));
-        var restored = new PerformanceRepository(jdbc).entry(project, entry.id());
+        var restored = service.entries(project).getFirst();
         assertThat(restored.info().requestedAt()).isEqualTo(request);
         assertThat(restored.info().repliedAt()).isEqualTo(request.plusDays(1));
         assertThat(restored.info().kitcStatus()).isEqualTo(KitcStatus.RECEIVED);
@@ -188,7 +191,8 @@ class PerformanceWorkflowTests {
                 input(entry.info(), 7L, EvidenceType.CERTIFICATE, KitcStatus.NEEDED, null, null));
         var content = mock(PerformanceFileContentPort.class);
         when(content.open(7L)).thenAnswer(invocation -> new ByteArrayInputStream("contents".getBytes(StandardCharsets.UTF_8)));
-        byte[] archive = new PerformanceZipService(repository, content, drive).download(project);
+        byte[] archive = new PerformanceZipService(repository, new PerformanceEvidenceRepository(jdbc), content,
+                drive, mock(PerformanceUploadStore.class)).download(project);
         try (var zip = new ZipInputStream(new ByteArrayInputStream(archive))) {
             assertThat(zip.getNextEntry().getName()).isEqualTo("실적증명서_(발주처) 사업A.pdf");
             assertThat(new String(zip.readAllBytes(), StandardCharsets.UTF_8)).isEqualTo("contents");
@@ -202,7 +206,8 @@ class PerformanceWorkflowTests {
     @Test
     void zipRejectsEmptySelectionAndMissingFileWithoutReturningPartialZip() throws Exception {
         var content = mock(PerformanceFileContentPort.class);
-        var zip = new PerformanceZipService(repository, content, drive);
+        var zip = new PerformanceZipService(repository, new PerformanceEvidenceRepository(jdbc), content,
+                drive, mock(PerformanceUploadStore.class));
         assertThatThrownBy(() -> zip.download(project)).isInstanceOf(IllegalArgumentException.class);
         var entry = importRows("1\t사업A\t2024.01 ~ 2025.12\t100\t발주처").saved().getFirst();
         when(files.findActiveFileById(7L)).thenReturn(Optional.of(file(7, "원본.pdf")));
@@ -230,7 +235,7 @@ class PerformanceWorkflowTests {
         service.update(project, entry.id(), input(entry.info(), 7L, EvidenceType.CONTRACT, KitcStatus.NEEDED, null, null));
         reset(files);
         service.update(project, entry.id(), input(entry.info(), null, null, KitcStatus.NEEDED, null, null));
-        assertThat(repository.entry(project, entry.id()).selectedFilename()).isNull();
+        assertThat(service.entries(project).getFirst().selectedFilename()).isNull();
         verifyNoInteractions(files);
     }
 
@@ -280,9 +285,16 @@ class PerformanceWorkflowTests {
             assertThat(PerformanceZipService.filename(updated)).doesNotContain("/", "\\", "..");
         }
         var content = mock(PerformanceFileContentPort.class);
-        assertThatThrownBy(() -> new PerformanceZipService(repository, content, drive).download(project))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("중복");
-        verifyNoInteractions(content);
+        when(content.open(7L)).thenAnswer(invocation -> new ByteArrayInputStream(new byte[]{1}));
+        byte[] archive = new PerformanceZipService(repository, new PerformanceEvidenceRepository(jdbc), content,
+                drive, mock(PerformanceUploadStore.class)).download(project);
+        try (var zip = new ZipInputStream(new ByteArrayInputStream(archive))) {
+            String first = zip.getNextEntry().getName();
+            zip.readAllBytes();
+            String second = zip.getNextEntry().getName();
+            assertThat(first).isNotEqualToIgnoringCase(second);
+            assertThat(second).contains("_2.");
+        }
     }
     private ImportResult importRows(String rows) { return service.paste(project, new PasteInput(rows, null)); }
     static CompanyFileMetadata file(long id, String name) {

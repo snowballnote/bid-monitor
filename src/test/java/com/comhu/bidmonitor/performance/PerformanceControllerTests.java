@@ -192,7 +192,7 @@ class PerformanceControllerTests {
                 .andExpect(result -> org.assertj.core.api.Assertions.assertThat(result.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8))
                         .contains("<th>프로젝트명</th><th>D-day</th><th>상태</th>"));
         mvc.perform(get("/submissions/submissions.js")).andExpect(status().isOk())
-                .andExpect(content().string(containsString("/performances/index.html")));
+                .andExpect(content().string(containsString("/react/index.html#")));
     }
 
     @Test

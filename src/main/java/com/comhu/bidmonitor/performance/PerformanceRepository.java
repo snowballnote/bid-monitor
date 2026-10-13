@@ -33,7 +33,8 @@ public class PerformanceRepository {
     public List<Project> projects() {
         return jdbc.query("""
                 SELECT p.*, (SELECT COUNT(*) FROM performance_entry e WHERE e.project_id = p.id) AS total,
-                (SELECT COUNT(*) FROM performance_entry e WHERE e.project_id = p.id AND e.selected_file_id IS NULL AND e.selected_drive_file_id IS NULL AND e.selected_uploaded_file_id IS NULL) AS missing
+                (SELECT COUNT(*) FROM performance_entry e WHERE e.project_id = p.id
+                  AND NOT EXISTS (SELECT 1 FROM performance_evidence pe WHERE pe.entry_id = e.id)) AS missing
                 FROM performance_project p ORDER BY deadline, name, id
                 """, (rs, row) -> new Project(rs.getString("id"), rs.getString("name"),
                 rs.getObject("deadline", LocalDate.class),
@@ -78,15 +79,14 @@ public class PerformanceRepository {
         return entry(projectId, id);
     }
 
-    public Entry update(String projectId, String id, EntryInput input, String filename, String ext) {
+    public Entry update(String projectId, String id, EntryInput input) {
         int count = jdbc.update("""
                 UPDATE performance_entry SET ppt_number = ?, business_name = ?, business_period = ?,
-                contract_amount = ?, client = ?, business_status = ?, selected_file_id = ?,
-                selected_filename = ?, selected_ext = ?, evidence_type = ?, kitc_status = ?,
-                requested_at = ?, replied_at = ?, selected_drive_file_id = ?, selected_uploaded_file_id = ? WHERE project_id = ? AND id = ?
+                contract_amount = ?, client = ?, business_status = ?, kitc_status = ?,
+                requested_at = ?, replied_at = ? WHERE project_id = ? AND id = ?
                 """, input.pptNumber(), input.businessName(), input.businessPeriod(), input.contractAmount(),
-                input.client(), name(input.businessStatus()), input.selectedFileId(), filename, ext,
-                name(input.evidenceType()), input.kitcStatus().name(), input.requestedAt(), input.repliedAt(), input.selectedDriveFileId(), input.selectedUploadedFileId(), projectId, id);
+                input.client(), name(input.businessStatus()), input.kitcStatus().name(), input.requestedAt(),
+                input.repliedAt(), projectId, id);
         if (count == 0) throw new PerformanceNotFoundException();
         return entry(projectId, id);
     }
@@ -95,12 +95,11 @@ public class PerformanceRepository {
         EntryInput input = new EntryInput(rs.getString("ppt_number"), rs.getString("business_name"),
                 rs.getString("business_period"), rs.getString("contract_amount"), rs.getString("client"),
                 enumValue(BusinessStatus.class, rs.getString("business_status")),
-                rs.getObject("selected_file_id", Long.class),
-                enumValue(EvidenceType.class, rs.getString("evidence_type")),
+                null, null,
                 KitcStatus.valueOf(rs.getString("kitc_status")),
-                rs.getObject("requested_at", LocalDate.class), rs.getObject("replied_at", LocalDate.class), rs.getString("selected_drive_file_id"), rs.getString("selected_uploaded_file_id"));
-        return new Entry(rs.getString("id"), rs.getString("project_id"), input, rs.getString("selected_filename"),
-                rs.getString("selected_ext"), PerformanceService.resolveStatus(input));
+                rs.getObject("requested_at", LocalDate.class), rs.getObject("replied_at", LocalDate.class), null, null);
+        return new Entry(rs.getString("id"), rs.getString("project_id"), input, null,
+                null, PerformanceService.resolveStatus(input));
     }
 
     private String name(Enum<?> value) { return value == null ? null : value.name(); }

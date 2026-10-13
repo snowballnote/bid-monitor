@@ -13,6 +13,7 @@ public final class PerformanceModels {
         public final String label;
         EvidenceType(String label) { this.label = label; }
     }
+    public enum EvidenceSourceType { COMPANY_FILE, FMS_DRIVE, DIRECT_UPLOAD }
     public enum KitcStatus { NEEDED, REQUESTED, RECEIVED }
     public record Project(String id, String name, LocalDate deadline, long daysRemaining, String status) { }
     public record ProjectInput(String name, LocalDate deadline) { }
@@ -41,16 +42,17 @@ public final class PerformanceModels {
     public record Evidence(String id, String entryId, EvidenceType evidenceType,
                            Long selectedFileId, String selectedDriveFileId, String selectedUploadedFileId,
                            String filename, String fileExt, Instant createdAt, Instant updatedAt) { }
+    public record EvidenceView(String evidenceId, EvidenceType evidenceType, EvidenceSourceType sourceType,
+                               Long selectedFileId, String selectedDriveFileId, String selectedUploadedFileId,
+                               String filename, String fileExt, Instant createdAt, Instant updatedAt) { }
     public record Entry(String id, String projectId, EntryInput info, String selectedFilename,
-                        String selectedExt, BusinessStatus resolvedStatus, List<EvidenceSelection> evidenceFiles) {
+                        String selectedExt, BusinessStatus resolvedStatus, List<EvidenceView> evidences) {
         public Entry(String id, String projectId, EntryInput info, String selectedFilename,
                      String selectedExt, BusinessStatus resolvedStatus) {
-            this(id, projectId, info, selectedFilename, selectedExt, resolvedStatus,
-                    info.evidenceType() == null ? List.of() : List.of(new EvidenceSelection(1,
-                            info.selectedFileId(), info.selectedDriveFileId(), info.selectedUploadedFileId(),
-                            info.evidenceType(), selectedFilename, selectedExt)));
+            this(id, projectId, info, selectedFilename, selectedExt, resolvedStatus, List.of());
         }
     }
+    public record EvidenceDownload(String filename, java.io.InputStream content) { }
     public record PasteInput(String text, String html) { }
     public record RowError(int row, List<String> cells, String message) { }
     public record ParsedRow(int row, List<String> cells, String error) { }

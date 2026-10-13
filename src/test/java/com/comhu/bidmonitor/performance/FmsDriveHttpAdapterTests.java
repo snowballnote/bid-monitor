@@ -231,14 +231,20 @@ class FmsDriveHttpAdapterTests {
             var repository = new PerformanceRepository(jdbc);
             var references = new PerformanceDriveFileRepository(jdbc);
             config.setCertificateFolders(List.of("/증빙"));
+            config.setIndexRoots(List.of("/증빙"));
             var drive = new DriveEvidenceService(adapter, config, references, new DriveFileIndexRepository(jdbc));
             var company = org.mockito.Mockito.mock(com.comhu.bidmonitor.submission.port.CompanyFileSearchPort.class);
-            var service = new PerformanceService(repository, new PerformanceTableParser(), company, drive);
+            var service = new PerformanceService(repository, new PerformanceEvidenceRepository(jdbc),
+                    new PerformanceTableParser(), company,
+                    org.mockito.Mockito.mock(PerformanceFileContentPort.class), drive,
+                    org.mockito.Mockito.mock(PerformanceUploadStore.class));
             var project = service.create(new PerformanceModels.ProjectInput("선택 테스트", java.time.LocalDate.now()));
             var entry = service.paste(project.id(), new PerformanceModels.PasteInput(
                     "1	한국관광	2024.01 ~ 2025.12	100	발주처", null)).saved().getFirst();
             var ref = references.register(config.getBaseUrl(), "CNH",
                     new FmsDrivePort.Item("한국관광 실적증명원.pdf", "/증빙/한국관광 실적증명원.pdf", false, 3, null));
+            new DriveFileIndexRefreshService(adapter, config, new DriveFileIndexRepository(jdbc)).refresh();
+            queries.clear();
             var info = entry.info();
             var saved = service.update(project.id(), entry.id(), new PerformanceModels.EntryInput(
                     info.pptNumber(), info.businessName(), info.businessPeriod(), info.contractAmount(), info.client(),
