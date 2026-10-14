@@ -23,7 +23,7 @@ import java.util.stream.Collectors;
 public class ManualBidCollectionSourceRegistry {
 
     private static final Set<String> BUILT_IN_SOURCE_CODES = Set.of(
-            "G2B", "KOGAS", "KOREA_EXPRESSWAY", "D2B", "LH"
+            "G2B", "KOGAS", "KOREA_EXPRESSWAY", "D2B", "LH", "KWATER"
     );
 
     private final G2bApiService g2bApiService;

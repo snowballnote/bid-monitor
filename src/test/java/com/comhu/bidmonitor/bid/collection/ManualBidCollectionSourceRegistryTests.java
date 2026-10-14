@@ -41,7 +41,7 @@ class ManualBidCollectionSourceRegistryTests {
         List<ManualBidCollectionSource> sources = registry.sources();
 
         assertEquals(java.util.Set.of("KOGAS"), registry.registrationBindingSourceCodes());
-        assertEquals(java.util.Set.of("G2B", "KOGAS", "KOREA_EXPRESSWAY", "D2B", "LH"),
+        assertEquals(java.util.Set.of("G2B", "KOGAS", "KOREA_EXPRESSWAY", "D2B", "LH", "KWATER"),
                 registry.fixedSourceCodes());
         assertEquals(List.of("G2B", "KOREA_EXPRESSWAY", "D2B"), sources.stream()
                 .map(ManualBidCollectionSource::sourceCode)
@@ -132,6 +132,27 @@ class ManualBidCollectionSourceRegistryTests {
                 START, END, Set.of("6146", "1468")
         ).candidates());
         verify(g2b).getAdditionalBidQualificationList(lh, START, END, Set.of("6146", "1468"));
+    }
+
+    @Test
+    void exposesEnabledKwaterCollectorThroughTheExistingAdditionalSourcePath() {
+        G2bApiService g2b = mock(G2bApiService.class);
+        BidSourceExecutionEligibilityService eligibility = mock(BidSourceExecutionEligibilityService.class);
+        BidCandidateCollector kwater = collector("KWATER", true, false);
+        BidQualificationDto reviewed = new BidQualificationDto();
+        reviewed.setSourceCode("KWATER");
+        when(g2b.getAdditionalBidQualificationList(kwater, START, END, Set.of("6525")))
+                .thenReturn(List.of(reviewed));
+
+        ManualBidCollectionSource source = new ManualBidCollectionSourceRegistry(
+                g2b, List.of(kwater), eligibility
+        ).sources().stream().filter(candidate -> candidate.sourceCode().equals("KWATER"))
+                .findFirst().orElseThrow();
+
+        assertTrue(source.executionEnabled());
+        assertFalse(source.usesGenericSchedule());
+        assertEquals(List.of(reviewed), source.collect(START, END, Set.of("6525")).candidates());
+        verify(g2b).getAdditionalBidQualificationList(kwater, START, END, Set.of("6525"));
     }
 
     @Test

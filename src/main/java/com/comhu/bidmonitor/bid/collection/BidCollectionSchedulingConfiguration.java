@@ -68,4 +68,16 @@ public class BidCollectionSchedulingConfiguration {
                 lookbackDays
         );
     }
+
+    @Bean
+    BidCollectionSourceSchedule kwaterBidCollectionSourceSchedule(
+            @Value("${bid.collection.scheduler.kwater.interval-seconds:86400}") long intervalSeconds,
+            @Value("${bid.collection.scheduler.kwater.lookback-days:1}") int lookbackDays
+    ) {
+        return new BidCollectionSourceSchedule(
+                "KWATER",
+                Duration.ofSeconds(intervalSeconds),
+                lookbackDays
+        );
+    }
 }
