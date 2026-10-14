@@ -430,6 +430,7 @@ class D2bBidCollectorTests {
 
     @Test
     void preservesUnrelatedOrUnknownLicenseEvidenceForCommonEvaluation() {
+        assertEquals(List.of("6525"), licenseCodes(D2bBidCollector.parseLicenseGroups("업종코드: 6525")));
         assertEquals(List.of("9999"), licenseCodes(D2bBidCollector.parseLicenseGroups("기타업종(9999)")));
         var unknown = D2bBidCollector.parseLicenseGroups("기타 전문면허");
         assertEquals(1, unknown.size());

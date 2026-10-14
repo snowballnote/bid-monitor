@@ -362,6 +362,14 @@ class KogasBidCollectorTests {
         );
         assertEquals(List.of("6146", "1468"), licenseCodes(bothCodes));
 
+        BidQualificationDto arbitraryCodes = collector.toQualification(
+                notice,
+                new KogasBidCollector.DetailData(
+                        Map.of("입찰참가자격", "업종코드 6525 또는 9999로 등록한 업체"), List.of()
+                )
+        );
+        assertEquals(List.of("6525", "9999"), licenseCodes(arbitraryCodes));
+
         BidQualificationDto unrelatedIndustry = collector.toQualification(
                 notice,
                 new KogasBidCollector.DetailData(

@@ -167,6 +167,19 @@ class BidQualificationEvaluationServiceTests {
     }
 
     @Test
+    void preservesOrAcrossRequirementGroups() {
+        BidQualificationDto notice = eligibleNotice("복수 허용 업종 공고");
+        notice.setLicenseGroups(List.of(
+                new LicenseRequirementGroup("1", List.of(requirement("6146"), requirement("6525"))),
+                new LicenseRequirementGroup("2", List.of(requirement("1468")))
+        ));
+
+        service.evaluate(notice, Set.of("1468"));
+
+        assertEquals("검토대상", notice.getReviewStatus());
+    }
+
+    @Test
     void failedAttachmentAnalysisRemainsUnknown() {
         BidQualificationDto notice = eligibleNotice("정보시스템 감리 용역");
         BidAttachmentDto failed = new BidAttachmentDto();

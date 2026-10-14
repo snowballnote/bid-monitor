@@ -60,6 +60,18 @@ class KoreaExpresswayBidCollectorTests {
         assertEquals("UNKNOWN", result.getExternalCheckStatus());
     }
 
+    @Test
+    void preservesArbitraryCodesFromThePublishedQualificationField() throws Exception {
+        JsonNode detail = fixture("detail.json");
+        ((com.fasterxml.jackson.databind.node.ObjectNode) detail.path("detailData"))
+                .put("bid_prtc_lcs", "업종코드 6525, 면허코드 9999");
+
+        BidQualificationDto result = collector.toQualification(fixture("list-item.json"), detail);
+
+        assertEquals(List.of("6525", "9999"), result.getLicenseGroups().getFirst().getRequirements().stream()
+                .map(requirement -> requirement.getLicenseCode()).toList());
+    }
+
     private JsonNode fixture(String name) throws Exception {
         return objectMapper.readTree(Files.readString(
                 Path.of("src/test/resources/fixtures/koreaexpressway", name)

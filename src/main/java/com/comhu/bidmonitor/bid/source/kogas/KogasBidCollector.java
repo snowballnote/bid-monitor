@@ -1,5 +1,6 @@
 package com.comhu.bidmonitor.bid.source.kogas;
 
+import com.comhu.bidmonitor.bid.license.LicenseNormalizer;
 import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceExecutionEligibilityService;
 import com.comhu.bidmonitor.dto.BidAttachmentDto;
@@ -91,9 +92,6 @@ public class KogasBidCollector implements BidCandidateCollector {
     private static final Pattern LIST_PAGE_PATTERN = Pattern.compile(
             "(?i)Total\\s+Records\\s*:\\s*[\\d,]+\\s+Pages\\s*:\\s*(\\d+)\\s*/\\s*(\\d+)"
     );
-    private static final Pattern LICENSE_CODE_PATTERN = Pattern.compile("(?<!\\d)(6146|1468)(?!\\d)");
-    private static final String SUPERVISION_LICENSE_NAME = "정보시스템 감리법인";
-    private static final String COMPUTER_SERVICE_LICENSE_NAME = "소프트웨어사업자(컴퓨터관련서비스사업)";
     private static final List<DateTimeFormatter> SOURCE_DATE_TIMES = List.of(
             DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm"),
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"),
@@ -1030,35 +1028,18 @@ public class KogasBidCollector implements BidCandidateCollector {
         if (normalized == null || normalized.equals("-")) {
             return List.of();
         }
-        LinkedHashMap<String, String> codes = new LinkedHashMap<>();
-        Matcher matcher = LICENSE_CODE_PATTERN.matcher(normalized);
-        while (matcher.find()) {
-            codes.putIfAbsent(matcher.group(1), normalized);
-        }
-        if (normalized.contains(SUPERVISION_LICENSE_NAME)) {
-            codes.putIfAbsent("6146", normalized);
-        }
-        if (normalized.contains(COMPUTER_SERVICE_LICENSE_NAME)) {
-            codes.putIfAbsent("1468", normalized);
-        }
-        if (codes.isEmpty()) {
+        List<LicenseNormalizer.NormalizedLicense> licenses =
+                LicenseNormalizer.normalizeStructuredQualification(normalized);
+        if (licenses.isEmpty()) {
             return List.of(new LicenseRequirement("1", "", normalized, normalized));
         }
         List<LicenseRequirement> requirements = new ArrayList<>();
-        for (Map.Entry<String, String> code : codes.entrySet()) {
+        for (LicenseNormalizer.NormalizedLicense license : licenses) {
             requirements.add(new LicenseRequirement(
-                    Integer.toString(requirements.size() + 1), code.getKey(), licenseName(code.getKey()), code.getValue()
+                    Integer.toString(requirements.size() + 1), license.code(), license.officialName(), normalized
             ));
         }
         return List.copyOf(requirements);
-    }
-
-    private String licenseName(String code) {
-        return switch (code) {
-            case "6146" -> SUPERVISION_LICENSE_NAME;
-            case "1468" -> COMPUTER_SERVICE_LICENSE_NAME;
-            default -> "";
-        };
     }
 
     private String normalizeParticipationRegion(String value) {

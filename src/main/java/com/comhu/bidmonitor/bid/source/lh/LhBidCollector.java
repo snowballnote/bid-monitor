@@ -1,5 +1,6 @@
 package com.comhu.bidmonitor.bid.source.lh;
 
+import com.comhu.bidmonitor.bid.license.LicenseNormalizer;
 import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
 import com.comhu.bidmonitor.classifier.BidRelevance;
 import com.comhu.bidmonitor.classifier.BidRelevanceClassifier;
@@ -66,9 +67,6 @@ public class LhBidCollector implements BidCandidateCollector {
     private static final String API_PATH = "/B552555/OpenBidInfoList/getOpenBidInfo";
     private static final int MAX_PAGES = 1_000;
     private static final int MAX_RESPONSE_LENGTH = 8 * 1024 * 1024;
-    private static final String AUDIT_LICENSE_NAME = "정보시스템 감리법인";
-    private static final String SOFTWARE_LICENSE_NAME = "소프트웨어사업자(컴퓨터관련서비스사업)";
-
     private final URI apiUri;
     private final String serviceKey;
     private final boolean configuredExecutionEnabled;
@@ -342,17 +340,13 @@ public class LhBidCollector implements BidCandidateCollector {
     }
 
     private static LicenseRequirement requirement(int sequence, String rawName) {
-        String normalized = rawName.replaceAll("\\s+", "");
-        String code = "";
-        String officialName = rawName;
-        if (normalized.equals(AUDIT_LICENSE_NAME.replace(" ", ""))) {
-            code = "6146";
-            officialName = AUDIT_LICENSE_NAME;
-        } else if (normalized.equals(SOFTWARE_LICENSE_NAME.replace(" ", ""))) {
-            code = "1468";
-            officialName = SOFTWARE_LICENSE_NAME;
-        }
-        return new LicenseRequirement(Integer.toString(sequence), code, officialName, rawName);
+        return LicenseNormalizer.normalizeVerifiedName(rawName)
+                .map(license -> new LicenseRequirement(
+                        Integer.toString(sequence), license.code(), license.officialName(), rawName
+                ))
+                .orElseGet(() -> new LicenseRequirement(
+                        Integer.toString(sequence), "", rawName, rawName
+                ));
     }
 
     private static boolean needsDetail(Map<String, String> notice) {

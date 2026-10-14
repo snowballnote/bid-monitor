@@ -1,5 +1,6 @@
 package com.comhu.bidmonitor.bid.source.koreaexpressway;
 
+import com.comhu.bidmonitor.bid.license.LicenseNormalizer;
 import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
 import com.comhu.bidmonitor.dto.BidAttachmentDto;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
@@ -32,8 +33,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * 한국도로공사 전자조달의 공개 용역공고를 수집한다.
@@ -55,8 +54,6 @@ public class KoreaExpresswayBidCollector implements BidCandidateCollector {
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
     private static final String SERVICE_NOTICE_CLASS = "SV";
     private static final String QUALIFICATION_REVIEW_CODE = "STE";
-    private static final Pattern LICENSE_CODE_PATTERN = Pattern.compile("(?<!\\d)(6146|1468)(?!\\d)");
-
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final String baseUrl;
 
@@ -229,17 +226,12 @@ public class KoreaExpresswayBidCollector implements BidCandidateCollector {
     }
 
     private List<LicenseRequirementGroup> parsePublishedLicenseCodes(String licenseLimit) {
-        Matcher matcher = LICENSE_CODE_PATTERN.matcher(licenseLimit == null ? "" : licenseLimit);
         List<LicenseRequirement> requirements = new ArrayList<>();
-        while (matcher.find()) {
-            String code = matcher.group(1);
-            boolean alreadyAdded = requirements.stream()
-                    .anyMatch(requirement -> code.equals(requirement.getLicenseCode()));
-            if (!alreadyAdded) {
-                requirements.add(new LicenseRequirement(
-                        Integer.toString(requirements.size() + 1), code, "", licenseLimit
-                ));
-            }
+        for (LicenseNormalizer.NormalizedLicense license
+                : LicenseNormalizer.normalizeStructuredQualification(licenseLimit)) {
+            requirements.add(new LicenseRequirement(
+                    Integer.toString(requirements.size() + 1), license.code(), license.officialName(), licenseLimit
+            ));
         }
         return requirements.isEmpty()
                 ? List.of()

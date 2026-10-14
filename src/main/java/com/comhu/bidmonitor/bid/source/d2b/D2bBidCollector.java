@@ -1,5 +1,6 @@
 package com.comhu.bidmonitor.bid.source.d2b;
 
+import com.comhu.bidmonitor.bid.license.LicenseNormalizer;
 import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
 import com.comhu.bidmonitor.classifier.BidRelevance;
 import com.comhu.bidmonitor.classifier.BidRelevanceClassifier;
@@ -34,11 +35,9 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** 방위사업청 공식 공공데이터 OpenAPI에서 D2B 입찰 후보를 수집한다. */
@@ -51,12 +50,7 @@ public class D2bBidCollector implements BidCandidateCollector {
 
     private static final Logger log = LoggerFactory.getLogger(D2bBidCollector.class);
     private static final DateTimeFormatter REQUEST_DATE = DateTimeFormatter.BASIC_ISO_DATE;
-    private static final Pattern LICENSE_CODE = Pattern.compile("(?<!\\d)(\\d{4})(?!\\d)");
     private static final Pattern SAFE_RESULT_CODE = Pattern.compile("[A-Za-z0-9_-]{1,40}");
-    private static final String AUDIT_LICENSE_CODE = "6146";
-    private static final String AUDIT_LICENSE_NAME = "정보시스템 감리법인";
-    private static final String SOFTWARE_LICENSE_CODE = "1468";
-    private static final String SOFTWARE_LICENSE_NAME = "소프트웨어사업자(컴퓨터관련서비스사업)";
     private static final List<String> SEARCH_TERMS = List.of(
             "정보시스템 감리", "정보화 감리", "개인정보 영향평가", "개인정보영향평가", "감리"
     );
@@ -345,33 +339,19 @@ public class D2bBidCollector implements BidCandidateCollector {
         if (licenseLimit == null || licenseLimit.isBlank()) {
             return List.of();
         }
-        String normalized = licenseLimit.replaceAll("\\s+", "");
-        Set<String> codes = new LinkedHashSet<>();
-        Matcher matcher = LICENSE_CODE.matcher(licenseLimit);
-        while (matcher.find()) {
-            codes.add(matcher.group(1));
-        }
-        if (normalized.contains(AUDIT_LICENSE_NAME.replace(" ", ""))) {
-            codes.add(AUDIT_LICENSE_CODE);
-        }
-        if (normalized.contains(SOFTWARE_LICENSE_NAME.replace(" ", ""))) {
-            codes.add(SOFTWARE_LICENSE_CODE);
-        }
-        if (codes.isEmpty()) {
+        List<LicenseNormalizer.NormalizedLicense> licenses =
+                LicenseNormalizer.normalizeStructuredQualification(licenseLimit);
+        if (licenses.isEmpty()) {
             String raw = licenseLimit.trim();
             return List.of(new LicenseRequirementGroup("1", List.of(
                     new LicenseRequirement("1", "", raw, raw)
             )));
         }
         List<LicenseRequirement> requirements = new ArrayList<>();
-        for (String code : codes) {
-            String name = switch (code) {
-                case AUDIT_LICENSE_CODE -> AUDIT_LICENSE_NAME;
-                case SOFTWARE_LICENSE_CODE -> SOFTWARE_LICENSE_NAME;
-                default -> "";
-            };
+        for (LicenseNormalizer.NormalizedLicense license : licenses) {
             requirements.add(new LicenseRequirement(
-                    Integer.toString(requirements.size() + 1), code, name, licenseLimit.trim()
+                    Integer.toString(requirements.size() + 1), license.code(), license.officialName(),
+                    licenseLimit.trim()
             ));
         }
         return List.of(new LicenseRequirementGroup("1", List.copyOf(requirements)));
