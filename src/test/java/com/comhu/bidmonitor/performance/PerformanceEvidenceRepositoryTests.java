@@ -175,6 +175,80 @@ class PerformanceEvidenceRepositoryTests {
         });
     }
 
+    @Test
+    void upgradesIntermediateBackfillMapWithoutBackfilledAtAndPreservesItsMapping() {
+        String entryId = entry();
+        String evidenceId = UUID.randomUUID().toString();
+        String preservedEntryId = entry();
+        String preservedEvidenceId = UUID.randomUUID().toString();
+        jdbc.update("""
+                UPDATE performance_entry
+                SET evidence_type = 'CONTRACT', selected_file_id = 61,
+                    selected_filename = 'intermediate-contract.pdf', selected_ext = 'pdf'
+                WHERE id = ?
+                """, entryId);
+        jdbc.update("""
+                INSERT INTO performance_evidence_backfill_map(legacy_source, entry_id, evidence_id, backfilled_at)
+                VALUES ('PERFORMANCE_ENTRY', ?, ?, NULL)
+                """, entryId, evidenceId);
+        jdbc.update("""
+                UPDATE performance_entry
+                SET evidence_type = 'CERTIFICATE', selected_file_id = 62,
+                    selected_filename = 'already-backfilled.pdf', selected_ext = 'pdf'
+                WHERE id = ?
+                """, preservedEntryId);
+        jdbc.update("""
+                INSERT INTO performance_evidence(
+                    id, entry_id, evidence_type, selected_file_id, filename, file_ext, created_at, updated_at)
+                VALUES (?, ?, 'CERTIFICATE', 62, 'already-backfilled.pdf', 'pdf', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, preservedEvidenceId, preservedEntryId);
+        jdbc.update("""
+                INSERT INTO performance_evidence_backfill_map(legacy_source, entry_id, evidence_id, backfilled_at)
+                VALUES ('PERFORMANCE_ENTRY', ?, ?, NULL)
+                """, preservedEntryId, preservedEvidenceId);
+        jdbc.execute("ALTER TABLE performance_evidence_backfill_map DROP COLUMN backfilled_at");
+
+        rerunSchema();
+
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = 'PERFORMANCE_EVIDENCE_BACKFILL_MAP'
+                  AND COLUMN_NAME = 'BACKFILLED_AT'
+                """, Integer.class)).isOne();
+        assertThat(jdbc.queryForObject("""
+                SELECT evidence_id FROM performance_evidence_backfill_map
+                WHERE legacy_source = 'PERFORMANCE_ENTRY' AND entry_id = ?
+                """, String.class, entryId)).isEqualTo(evidenceId);
+        assertThat(jdbc.queryForObject("""
+                SELECT backfilled_at IS NOT NULL FROM performance_evidence_backfill_map
+                WHERE legacy_source = 'PERFORMANCE_ENTRY' AND entry_id = ?
+                """, Boolean.class, entryId)).isTrue();
+        assertThat(repository.findByEntryId(entryId)).singleElement().satisfies(migrated -> {
+            assertThat(migrated.id()).isEqualTo(evidenceId);
+            assertThat(migrated.evidenceType()).isEqualTo(EvidenceType.CONTRACT);
+            assertThat(migrated.selectedFileId()).isEqualTo(61L);
+            assertThat(migrated.filename()).isEqualTo("intermediate-contract.pdf");
+            assertThat(migrated.fileExt()).isEqualTo("pdf");
+        });
+        assertThat(repository.findByEntryId(preservedEntryId)).singleElement().satisfies(preserved -> {
+            assertThat(preserved.id()).isEqualTo(preservedEvidenceId);
+            assertThat(preserved.evidenceType()).isEqualTo(EvidenceType.CERTIFICATE);
+            assertThat(preserved.selectedFileId()).isEqualTo(62L);
+            assertThat(preserved.filename()).isEqualTo("already-backfilled.pdf");
+        });
+
+        rerunSchema();
+
+        assertThat(repository.findByEntryId(entryId)).singleElement()
+                .extracting(Evidence::id).isEqualTo(evidenceId);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM performance_evidence_backfill_map
+                WHERE legacy_source = 'PERFORMANCE_ENTRY' AND entry_id = ?
+                """, Integer.class, entryId)).isOne();
+        assertThat(repository.findByEntryId(preservedEntryId)).singleElement()
+                .extracting(Evidence::id).isEqualTo(preservedEvidenceId);
+    }
+
     private EvidenceInput companyFile(long fileId, EvidenceType type) {
         return new EvidenceInput(fileId, null, null, type);
     }

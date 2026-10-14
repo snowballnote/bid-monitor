@@ -715,6 +715,8 @@ CREATE TABLE IF NOT EXISTS performance_evidence_backfill_map (
     PRIMARY KEY(legacy_source, entry_id),
     UNIQUE(evidence_id)
 );
+ALTER TABLE performance_evidence_backfill_map
+    ADD COLUMN IF NOT EXISTS backfilled_at TIMESTAMP;
 
 INSERT INTO performance_evidence_backfill_map(legacy_source, entry_id, evidence_id)
 SELECT 'PERFORMANCE_ENTRY', e.id, RANDOM_UUID()
