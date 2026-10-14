@@ -238,9 +238,9 @@ public class KwaterBidCollector implements BidCandidateCollector {
         value.setBidNtceNo(noticeId);
         value.setBidNtceNm(text(item, "tndrPblancNm"));
         value.setNtceInsttNm("한국수자원공사");
-        value.setBidNtceDt(text(item, "tndrPblancDe"));
-        value.setBidClseDt(text(item, "tndrPblancEnddt"));
-        value.setBidOpeningDt(text(item, "cardPrcsDt"));
+        value.setBidNtceDt(dateText(item, "tndrPblancDe"));
+        value.setBidClseDt(dateText(item, "tndrPblancEnddt"));
+        value.setBidOpeningDt(dateText(item, "cardPrcsDt"));
         value.setContractMethod(firstNonBlank(text(item, "ctrmthdCdNm"), text(item, "ctrmthdNm")));
         value.setBidForm(text(item, "cntrctDivNm"));
         value.setNoticeStatus(firstNonBlank(text(item, "tndrStat"), text(item, "cntrctPrgstsNm")));
@@ -300,6 +300,11 @@ public class KwaterBidCollector implements BidCandidateCollector {
     private static String text(JsonNode node, String field) {
         JsonNode value = node == null ? null : node.get(field);
         return value == null || value.isNull() ? "" : value.asText("").trim();
+    }
+
+    private static String dateText(JsonNode node, String field) {
+        String value = text(node, field);
+        return value.isBlank() || "-".equals(value) ? null : value;
     }
 
     private static String firstNonBlank(String first, String second) {

@@ -1,5 +1,8 @@
 package com.comhu.bidmonitor.bid.source.kwater;
 
+import com.comhu.bidmonitor.bid.persistence.BidNotice;
+import com.comhu.bidmonitor.bid.persistence.service.BidNoticeContentHasher;
+import com.comhu.bidmonitor.bid.persistence.service.BidQualificationNoticeMapper;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
 import org.junit.jupiter.api.Test;
 import tools.jackson.core.JacksonException;
@@ -8,6 +11,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -16,6 +20,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -189,6 +194,58 @@ class KwaterBidCollectorTests {
         assertFalse(value.getDetailUrl().contains("test-key"));
         assertTrue(value.getLicenseGroups().isEmpty());
         assertTrue(value.getAttachments().isEmpty());
+    }
+
+    @Test
+    void normalizesMissingDatePlaceholdersAndPreservesValidDates() {
+        Map<String, Object> dash = item("KW-DATE-DASH", "20261014", "Dash deadline");
+        dash.put("tndrPblancEnddt", "-");
+        Map<String, Object> blank = item("KW-DATE-BLANK", "20261014", "Blank deadline");
+        blank.put("tndrPblancEnddt", "");
+        Map<String, Object> whitespace = item("KW-DATE-WHITESPACE", "20261014", "Whitespace deadline");
+        whitespace.put("tndrPblancEnddt", "   ");
+        Map<String, Object> nullValue = item("KW-DATE-NULL", "20261014", "Null deadline");
+        nullValue.put("tndrPblancEnddt", null);
+        Map<String, Object> valid = item("KW-DATE-VALID", "20261014", "Valid deadline");
+        valid.put("tndrPblancEnddt", "20261021");
+        KwaterBidCollector collector = collector("test-key", true, uri ->
+                lastPathSegment(uri).equals("servcList")
+                        ? response(5, 100, dash, blank, whitespace, nullValue, valid)
+                        : emptyResponse()
+        );
+
+        List<BidQualificationDto> result = collector.collect(
+                LocalDate.of(2026, 10, 14), LocalDate.of(2026, 10, 14)
+        );
+
+        assertEquals(5, result.size());
+        assertNull(result.get(0).getBidClseDt());
+        assertNull(result.get(1).getBidClseDt());
+        assertNull(result.get(2).getBidClseDt());
+        assertNull(result.get(3).getBidClseDt());
+        assertEquals("20261021", result.get(4).getBidClseDt());
+    }
+
+    @Test
+    void actualFailureNoticeWithDashDeadlineMapsForPersistence() {
+        Map<String, Object> item = item("B5202603633", "20261014", "K-water live failure notice");
+        item.put("tndrPblancEnddt", "-");
+        KwaterBidCollector collector = collector("test-key", true, uri ->
+                lastPathSegment(uri).equals("servcList")
+                        ? response(1, 100, item)
+                        : emptyResponse()
+        );
+        BidQualificationDto candidate = collector.collect(
+                LocalDate.of(2026, 10, 14), LocalDate.of(2026, 10, 14)
+        ).getFirst();
+
+        BidNotice mapped = assertDoesNotThrow(() ->
+                new BidQualificationNoticeMapper(new BidNoticeContentHasher())
+                        .map(candidate, Instant.parse("2026-10-14T00:00:00Z"))
+        );
+
+        assertEquals("B5202603633", mapped.getSourceNoticeId());
+        assertNull(mapped.getSubmissionDeadlineAt());
     }
 
     @Test
