@@ -136,11 +136,11 @@ class G2bApiServiceTitleSearchTests {
     @Test
     void keepsIndustryCodeCandidatesEvenWhenTitleLooksIrrelevant() {
         TitleSearchFixtureService service = new TitleSearchFixtureService();
-        service.industries.put("6146", List.of(
+        service.industries.put("6525", List.of(
                 bid("G2B-LICENSED", "건설공사 감리 용역")
         ));
 
-        List<BidDto> result = service.getBidDtoList(DATE, DATE, Set.of("6146", "1468"));
+        List<BidDto> result = service.getBidDtoList(DATE, DATE, Set.of("6525"));
 
         assertEquals(List.of("G2B-LICENSED"),
                 result.stream().map(BidDto::getBidNtceNo).toList());

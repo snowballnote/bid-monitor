@@ -2,8 +2,6 @@ package com.comhu.bidmonitor.bid.source.d2b;
 
 import com.comhu.bidmonitor.bid.license.LicenseNormalizer;
 import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
-import com.comhu.bidmonitor.classifier.BidRelevance;
-import com.comhu.bidmonitor.classifier.BidRelevanceClassifier;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
 import com.comhu.bidmonitor.dto.LicenseRequirement;
 import com.comhu.bidmonitor.dto.LicenseRequirementGroup;
@@ -59,28 +57,15 @@ public class D2bBidCollector implements BidCandidateCollector {
     private final Transport transport;
     private final CallQuota callQuota;
     private final boolean configuredExecutionEnabled;
-    private final BidRelevanceClassifier bidRelevanceClassifier;
-
     @Autowired
     public D2bBidCollector(
             @Value("${d2b.api.base-url}") String baseUrl,
             @Value("${d2b.api.service-key:}") String serviceKey,
             @Value("${bid-source.d2b.enabled:false}") boolean configuredExecutionEnabled,
-            D2bDailyQuotaService dailyQuotaService,
-            BidRelevanceClassifier bidRelevanceClassifier
-    ) {
-        this(baseUrl, serviceKey, new JdkTransport(), dailyQuotaService::reserve,
-                configuredExecutionEnabled, bidRelevanceClassifier);
-    }
-
-    public D2bBidCollector(
-            String baseUrl,
-            String serviceKey,
-            boolean configuredExecutionEnabled,
             D2bDailyQuotaService dailyQuotaService
     ) {
         this(baseUrl, serviceKey, new JdkTransport(), dailyQuotaService::reserve,
-                configuredExecutionEnabled, new BidRelevanceClassifier());
+                configuredExecutionEnabled);
     }
 
     D2bBidCollector(String baseUrl, String serviceKey, Transport transport) {
@@ -98,18 +83,6 @@ public class D2bBidCollector implements BidCandidateCollector {
             CallQuota callQuota,
             boolean configuredExecutionEnabled
     ) {
-        this(baseUrl, serviceKey, transport, callQuota, configuredExecutionEnabled,
-                new BidRelevanceClassifier());
-    }
-
-    D2bBidCollector(
-            String baseUrl,
-            String serviceKey,
-            Transport transport,
-            CallQuota callQuota,
-            boolean configuredExecutionEnabled,
-            BidRelevanceClassifier bidRelevanceClassifier
-    ) {
         if (baseUrl == null || baseUrl.isBlank()) {
             throw new IllegalArgumentException("D2B API 기본 URL이 비어 있습니다.");
         }
@@ -118,7 +91,6 @@ public class D2bBidCollector implements BidCandidateCollector {
         this.transport = transport;
         this.callQuota = callQuota;
         this.configuredExecutionEnabled = configuredExecutionEnabled;
-        this.bidRelevanceClassifier = bidRelevanceClassifier;
     }
 
     @Override
@@ -206,11 +178,7 @@ public class D2bBidCollector implements BidCandidateCollector {
                 Document document = request(operation.listPath, parameters, counter);
                 totalCount = integer(text(first(document, "totalCount")), 0);
                 for (Element item : elements(document, "item")) {
-                    String title = firstText(item, operation.titleField, "bidNm", "othbcNtatNm", "cntrwkNm");
                     ListedNotice notice = new ListedNotice(operation, fields(item));
-                    if (bidRelevanceClassifier.classify(title) == BidRelevance.IRRELEVANT) {
-                        continue;
-                    }
                     validateIdentity(notice);
                     if (!isWithinRequestedPeriod(notice, startDate, endDate)) {
                         continue;

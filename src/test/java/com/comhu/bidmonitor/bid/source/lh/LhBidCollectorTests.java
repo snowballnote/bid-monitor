@@ -208,7 +208,7 @@ class LhBidCollectorTests {
     }
 
     @Test
-    void excludesOnlyClearlyIrrelevantTitlesAndKeepsRelevantAndUnknown() {
+    void defersTitleRelevanceUntilQualificationIsAvailable() {
         LhBidCollector collector = collector(uri -> {
             if ("ebid.lh.or.kr".equals(uri.getHost())) {
                 return detail(null, "제한경쟁", "적격심사", "미접수");
@@ -224,7 +224,9 @@ class LhBidCollectorTests {
 
         List<BidQualificationDto> result = collector.collect(START, END);
 
-        assertEquals(List.of("LH-IT", "LH-UNKNOWN"), result.stream()
+        assertEquals(List.of(
+                "LH-IT", "LH-UNKNOWN", "LH-WASTE", "LH-SAFETY", "LH-TELECOM", "LH-CONSTRUCTION"
+        ), result.stream()
                 .map(BidQualificationDto::getBidNtceNo).toList());
     }
 

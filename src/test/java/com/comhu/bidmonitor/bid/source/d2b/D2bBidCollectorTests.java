@@ -112,7 +112,7 @@ class D2bBidCollectorTests {
     }
 
     @Test
-    void excludesConstructionFireAndElectricalSupervisionWithoutItContext() {
+    void defersTitleRelevanceUntilQualificationIsAvailable() {
         RecordingTransport transport = new RecordingTransport(uri -> {
             if (path(uri).endsWith("Detail")) {
                 return detail("<cntrctMth>제한경쟁</cntrctMth>");
@@ -126,13 +126,13 @@ class D2bBidCollectorTests {
 
         List<BidQualificationDto> result = collector(transport).collect(START, END);
 
-        assertEquals(1, result.size());
-        assertEquals("I-1", result.getFirst().getBidNtceNo());
-        assertEquals(1, transport.detailCalls.get());
+        assertEquals(List.of("C-1", "C-2", "I-1"), result.stream()
+                .map(BidQualificationDto::getBidNtceNo).toList());
+        assertEquals(3, transport.detailCalls.get());
     }
 
     @Test
-    void keepsUnknownButExcludesClearlyIrrelevantTitles() {
+    void retainsSearchedCandidatesUntilQualificationFirstPostProcessing() {
         RecordingTransport transport = new RecordingTransport(uri -> {
             if (path(uri).endsWith("Detail")) {
                 return detail("<cntrctMth>제한경쟁</cntrctMth>");
@@ -150,9 +150,9 @@ class D2bBidCollectorTests {
 
         List<BidQualificationDto> result = collector(transport).collect(START, END);
 
-        assertEquals(List.of("UNKNOWN-1"), result.stream()
+        assertEquals(List.of("UNKNOWN-1", "CONSTRUCTION-1", "IRRELEVANT-1"), result.stream()
                 .map(BidQualificationDto::getBidNtceNo).toList());
-        assertEquals(1, transport.detailCalls.get());
+        assertEquals(3, transport.detailCalls.get());
     }
 
     @Test

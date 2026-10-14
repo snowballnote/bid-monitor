@@ -2130,11 +2130,64 @@ public class G2bApiService {
         LinkedHashMap<CandidateKey, BidQualificationDto> collectedCandidates = new LinkedHashMap<>();
         for (BidQualificationDto candidate : candidates) {
             applySourceIdentity(candidate, sourceCode);
+            if (!isRelevantByQualificationFirst(candidate, normalizedCodes)) {
+                continue;
+            }
             applyExternalCheckResult(candidate);
             qualificationEvaluationService.evaluate(candidate, normalizedCodes);
             addUniqueCandidate(collectedCandidates, candidate, false);
         }
         return new ArrayList<>(collectedCandidates.values());
+    }
+
+    private boolean isRelevantByQualificationFirst(
+            BidQualificationDto candidate,
+            Set<String> allowedLicenseCodes
+    ) {
+        if (hasConclusiveLicenseQualification(candidate, allowedLicenseCodes)) {
+            return true;
+        }
+        String title = candidate == null ? null : candidate.getBidNtceNm();
+        return bidRelevanceClassifier.classify(title) != BidRelevance.IRRELEVANT;
+    }
+
+    private boolean hasConclusiveLicenseQualification(
+            BidQualificationDto candidate,
+            Set<String> allowedLicenseCodes
+    ) {
+        List<LicenseRequirementGroup> groups = candidate == null || candidate.getLicenseGroups() == null
+                ? List.of()
+                : candidate.getLicenseGroups();
+        boolean hasQualificationGroup = false;
+        boolean hasIncompleteAlternative = false;
+
+        for (LicenseRequirementGroup group : groups) {
+            List<LicenseRequirement> requirements = group == null || group.getRequirements() == null
+                    ? List.of()
+                    : group.getRequirements();
+            if (requirements.isEmpty()) {
+                continue;
+            }
+            hasQualificationGroup = true;
+            boolean groupComplete = true;
+            boolean groupSatisfied = true;
+            for (LicenseRequirement requirement : requirements) {
+                String code = requirement == null
+                        ? ""
+                        : getSafeValue(requirement.getLicenseCode()).trim();
+                if (code.isEmpty()) {
+                    groupComplete = false;
+                    groupSatisfied = false;
+                } else if (!allowedLicenseCodes.contains(code)) {
+                    groupSatisfied = false;
+                }
+            }
+            if (groupComplete && groupSatisfied) {
+                return true;
+            }
+            hasIncompleteAlternative |= !groupComplete;
+        }
+        return hasQualificationGroup && !hasIncompleteAlternative;
     }
 
     private void addUniqueCandidate(

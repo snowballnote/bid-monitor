@@ -9,6 +9,8 @@ import com.comhu.bidmonitor.bid.source.d2b.D2bDailyQuotaExceededException;
 import com.comhu.bidmonitor.classifier.BidAwardMethodClassifier;
 import com.comhu.bidmonitor.dto.BidDto;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
+import com.comhu.bidmonitor.dto.LicenseRequirement;
+import com.comhu.bidmonitor.dto.LicenseRequirementGroup;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -135,6 +137,83 @@ class G2bApiServiceAdditionalSourceTests {
         assertEquals(expresswayResult.getReviewStatus(), kogasResult.getReviewStatus());
         assertEquals(expresswayResult.getReviewReason(), kogasResult.getReviewReason());
         assertEquals(expresswayResult.getAwardMethodCategory(), kogasResult.getAwardMethodCategory());
+    }
+
+    @Test
+    void explicitMatchingQualificationOverridesIrrelevantTitleForEveryAdditionalSource() {
+        G2bApiService service = new EmptyG2bFixtureService(List.of());
+
+        for (String sourceCode : List.of("D2B", "LH", "KOGAS", "KOREA_EXPRESSWAY")) {
+            BidQualificationDto candidate = qualifiedCandidate(
+                    sourceCode + "-6525", "건설폐기물 처리 용역", group("1", "6525")
+            );
+
+            List<BidQualificationDto> result = service.processAdditionalBidQualificationList(
+                    collector(sourceCode, List.of()), List.of(candidate), Set.of("6525")
+            );
+
+            assertEquals(1, result.size(), sourceCode);
+            assertEquals("검토대상", result.getFirst().getReviewStatus(), sourceCode);
+        }
+
+        BidQualificationDto arbitrary = qualifiedCandidate(
+                "KOGAS-9999", "건축 감리 용역", group("1", "9999")
+        );
+        assertEquals(1, service.processAdditionalBidQualificationList(
+                collector("KOGAS", List.of()), List.of(arbitrary), Set.of("9999")
+        ).size());
+    }
+
+    @Test
+    void explicitMismatchOverridesRelevantTitleAndPreservesQualificationResult() {
+        G2bApiService service = new EmptyG2bFixtureService(List.of());
+        BidQualificationDto candidate = qualifiedCandidate(
+                "D2B-MISMATCH", "정보시스템 감리 용역", group("1", "6146")
+        );
+
+        BidQualificationDto result = service.processAdditionalBidQualificationList(
+                collector("D2B", List.of()), List.of(candidate), Set.of("6525")
+        ).getFirst();
+
+        assertEquals("추가확인필요", result.getReviewStatus());
+        assertTrue(result.getReviewReason().contains("6146"));
+    }
+
+    @Test
+    void titleClassifierIsUsedOnlyWhenQualificationIsInsufficient() {
+        G2bApiService service = new EmptyG2bFixtureService(List.of());
+        BidQualificationDto irrelevant = qualifiedCandidate(
+                "NO-LICENSE-IRRELEVANT", "건설폐기물 처리 용역"
+        );
+        BidQualificationDto unknown = qualifiedCandidate("NO-LICENSE-UNKNOWN", "감리 용역");
+        BidQualificationDto relevant = qualifiedCandidate(
+                "NO-LICENSE-RELEVANT", "정보시스템 감리 용역"
+        );
+
+        assertTrue(service.processAdditionalBidQualificationList(
+                collector("LH", List.of()), List.of(irrelevant), Set.of("6525")
+        ).isEmpty());
+        assertEquals(1, service.processAdditionalBidQualificationList(
+                collector("LH", List.of()), List.of(unknown), Set.of("6525")
+        ).size());
+        assertEquals(1, service.processAdditionalBidQualificationList(
+                collector("LH", List.of()), List.of(relevant), Set.of("6525")
+        ).size());
+    }
+
+    @Test
+    void incompleteQualificationUsesTitleAsSecondarySignal() {
+        G2bApiService service = new EmptyG2bFixtureService(List.of());
+        BidQualificationDto candidate = qualifiedCandidate(
+                "LH-INCOMPLETE", "지하안전평가 용역",
+                new LicenseRequirementGroup("1", List.of(
+                        new LicenseRequirement("1", "", "확인되지 않은 면허", "확인되지 않은 면허")
+                ))
+        );
+
+        assertTrue(service.processAdditionalBidQualificationList(
+                collector("LH", List.of()), List.of(candidate), Set.of("6525")
+        ).isEmpty());
     }
 
     @Test
@@ -308,6 +387,26 @@ class G2bApiServiceAdditionalSourceTests {
                 )
         ))));
         return candidate;
+    }
+
+    private static BidQualificationDto qualifiedCandidate(
+            String noticeId,
+            String title,
+            LicenseRequirementGroup... groups
+    ) {
+        BidQualificationDto candidate = eligibleCandidate(noticeId);
+        candidate.setBidNtceNm(title);
+        candidate.setLicenseGroups(List.of(groups));
+        return candidate;
+    }
+
+    private static LicenseRequirementGroup group(String groupNo, String... codes) {
+        List<LicenseRequirement> requirements = java.util.stream.IntStream.range(0, codes.length)
+                .mapToObj(index -> new LicenseRequirement(
+                        Integer.toString(index + 1), codes[index], "면허 " + codes[index], "면허/" + codes[index]
+                ))
+                .toList();
+        return new LicenseRequirementGroup(groupNo, requirements);
     }
 
     private static BidCandidateCollector collector(String sourceCode, List<BidQualificationDto> candidates) {
