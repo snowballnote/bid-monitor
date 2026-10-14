@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { createPerformanceEntry, disconnectPerformanceFile, getPerformanceEntries, selectPerformanceCandidate,
-  updatePerformanceEntry, uploadPerformanceFile } from '../../api/submissions/performanceDocuments';
+import { addPerformanceEvidence, createPerformanceEntry, deletePerformanceEvidence, downloadPerformanceEvidence,
+  getPerformanceEntries, replacePerformanceEvidence, replacePerformanceEvidenceUpload, updatePerformanceEntry,
+  uploadPerformanceEvidence } from '../../api/submissions/performanceDocuments';
 import Button from '../Button';
 import PerformanceCandidates from './PerformanceCandidates';
 import PerformanceEntryDialog from './PerformanceEntryDialog';
 import PerformanceImport from './PerformanceImport';
 
-export const performanceEntryReady = entry => entry?.info?.selectedFileId != null
-  || entry?.info?.selectedDriveFileId != null || entry?.info?.selectedUploadedFileId != null;
+export const performanceEntryReady = entry => Array.isArray(entry?.evidences) && entry.evidences.length > 0;
 const businessStatusLabel = entry => `${entry?.resolvedStatus === 'IN_PROGRESS' ? '수행중' : '수행완료'} · ${entry?.info?.businessStatus ? '수동' : '자동'}`;
 const kitcStatusLabel = { NEEDED: '요청 필요', REQUESTED: '요청함', RECEIVED: '회신 완료' };
 
@@ -39,29 +39,35 @@ export default function PerformanceDocuments({ project, required, onLoaded, conn
     {state.status === 'loading' && <p className="panel-state" role="status">실적증빙 진행상태를 불러오는 중입니다.</p>}
     {state.status === 'error' && <p className="panel-state error" role="alert">{state.message}</p>}
   </section>;
-  async function selectCandidate(entry, candidate) {
-    const updated = await selectPerformanceCandidate(project.performanceProjectId, entry, candidate);
+  function applyUpdated(updated) {
     const next = entries.map(row => row.id === updated.id ? updated : row);
     setState({ status: 'success', entries: next });
     setActive(current => current?.id === updated.id ? updated : current);
     callback.current(next);
     return updated;
   }
-  async function disconnectFile(entry) {
-    const updated = await disconnectPerformanceFile(project.performanceProjectId, entry);
-    const next = entries.map(row => row.id === updated.id ? updated : row);
-    setState({ status: 'success', entries: next });
-    setActive(current => current?.id === updated.id ? updated : current);
-    callback.current(next);
-    return updated;
+  async function addCandidate(entry, candidate, evidenceType) {
+    return applyUpdated(await addPerformanceEvidence(project.performanceProjectId, entry.id,
+      { driveFileId: candidate.file.driveFileId }, evidenceType));
   }
-  async function uploadFile(entry, file, evidenceType) {
-    const updated = await uploadPerformanceFile(project.performanceProjectId, entry, file, evidenceType);
-    const next = entries.map(row => row.id === updated.id ? updated : row);
-    setState({ status: 'success', entries: next });
-    setActive(current => current?.id === updated.id ? updated : current);
-    callback.current(next);
-    return updated;
+  async function replaceCandidate(entry, evidence, candidate, evidenceType) {
+    return applyUpdated(await replacePerformanceEvidence(project.performanceProjectId, entry.id, evidence.evidenceId,
+      { driveFileId: candidate.file.driveFileId }, evidenceType));
+  }
+  async function uploadFile(entry, file, evidenceType, evidence) {
+    const updated = evidence
+      ? await replacePerformanceEvidenceUpload(project.performanceProjectId, entry.id, evidence.evidenceId, file, evidenceType)
+      : await uploadPerformanceEvidence(project.performanceProjectId, entry.id, file, evidenceType);
+    return applyUpdated(updated);
+  }
+  async function deleteEvidence(entry, evidence) {
+    return applyUpdated(await deletePerformanceEvidence(project.performanceProjectId, entry.id, evidence.evidenceId));
+  }
+  async function downloadEvidence(entry, evidence) {
+    const result = await downloadPerformanceEvidence(project.performanceProjectId, entry.id, evidence);
+    const url = URL.createObjectURL(result.blob); const link = document.createElement('a');
+    link.href = url; link.download = result.filename; document.body.append(link); link.click(); link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   async function saveEntry(values) {
     const updated = editor?.entry
@@ -89,24 +95,28 @@ export default function PerformanceDocuments({ project, required, onLoaded, conn
         <Button className="ui-button ui-button-primary" onClick={() => setEditor({ entry: null })}>+ 실적 추가</Button></header>
       {!entries.length ? <p className="panel-state">등록된 실적이 없습니다.</p>
       : <div className="performance-documents-scroll" tabIndex={0} aria-label="실적증빙 준비 현황 표">
-        <table className="submission-project-table"><thead><tr>{['상태', '번호', '실적명', '발주기관', '수행기간', '사업/KITC', '현재 파일', '관리'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
+        <table className="submission-project-table"><thead><tr>{['상태', '번호', '실적명', '발주기관', '수행기간', '사업/KITC', '증빙자료', '관리'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
           <tbody>{entries.map((entry, index) => {
             const ready = performanceEntryReady(entry); const info = entry.info;
+            const evidenceList = Array.isArray(entry.evidences) ? entry.evidences : [];
             return <tr key={entry.id ?? index}>
               <td><span className={`requirement-state${ready ? ' complete' : ' attention'}`}>{ready ? '준비됨' : '미준비'}</span></td>
               <td>{info.pptNumber || '—'}</td><th scope="row">{info.businessName || '실적명 미등록'}</th>
               <td>{info.client || '—'}</td><td>{info.businessPeriod || '—'}</td>
               <td className="performance-entry-status"><span>{businessStatusLabel(entry)}</span><span>KITC {kitcStatusLabel[info.kitcStatus] || '확인 필요'}</span>
                 {(info.requestedAt || info.repliedAt) && <small>{info.requestedAt ? `요청 ${info.requestedAt}` : ''}{info.repliedAt ? ` · 회신 ${info.repliedAt}` : ''}</small>}</td>
-              <td className="performance-filename" title={entry.selectedFilename || ''}>{entry.selectedFilename || (ready ? '파일명 미확인' : '—')}</td>
-              <td><div className="performance-row-actions"><Button className="ui-button ui-button-secondary" onClick={() => setActive(entry)}>파일 관리</Button>
+              <td className="performance-filename" title={evidenceList.map(evidence => evidence.filename).join(', ')}>
+                {ready ? <><strong>{evidenceList.length}개</strong><small>{evidenceList.map(evidence => evidence.filename).join(', ')}</small></> : '—'}</td>
+              <td><div className="performance-row-actions"><Button className="ui-button ui-button-secondary" onClick={() => setActive(entry)}>증빙 관리</Button>
                 <Button className="ui-button ui-button-secondary" onClick={() => setEditor({ entry })}>수정</Button></div></td>
             </tr>;
           })}</tbody></table>
       </div>}</div></>}
     {active && <PerformanceCandidates projectId={project.performanceProjectId} entry={active}
-      onSelect={candidate => selectCandidate(active, candidate)} onClear={() => disconnectFile(active)}
-      onUpload={(file, evidenceType) => uploadFile(active, file, evidenceType)}
+      onAddCandidate={(candidate, evidenceType) => addCandidate(active, candidate, evidenceType)}
+      onReplaceCandidate={(evidence, candidate, evidenceType) => replaceCandidate(active, evidence, candidate, evidenceType)}
+      onUpload={(file, evidenceType, evidence) => uploadFile(active, file, evidenceType, evidence)}
+      onDelete={evidence => deleteEvidence(active, evidence)} onDownload={evidence => downloadEvidence(active, evidence)}
       onClose={() => setActive(null)} />}
     {editor && <PerformanceEntryDialog entry={editor.entry} onSave={saveEntry} onClose={() => setEditor(null)} />}
   </section>;

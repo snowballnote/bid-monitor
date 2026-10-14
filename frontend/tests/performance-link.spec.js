@@ -21,7 +21,10 @@ async function setup(page, options = {}) {
     if (path.endsWith('/requirements')) return route.fulfill({ json: [{ id: 1, category: 'PERFORMANCE', documentName: '실적', performanceSelectionRequired: true }] });
     if (path.endsWith('/package')) return route.fulfill({ json: { selections: [] } });
     if (path.endsWith('/people') || path === '/api/submission-document-masters' || path === '/api/drive-index') return route.fulfill({ json: [] });
-    if (path.endsWith('/entries')) return route.fulfill({ json: [{ id: 'e1', selectedFilename: '보존.pdf', info: { businessName: '기존 사업', selectedDriveFileId: 'reference', evidenceType: 'CERTIFICATE' } }] });
+    if (path.endsWith('/entries')) return route.fulfill({ json: [{ id: 'e1', selectedFilename: '보존.pdf',
+      evidences: [{ evidenceId: 'ev1', evidenceType: 'CERTIFICATE', sourceType: 'FMS_DRIVE', filename: '보존.pdf',
+        fileExt: 'pdf', selectedFileId: null, selectedDriveFileId: 'reference', selectedUploadedFileId: null }],
+      info: { businessName: '기존 사업', selectedDriveFileId: 'reference', evidenceType: 'CERTIFICATE' } }] });
     if (path === '/api/performance-projects') return route.fulfill({ json: [{ id: 'p1', name: '실적 프로젝트', deadline: '2026-09-30' }] });
     if (path.startsWith('/api/performance-projects/')) return route.fulfill({ json: { id: path.split('/').at(-1), name: '실적 프로젝트', deadline: '2026-09-30', daysRemaining: 9, status: 'READY' } });
     return route.fulfill({ status: 404, json: {} });

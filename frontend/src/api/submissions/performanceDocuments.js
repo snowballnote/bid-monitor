@@ -108,6 +108,95 @@ export async function uploadPerformanceFile(projectId, entry, file, evidenceType
   return data;
 }
 
+const evidenceBase = (projectId, entryId) => `/api/performance-projects/${encodeURIComponent(projectId)}`
+  + `/entries/${encodeURIComponent(entryId)}/evidences`;
+
+function evidenceSelection(source, evidenceType) {
+  return {
+    selectedFileId: source?.fileId ?? null,
+    selectedDriveFileId: source?.driveFileId ?? null,
+    selectedUploadedFileId: source?.uploadedFileId ?? null,
+    evidenceType,
+  };
+}
+
+async function evidenceEntryRequest(url, options, fallback) {
+  let response;
+  try {
+    response = await fetch(url, { ...options, headers: {
+      Accept: 'application/json', ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+    } });
+  } catch { throw new Error(fallback); }
+  const data = await response.json().catch(() => null);
+  const safeMessages = [
+    '증빙정보가 필요합니다.', '회사 파일, FMS 파일, 직접 업로드 파일 중 하나만 선택하세요.',
+    '파일과 증빙유형을 함께 지정하세요.', '증빙유형을 선택하세요.', '수행 중 사업에는 계약서를 연결하세요.',
+    '수행 중 사업에는 계약서를 등록하세요.',
+  ];
+  if (!response.ok) throw new Error(response.status === 400 && safeMessages.includes(data?.message) ? data.message : fallback);
+  if (!data || typeof data.id !== 'string' || !data.info || !Array.isArray(data.evidences)) {
+    throw new Error('증빙 저장 결과를 확인할 수 없습니다.');
+  }
+  return data;
+}
+
+export function addPerformanceEvidence(projectId, entryId, source, evidenceType) {
+  return evidenceEntryRequest(evidenceBase(projectId, entryId), {
+    method: 'POST', body: JSON.stringify(evidenceSelection(source, evidenceType)),
+  }, '증빙 추가에 실패했습니다. 다시 시도해 주세요.');
+}
+
+export function replacePerformanceEvidence(projectId, entryId, evidenceId, source, evidenceType) {
+  return evidenceEntryRequest(`${evidenceBase(projectId, entryId)}/${encodeURIComponent(evidenceId)}`, {
+    method: 'PUT', body: JSON.stringify(evidenceSelection(source, evidenceType)),
+  }, '증빙 교체에 실패했습니다. 다시 시도해 주세요.');
+}
+
+function evidenceUpload(projectId, entryId, evidenceId, file, evidenceType) {
+  const validation = validatePerformanceUpload(file);
+  if (validation) return Promise.reject(new Error(validation));
+  const form = new FormData(); form.append('file', file); form.append('evidenceType', evidenceType);
+  const suffix = evidenceId == null ? '/upload' : `/${encodeURIComponent(evidenceId)}/upload`;
+  return evidenceEntryRequest(evidenceBase(projectId, entryId) + suffix, {
+    method: evidenceId == null ? 'POST' : 'PUT', body: form,
+  }, evidenceId == null ? '증빙 업로드에 실패했습니다. 다시 시도해 주세요.' : '증빙 교체에 실패했습니다. 다시 시도해 주세요.');
+}
+
+export const uploadPerformanceEvidence = (projectId, entryId, file, evidenceType) =>
+  evidenceUpload(projectId, entryId, null, file, evidenceType);
+
+export const replacePerformanceEvidenceUpload = (projectId, entryId, evidenceId, file, evidenceType) =>
+  evidenceUpload(projectId, entryId, evidenceId, file, evidenceType);
+
+export function deletePerformanceEvidence(projectId, entryId, evidenceId) {
+  return evidenceEntryRequest(`${evidenceBase(projectId, entryId)}/${encodeURIComponent(evidenceId)}`, {
+    method: 'DELETE',
+  }, '증빙 삭제에 실패했습니다. 다시 시도해 주세요.');
+}
+
+function evidenceDownloadFilename(disposition, fallback) {
+  const encoded = disposition?.match(/filename\*\s*=\s*UTF-8''([^;]+)/i)?.[1];
+  const plain = disposition?.match(/filename\s*=\s*(?:"([^"]+)"|([^;]+))/i);
+  let value = encoded ? (() => { try { return decodeURIComponent(encoded); } catch { return ''; } })()
+    : plain?.[1] || plain?.[2]?.trim() || '';
+  value = value.split(/[\\/]/).at(-1)?.replace(/[\u0000-\u001f\u007f]/g, '').trim() || '';
+  return value || fallback || 'evidence-file';
+}
+
+export async function downloadPerformanceEvidence(projectId, entryId, evidence) {
+  let response;
+  try {
+    response = await fetch(`${evidenceBase(projectId, entryId)}/${encodeURIComponent(evidence.evidenceId)}/download`, {
+      headers: { Accept: 'application/octet-stream' },
+    });
+  } catch { throw new Error('증빙 다운로드에 실패했습니다. 다시 시도해 주세요.'); }
+  if (!response.ok) throw new Error('증빙 다운로드에 실패했습니다. 다시 시도해 주세요.');
+  return {
+    blob: await response.blob(),
+    filename: evidenceDownloadFilename(response.headers.get('content-disposition'), evidence.filename),
+  };
+}
+
 const entryFields = [
   ['pptNumber', 'PPT 번호', 100], ['businessName', '사업명', 1000], ['businessPeriod', '사업기간', 500],
   ['contractAmount', '계약금액', 200], ['client', '발주처', 500],

@@ -1,7 +1,10 @@
 import { test, expect } from '@playwright/test';
 
 async function setup(page, options = {}) {
-  const entries = [{ id: 'entry-1', projectId: 'p1', selectedFilename: '기존-실적증명서.pdf', info: {
+  const entries = [{ id: 'entry-1', projectId: 'p1', selectedFilename: '기존-실적증명서.pdf', evidences: [{
+    evidenceId: 'evidence-1', evidenceType: 'CERTIFICATE', sourceType: 'FMS_DRIVE', filename: '기존-실적증명서.pdf',
+    fileExt: 'pdf', selectedFileId: null, selectedDriveFileId: 'drive-1', selectedUploadedFileId: null,
+  }], info: {
     pptNumber: '1', businessName: '기존 구축 사업', businessPeriod: '2024.01 ~ 2025.12', contractAmount: '10억',
     client: '기존 발주기관', businessStatus: 'COMPLETED', selectedFileId: null,
     selectedDriveFileId: 'drive-1', selectedUploadedFileId: null, evidenceType: 'CERTIFICATE',

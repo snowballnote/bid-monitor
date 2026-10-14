@@ -55,6 +55,8 @@
 .performance-entry-status span, .performance-entry-status small { display: block; }
 .performance-entry-status small { margin-top: 4px; color: var(--muted); font-size: 10px; }
 .performance-filename { overflow-wrap: anywhere; }
+.performance-filename strong, .performance-filename small { display: block; }
+.performance-filename small { margin-top: 3px; color: var(--muted); font-weight: normal; }
 .performance-documents .ui-button { min-height: 32px; padding: 6px 10px; font-size: 12px; }
 .common-document-dialog.performance-candidates { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; padding: 20px 22px; box-sizing: border-box; }
 .performance-candidates-heading { margin: -20px -22px 18px; padding: 20px 22px 16px; border-bottom: 1px solid var(--border); background: var(--surface-subtle); }
@@ -68,6 +70,20 @@
 .performance-current-file small { display: block; margin-top: 2px; color: var(--muted); }
 .performance-current-file .performance-disconnect { grid-column: 2; grid-row: 1 / span 3; }
 .performance-disconnect { color: var(--danger, #b42318); }
+.performance-evidence-section { margin-bottom: 16px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 9px; }
+.performance-evidence-section > header, .performance-evidence-editor > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.performance-evidence-section h3, .performance-evidence-editor h3 { margin: 0; font-size: 14px; }
+.performance-evidence-section header small, .performance-evidence-editor header small { display: block; margin-top: 3px; color: var(--muted); }
+.performance-evidence-empty { margin: 14px 0 0; color: var(--muted); }
+.performance-evidence-list { display: grid; list-style: none; margin: 12px 0 0; padding: 0; gap: 8px; }
+.performance-evidence-list > li { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.performance-evidence-info { display: grid; min-width: 0; gap: 3px; }
+.performance-evidence-info span { overflow-wrap: anywhere; }
+.performance-evidence-info small { color: var(--muted); }
+.performance-evidence-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.performance-evidence-editor { display: grid; margin-bottom: 16px; padding: 14px 16px; gap: 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-subtle); }
+.performance-evidence-type { display: grid; gap: 4px; font-size: 12px; }
+.performance-evidence-type select { min-width: 0; }
 .performance-candidate-section { padding: 14px 16px 4px; border: 1px solid var(--border); border-radius: 9px; }
 .performance-candidate-guidance { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
 .performance-candidate-list { display: grid; list-style: none; margin: 0; padding: 0; gap: 8px; }
@@ -127,6 +143,8 @@
   .performance-candidates-heading { margin: -16px -16px 16px; padding: 17px 16px 14px; }
   .performance-current-file { grid-template-columns: 1fr; }
   .performance-current-file .performance-disconnect { grid-column: 1; grid-row: auto; justify-self: start; margin-top: 6px; }
+  .performance-evidence-list > li { align-items: stretch; flex-direction: column; }
+  .performance-evidence-actions { justify-content: flex-start; }
   .common-document-dialog.performance-entry-dialog { padding: 16px; }
   .performance-entry-heading { margin: -16px -16px 16px; padding: 17px 16px 14px; }
   .performance-entry-fields, .performance-entry-metadata { grid-template-columns: 1fr; }

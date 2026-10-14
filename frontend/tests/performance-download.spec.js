@@ -1,6 +1,13 @@
 import { test, expect } from '@playwright/test';
 
-const entry = (id, source, filename) => ({ id, projectId: 'p1', selectedFilename: filename, info: {
+const entry = (id, source, filename) => ({ id, projectId: 'p1', selectedFilename: filename, evidences: [{
+  evidenceId: `evidence-${id}`, evidenceType: 'CERTIFICATE',
+  sourceType: source === 'company' ? 'COMPANY_FILE' : source === 'fms' ? 'FMS_DRIVE' : 'DIRECT_UPLOAD',
+  filename, fileExt: 'pdf', selectedFileId: source === 'company' ? 7 : null,
+  selectedDriveFileId: source === 'fms' ? '11111111-1111-4111-8111-111111111111' : null,
+  selectedUploadedFileId: source === 'upload' ? 'upload-1' : null,
+  createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
+}], info: {
   pptNumber: id, businessName: `${source} 실적`, businessPeriod: '2024.01 ~ 2025.12', contractAmount: '1억', client: '기관',
   businessStatus: 'COMPLETED', selectedFileId: source === 'company' ? 7 : null,
   selectedDriveFileId: source === 'fms' ? '11111111-1111-4111-8111-111111111111' : null,

@@ -70,9 +70,10 @@ export default function PerformanceDetail() {
     finally { downloadLocked.current = false; if (mounted.current) setDownloading(false); }
   }
   const project = state.project;
-  const selectedFiles = entries?.filter(performanceEntryReady).length ?? 0;
+  const preparedEntries = entries?.filter(performanceEntryReady).length ?? 0;
+  const selectedFiles = entries?.reduce((count, entry) => count + (Array.isArray(entry.evidences) ? entry.evidences.length : 0), 0) ?? 0;
   const totalEntries = entries?.length ?? 0;
-  const progress = totalEntries ? Math.round(selectedFiles / totalEntries * 100) : 0;
+  const progress = totalEntries ? Math.round(preparedEntries / totalEntries * 100) : 0;
   return <main className="react-performances react-performance-detail"><style>{sharedStyles}</style>
     <header className="submission-topbar" aria-label="현재 위치"><span>Biz Assist</span><span aria-hidden="true">/</span>
       <Link to="/performances">실적 관리</Link><span aria-hidden="true">/</span><strong>프로젝트 상세</strong></header>
@@ -102,8 +103,8 @@ export default function PerformanceDetail() {
               <div className="progress-track" role="progressbar" aria-label="실적증빙 준비율" aria-valuemin="0" aria-valuemax="100" aria-valuenow={progress}>
                 <span style={{ width: `${progress}%` }} /></div>
               <dl><div><dt>전체</dt><dd>{entries === null ? '확인 중' : `${totalEntries}건`}</dd></div>
-                <div><dt>준비 완료</dt><dd>{entries === null ? '—' : `${selectedFiles}건`}</dd></div>
-                <div><dt>미준비</dt><dd>{entries === null ? '—' : `${Math.max(totalEntries - selectedFiles, 0)}건`}</dd></div></dl>
+                <div><dt>준비 완료</dt><dd>{entries === null ? '—' : `${preparedEntries}건`}</dd></div>
+                <div><dt>미준비</dt><dd>{entries === null ? '—' : `${Math.max(totalEntries - preparedEntries, 0)}건`}</dd></div></dl>
             </section>
             <section className="surface-card performance-guide" aria-labelledby="performance-guide-title"><h2 id="performance-guide-title">진행 가이드</h2>
               <ol><li>실적표를 붙여넣거나 실적을 직접 추가합니다.</li><li>Drive에서 관련 파일을 찾아 연결합니다.</li>
