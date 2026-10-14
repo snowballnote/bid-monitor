@@ -24,5 +24,10 @@ public interface BidCandidateCollector {
         return false;
     }
 
+    /** Whether title relevance UNKNOWN candidates may remain in the main candidate stream. */
+    default boolean includeUnknownRelevance() {
+        return true;
+    }
+
     List<BidQualificationDto> collect(LocalDate startDate, LocalDate endDate);
 }

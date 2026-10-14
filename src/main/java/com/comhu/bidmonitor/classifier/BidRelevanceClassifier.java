@@ -65,6 +65,9 @@ public class BidRelevanceClassifier {
         if (normalized.contains("개인정보영향평가") || isPrivacyImpactAssessment(title)) {
             return BidRelevance.RELEVANT;
         }
+        if (normalized.contains("감리")) {
+            return BidRelevance.RELEVANT;
+        }
 
         boolean hasClearItContext = CLEAR_IT_CONTEXTS.stream().anyMatch(normalized::contains)
                 || hasStandaloneIt(title);
@@ -74,7 +77,7 @@ public class BidRelevanceClassifier {
         if (normalized.contains("감리") && (hasClearItContext || hasSystemContext)) {
             return BidRelevance.RELEVANT;
         }
-        if (hasItServiceAction && (hasClearItContext || hasSystemContext)) {
+        if (hasItServiceAction && hasClearItContext) {
             return BidRelevance.RELEVANT;
         }
 

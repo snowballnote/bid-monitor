@@ -202,6 +202,54 @@ class G2bApiServiceAdditionalSourceTests {
     }
 
     @Test
+    void kwaterKeepsRelevantTitlesAndExcludesUnknownAndIrrelevantTitlesFromMainCandidates() {
+        G2bApiService service = new EmptyG2bFixtureService(List.of());
+        List<BidQualificationDto> candidates = List.of(
+                qualifiedCandidate("KW-UNKNOWN-1", "강정고령보 다이크 거석 제거 공사"),
+                qualifiedCandidate("KW-UNKNOWN-2", "용담댐 좌안생태공원 화장실 옥상방수 개선공사"),
+                qualifiedCandidate("KW-UNKNOWN-3", "부안권지사 전기차 충전설비 인프라 구축 공사"),
+                qualifiedCandidate("KW-UNKNOWN-4", "시화조력 수차발전기 친환경 유압작동유 교체 용역"),
+                qualifiedCandidate("KW-UNKNOWN-5", "논산시 현대화사업 유지관리시스템 기능 및 실시설계 용역"),
+                qualifiedCandidate("KW-IT", "정보시스템 유지관리 용역"),
+                qualifiedCandidate("KW-COMPUTING", "전산시스템 유지관리 용역"),
+                qualifiedCandidate("KW-SOFTWARE", "소프트웨어 유지관리 용역"),
+                qualifiedCandidate("KW-PIA", "개인정보 영향평가 용역"),
+                qualifiedCandidate("KW-SUPERVISION", "시스템 구축 감리 용역"),
+                qualifiedCandidate("KW-IRRELEVANT", "건축 감리 용역")
+        );
+
+        List<BidQualificationDto> result = service.processAdditionalBidQualificationList(
+                collector("KWATER", List.of(), false), candidates, Set.of("6146", "1468")
+        );
+
+        assertEquals(List.of("KW-IT", "KW-COMPUTING", "KW-SOFTWARE", "KW-PIA", "KW-SUPERVISION"),
+                result.stream()
+                .map(BidQualificationDto::getSourceNoticeId)
+                .toList());
+    }
+
+    @Test
+    void unknownRelevancePolicyIsExplicitAndPreservesExistingSources() {
+        G2bApiService service = new EmptyG2bFixtureService(List.of());
+
+        assertTrue(service.processAdditionalBidQualificationList(
+                collector("KWATER", List.of(), false),
+                List.of(qualifiedCandidate("KW-UNKNOWN", "상수도 유지관리시스템 개선 용역")),
+                Set.of("6146", "1468")
+        ).isEmpty());
+
+        for (String sourceCode : List.of("G2B", "D2B", "LH", "KOGAS", "KOREA_EXPRESSWAY")) {
+            List<BidQualificationDto> result = service.processAdditionalBidQualificationList(
+                    collector(sourceCode, List.of()),
+                    List.of(qualifiedCandidate(sourceCode + "-UNKNOWN", "상수도 유지관리시스템 개선 용역")),
+                    Set.of("6146", "1468")
+            );
+
+            assertEquals(1, result.size(), sourceCode);
+        }
+    }
+
+    @Test
     void incompleteQualificationUsesTitleAsSecondarySignal() {
         G2bApiService service = new EmptyG2bFixtureService(List.of());
         BidQualificationDto candidate = qualifiedCandidate(
@@ -410,10 +458,23 @@ class G2bApiServiceAdditionalSourceTests {
     }
 
     private static BidCandidateCollector collector(String sourceCode, List<BidQualificationDto> candidates) {
+        return collector(sourceCode, candidates, true);
+    }
+
+    private static BidCandidateCollector collector(
+            String sourceCode,
+            List<BidQualificationDto> candidates,
+            boolean includeUnknownRelevance
+    ) {
         return new BidCandidateCollector() {
             @Override
             public String sourceCode() {
                 return sourceCode;
+            }
+
+            @Override
+            public boolean includeUnknownRelevance() {
+                return includeUnknownRelevance;
             }
 
             @Override

@@ -100,6 +100,11 @@ public class KwaterBidCollector implements BidCandidateCollector {
     }
 
     @Override
+    public boolean includeUnknownRelevance() {
+        return false;
+    }
+
+    @Override
     public List<BidQualificationDto> collect(LocalDate startDate, LocalDate endDate) {
         validateRange(startDate, endDate);
         if (serviceKey.isBlank()) {

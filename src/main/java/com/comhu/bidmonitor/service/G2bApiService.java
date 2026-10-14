@@ -2130,7 +2130,7 @@ public class G2bApiService {
         LinkedHashMap<CandidateKey, BidQualificationDto> collectedCandidates = new LinkedHashMap<>();
         for (BidQualificationDto candidate : candidates) {
             applySourceIdentity(candidate, sourceCode);
-            if (!isRelevantByQualificationFirst(candidate, normalizedCodes)) {
+            if (!isRelevantByQualificationFirst(candidate, normalizedCodes, collector.includeUnknownRelevance())) {
                 continue;
             }
             applyExternalCheckResult(candidate);
@@ -2142,13 +2142,16 @@ public class G2bApiService {
 
     private boolean isRelevantByQualificationFirst(
             BidQualificationDto candidate,
-            Set<String> allowedLicenseCodes
+            Set<String> allowedLicenseCodes,
+            boolean includeUnknownRelevance
     ) {
         if (hasConclusiveLicenseQualification(candidate, allowedLicenseCodes)) {
             return true;
         }
         String title = candidate == null ? null : candidate.getBidNtceNm();
-        return bidRelevanceClassifier.classify(title) != BidRelevance.IRRELEVANT;
+        BidRelevance relevance = bidRelevanceClassifier.classify(title);
+        return relevance == BidRelevance.RELEVANT
+                || (relevance == BidRelevance.UNKNOWN && includeUnknownRelevance);
     }
 
     private boolean hasConclusiveLicenseQualification(

@@ -36,6 +36,7 @@ class KwaterBidCollectorTests {
         assertFalse(collector("", true, uri -> emptyResponse()).executionEnabled());
         assertFalse(collector("test-key", false, uri -> emptyResponse()).executionEnabled());
         assertTrue(collector("test-key", true, uri -> emptyResponse()).executionEnabled());
+        assertFalse(collector("test-key", true, uri -> emptyResponse()).includeUnknownRelevance());
     }
 
     @Test
