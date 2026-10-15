@@ -86,7 +86,7 @@ class ManualBidCollectionSourceRegistryTests {
         when(d2b.sourceCode()).thenReturn("D2B");
         when(d2b.executionEnabled()).thenReturn(true);
         when(d2b.collectMeasured(START, END)).thenReturn(
-                new D2bBidCollector.CollectionResult(List.of(collected), 7)
+                new D2bBidCollector.CollectionResult(List.of(collected), 7, "coverage-1")
         );
         when(g2b.processAdditionalBidQualificationList(d2b, List.of(collected), Set.of("6146", "1468")))
                 .thenReturn(List.of(reviewed));
@@ -109,6 +109,12 @@ class ManualBidCollectionSourceRegistryTests {
         verify(g2b).processAdditionalBidQualificationList(
                 d2b, List.of(collected), Set.of("6146", "1468")
         );
+        source.afterPersistence(new com.comhu.bidmonitor.bid.persistence.service.BidSourcePersistenceResult(
+                "D2B",
+                com.comhu.bidmonitor.bid.persistence.service.BidSourcePersistenceResult.Status.SUCCESS,
+                1, 1, 0, 0, null
+        ));
+        verify(d2b).completeCoverage("coverage-1", true);
     }
 
     @Test

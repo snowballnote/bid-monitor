@@ -1,7 +1,16 @@
 package com.comhu.bidmonitor.bid.source.d2b;
 
 import com.comhu.bidmonitor.bid.license.LicenseNormalizer;
+import com.comhu.bidmonitor.bid.persistence.BidSourceCollectionCursor;
+import com.comhu.bidmonitor.bid.persistence.BidSourceCollectionCursorRepository;
+import com.comhu.bidmonitor.bid.persistence.BidSourceCollectionRetry;
+import com.comhu.bidmonitor.bid.persistence.BidSourceCollectionRetryRepository;
 import com.comhu.bidmonitor.bid.source.BidCandidateCollector;
+import com.comhu.bidmonitor.bid.source.d2b.promotion.D2bCandidateEvidenceService;
+import com.comhu.bidmonitor.bid.source.d2b.promotion.D2bCandidateObservation;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.comhu.bidmonitor.classifier.BidRelevanceClassifier;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
 import com.comhu.bidmonitor.dto.LicenseRequirement;
 import com.comhu.bidmonitor.dto.LicenseRequirementGroup;
@@ -29,13 +38,20 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import java.util.regex.Pattern;
 
 /** 방위사업청 공식 공공데이터 OpenAPI에서 D2B 입찰 후보를 수집한다. */
@@ -45,6 +61,7 @@ public class D2bBidCollector implements BidCandidateCollector {
     static final String SOURCE_CODE = "D2B";
     static final int PAGE_SIZE = 100;
     static final int MAX_REQUESTS_PER_COLLECTION = 100;
+    static final String COVERAGE_SCOPE = "FULL_DATE";
 
     private static final Logger log = LoggerFactory.getLogger(D2bBidCollector.class);
     private static final DateTimeFormatter REQUEST_DATE = DateTimeFormatter.BASIC_ISO_DATE;
@@ -57,15 +74,39 @@ public class D2bBidCollector implements BidCandidateCollector {
     private final Transport transport;
     private final CallQuota callQuota;
     private final boolean configuredExecutionEnabled;
+    private final BidSourceCollectionCursorRepository cursorRepository;
+    private final BidSourceCollectionRetryRepository retryRepository;
+    private final BidRelevanceClassifier relevanceClassifier;
+    private final CoverageConfig coverageConfig;
+    private final Clock clock;
+    private final Consumer<List<D2bCandidateObservation>> evidenceSink;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final Map<String, PendingCoverageCompletion> pendingCoverageCompletions =
+            new ConcurrentHashMap<>();
     @Autowired
     public D2bBidCollector(
             @Value("${d2b.api.base-url}") String baseUrl,
             @Value("${d2b.api.service-key:}") String serviceKey,
             @Value("${bid-source.d2b.enabled:false}") boolean configuredExecutionEnabled,
-            D2bDailyQuotaService dailyQuotaService
+            D2bDailyQuotaService dailyQuotaService,
+            BidSourceCollectionCursorRepository cursorRepository,
+            BidSourceCollectionRetryRepository retryRepository,
+            D2bCandidateEvidenceService evidenceService,
+            BidRelevanceClassifier relevanceClassifier,
+            Clock clock,
+            @Value("${d2b.api.fast-path-max-calls:40}") int fastPathMaxCalls,
+            @Value("${d2b.api.coverage-list-max-calls:8}") int coverageListMaxCalls,
+            @Value("${d2b.api.coverage-detail-max-calls:40}") int coverageDetailMaxCalls,
+            @Value("${d2b.api.coverage-page-size:10}") int coveragePageSize,
+            @Value("${d2b.api.coverage-enabled:true}") boolean coverageEnabled
     ) {
         this(baseUrl, serviceKey, new JdkTransport(), dailyQuotaService::reserve,
-                configuredExecutionEnabled);
+                configuredExecutionEnabled, cursorRepository, retryRepository,
+                relevanceClassifier, clock,
+                new CoverageConfig(
+                        coverageEnabled, fastPathMaxCalls, coverageListMaxCalls,
+                        coverageDetailMaxCalls, coveragePageSize
+                ), evidenceService::saveAll);
     }
 
     D2bBidCollector(String baseUrl, String serviceKey, Transport transport) {
@@ -83,6 +124,30 @@ public class D2bBidCollector implements BidCandidateCollector {
             CallQuota callQuota,
             boolean configuredExecutionEnabled
     ) {
+        this(baseUrl, serviceKey, transport, callQuota, configuredExecutionEnabled,
+                null, null, null, Clock.systemUTC(), CoverageConfig.disabled());
+    }
+
+    D2bBidCollector(
+            String baseUrl,
+            String serviceKey,
+            Transport transport,
+            CallQuota callQuota,
+            boolean configuredExecutionEnabled,
+            BidSourceCollectionCursorRepository cursorRepository,
+            BidSourceCollectionRetryRepository retryRepository,
+            BidRelevanceClassifier relevanceClassifier,
+            Clock clock,
+            CoverageConfig coverageConfig
+    ) {
+        this(baseUrl, serviceKey, transport, callQuota, configuredExecutionEnabled,
+                cursorRepository, retryRepository, relevanceClassifier, clock, coverageConfig, ignored -> { });
+    }
+
+    D2bBidCollector(String baseUrl, String serviceKey, Transport transport, CallQuota callQuota,
+            boolean configuredExecutionEnabled, BidSourceCollectionCursorRepository cursorRepository,
+            BidSourceCollectionRetryRepository retryRepository, BidRelevanceClassifier relevanceClassifier,
+            Clock clock, CoverageConfig coverageConfig, Consumer<List<D2bCandidateObservation>> evidenceSink) {
         if (baseUrl == null || baseUrl.isBlank()) {
             throw new IllegalArgumentException("D2B API 기본 URL이 비어 있습니다.");
         }
@@ -91,6 +156,13 @@ public class D2bBidCollector implements BidCandidateCollector {
         this.transport = transport;
         this.callQuota = callQuota;
         this.configuredExecutionEnabled = configuredExecutionEnabled;
+        this.cursorRepository = cursorRepository;
+        this.retryRepository = retryRepository;
+        this.relevanceClassifier = relevanceClassifier;
+        this.clock = clock;
+        this.coverageConfig = coverageConfig;
+        this.evidenceSink = evidenceSink;
+        validateCoverageConfiguration();
     }
 
     @Override
@@ -114,15 +186,16 @@ public class D2bBidCollector implements BidCandidateCollector {
             throw new IllegalStateException("D2B API 인증키가 설정되지 않았습니다.");
         }
 
-        RequestBudget budget = new RequestBudget(MAX_REQUESTS_PER_COLLECTION);
+        RequestBudget budget = new RequestBudget(coverageConfig.fastPathMaxCalls());
         RequestCounter counter = new RequestCounter();
         LinkedHashMap<CandidateKey, ListedNotice> listed = new LinkedHashMap<>();
+        Map<CandidateKey, D2bCandidateObservation> observations = new LinkedHashMap<>();
         int successfulOperations = 0;
         List<FailureDiagnostic> failureDiagnostics = new ArrayList<>();
 
         for (Operation operation : Operation.values()) {
             try {
-                for (ListedNotice notice : collectOperation(operation, startDate, endDate, budget, counter)) {
+                for (ListedNotice notice : collectOperation(operation, startDate, endDate, budget, counter, observations)) {
                     listed.putIfAbsent(notice.key(), notice);
                 }
                 successfulOperations++;
@@ -134,25 +207,384 @@ public class D2bBidCollector implements BidCandidateCollector {
         }
 
         if (successfulOperations == 0) {
+            queueFastPending(observations, startDate, endDate);
+            persistEvidence(observations, null, counter);
             FailureDiagnostic diagnostic = failureDiagnostics.isEmpty()
                     ? FailureDiagnostic.fallback(FailureStage.LIST, IllegalStateException.class)
                     : failureDiagnostics.getFirst();
             throw new CollectionException("D2B list operations failed", counter.count(), diagnostic.errorCode());
         }
 
-        List<BidQualificationDto> result = new ArrayList<>();
+        LinkedHashMap<CandidateKey, BidQualificationDto> result = new LinkedHashMap<>();
+        Set<CandidateKey> fastDetailConfirmed = new HashSet<>();
         for (ListedNotice notice : listed.values()) {
             Element detail = null;
+            String detailStatus = "PENDING";
             if (budget.tryAcquire()) {
                 try {
                     detail = readDetail(notice, counter);
+                    detailStatus = "AVAILABLE";
+                    fastDetailConfirmed.add(notice.key());
                 } catch (RuntimeException exception) {
+                    detailStatus = detailFailureStatus(exception);
                     logFailure(notice.operation, diagnose(exception, FailureStage.DETAIL));
                 }
             }
-            result.add(toQualification(notice, detail));
+            observe(observations, notice, "FAST", detail, detailStatus);
+            result.put(notice.key(), toQualification(notice, detail));
         }
-        return new CollectionResult(result, counter.count());
+        String coverageToken = collectCoverage(
+                startDate, endDate, counter, fastDetailConfirmed, result, observations
+        );
+        // Fast-path-only discoveries also need a durable route to detail verification.
+        queueFastPending(observations, startDate, endDate);
+        persistEvidence(observations, coverageToken, counter);
+        return new CollectionResult(new ArrayList<>(result.values()), counter.count(), coverageToken);
+    }
+
+    private String collectCoverage(
+            LocalDate startDate,
+            LocalDate endDate,
+            RequestCounter counter,
+            Set<CandidateKey> fastDetailConfirmed,
+            Map<CandidateKey, BidQualificationDto> result,
+            Map<CandidateKey, D2bCandidateObservation> observations
+    ) {
+        if (!coverageConfig.enabled()) {
+            return null;
+        }
+        Instant now = clock.instant();
+        for (LocalDate date = startDate; !date.isAfter(endDate); date = date.plusDays(1)) {
+            for (Operation operation : Operation.values()) {
+                BidSourceCollectionCursor cursor = cursorRepository.getOrCreate(
+                        SOURCE_CODE, COVERAGE_SCOPE, operation.name(), date, date,
+                        coverageConfig.pageSize(), now
+                );
+                if (date.equals(endDate)
+                        && cursor.status() == BidSourceCollectionCursor.Status.COMPLETE) {
+                    cursorRepository.reopenCompleted(cursor.id(), cursor.version(), now);
+                }
+            }
+        }
+
+        RequestBudget listBudget = new RequestBudget(coverageConfig.listMaxCalls());
+        RequestBudget detailBudget = new RequestBudget(coverageConfig.detailMaxCalls());
+        List<CursorAdvance> advances = new ArrayList<>();
+        List<Long> resolvedRetryIds = new ArrayList<>();
+        Set<CandidateKey> confirmedKeys = new HashSet<>(fastDetailConfirmed);
+        Set<CandidateKey> durableRetryKeys = new HashSet<>();
+        boolean quotaExhausted = processPendingRetries(
+                detailBudget, counter, confirmedKeys, durableRetryKeys, resolvedRetryIds, result, observations
+        );
+
+        for (BidSourceCollectionCursor cursor : cursorRepository.findIncomplete(SOURCE_CODE, COVERAGE_SCOPE)) {
+            if (quotaExhausted || listBudget.remaining() <= 0) {
+                break;
+            }
+            Operation operation = Operation.valueOf(cursor.operation());
+            try {
+                listBudget.acquire();
+                CoveragePage page = readCoveragePage(operation, cursor, counter);
+                List<ListedNotice> orderedNotices = new ArrayList<>(page.notices());
+                orderedNotices.sort(Comparator.comparingInt(this::relevancePriority));
+                for (ListedNotice notice : orderedNotices) {
+                    observe(observations, notice, "COVERAGE", null, "PENDING");
+                    CandidateKey key = notice.key();
+                    if (confirmedKeys.contains(key) || durableRetryKeys.contains(key)) {
+                        continue;
+                    }
+                    if (quotaExhausted || !detailBudget.tryAcquire()) {
+                        savePendingRetry(cursor, notice, durableRetryKeys);
+                        continue;
+                    }
+                    try {
+                        Element detail = readDetail(notice, counter);
+                        observe(observations, notice, "COVERAGE", detail, "AVAILABLE");
+                        result.put(key, toQualification(notice, detail));
+                        confirmedKeys.add(key);
+                    } catch (RuntimeException exception) {
+                        observe(observations, notice, "COVERAGE", null, detailFailureStatus(exception));
+                        logFailure(operation, diagnose(exception, FailureStage.DETAIL));
+                        BidSourceCollectionRetry retry = savePendingRetry(
+                                cursor, notice, durableRetryKeys
+                        );
+                        retryRepository.recordFailure(
+                                retry.id(), diagnose(exception, FailureStage.DETAIL).errorCode(),
+                                clock.instant()
+                        );
+                        quotaExhausted = isDailyQuotaFailure(exception);
+                    }
+                }
+                int nextPage = cursor.nextPage() + 1;
+                boolean complete = page.totalCount() == 0
+                        || (long) cursor.nextPage() * cursor.pageSize() >= page.totalCount();
+                advances.add(new CursorAdvance(
+                        cursor.id(), cursor.version(), nextPage, page.totalCount(),
+                        complete ? BidSourceCollectionCursor.Status.COMPLETE
+                                : BidSourceCollectionCursor.Status.PARTIAL
+                ));
+                if (quotaExhausted) {
+                    break;
+                }
+            } catch (RuntimeException exception) {
+                logFailure(operation, diagnose(exception, FailureStage.LIST));
+                if (isDailyQuotaFailure(exception)) {
+                    break;
+                }
+            }
+        }
+        if (advances.isEmpty() && resolvedRetryIds.isEmpty()) {
+            return null;
+        }
+        String token = UUID.randomUUID().toString();
+        pendingCoverageCompletions.put(token, new PendingCoverageCompletion(
+                List.copyOf(advances), List.copyOf(resolvedRetryIds)
+        ));
+        return token;
+    }
+
+    private boolean processPendingRetries(
+            RequestBudget detailBudget,
+            RequestCounter counter,
+            Set<CandidateKey> confirmedKeys,
+            Set<CandidateKey> durableRetryKeys,
+            List<Long> resolvedRetryIds,
+            Map<CandidateKey, BidQualificationDto> result,
+            Map<CandidateKey, D2bCandidateObservation> observations
+    ) {
+        for (BidSourceCollectionRetry retry : retryRepository.findPending(SOURCE_CODE, COVERAGE_SCOPE)) {
+            ListedNotice notice = retryNotice(retry);
+            observe(observations, notice, "RETRY", null, "PENDING");
+            CandidateKey key = notice.key();
+            durableRetryKeys.add(key);
+            if (confirmedKeys.contains(key)) {
+                resolvedRetryIds.add(retry.id());
+                continue;
+            }
+            if (!detailBudget.tryAcquire()) {
+                continue;
+            }
+            try {
+                Element detail = readDetail(notice, counter);
+                observe(observations, notice, "RETRY", detail, "AVAILABLE");
+                result.put(key, toQualification(notice, detail));
+                confirmedKeys.add(key);
+                resolvedRetryIds.add(retry.id());
+            } catch (RuntimeException exception) {
+                observe(observations, notice, "RETRY", null, detailFailureStatus(exception));
+                FailureDiagnostic diagnostic = diagnose(exception, FailureStage.DETAIL);
+                logFailure(notice.operation(), diagnostic);
+                retryRepository.recordFailure(retry.id(), diagnostic.errorCode(), clock.instant());
+                if (isDailyQuotaFailure(exception)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private BidSourceCollectionRetry savePendingRetry(
+            BidSourceCollectionCursor cursor,
+            ListedNotice notice,
+            Set<CandidateKey> durableRetryKeys
+    ) {
+        BidSourceCollectionRetry retry = retryRepository.savePending(
+                SOURCE_CODE, COVERAGE_SCOPE, notice.operation().name(),
+                cursor.windowStart(), cursor.windowEnd(), cursor.nextPage(),
+                notice.sourceNoticeId(), notice.key().revision(), serializeValues(safePublicFields(notice.values())),
+                clock.instant()
+        );
+        durableRetryKeys.add(notice.key());
+        return retry;
+    }
+
+    private ListedNotice retryNotice(BidSourceCollectionRetry retry) {
+        return new ListedNotice(Operation.valueOf(retry.operation()), deserializeValues(retry.payload()));
+    }
+
+    private void queueFastPending(Map<CandidateKey, D2bCandidateObservation> observations,
+            LocalDate startDate, LocalDate endDate) {
+        if (retryRepository == null) return;
+        observations.values().stream()
+                .filter(o -> o.paths().equals(Set.of("FAST")) && !"AVAILABLE".equals(o.detailStatus()))
+                .forEach(o -> retryRepository.savePending(SOURCE_CODE, COVERAGE_SCOPE,
+                        o.operations().stream().sorted().findFirst().orElseThrow(), startDate, endDate, 1,
+                        o.sourceNoticeId(), o.revision(), serializeValues(o.listFields()), clock.instant()));
+    }
+
+    private void persistEvidence(Map<CandidateKey, D2bCandidateObservation> observations,
+            String coverageToken, RequestCounter counter) {
+        try {
+            evidenceSink.accept(List.copyOf(observations.values()));
+        } catch (RuntimeException exception) {
+            completeCoverage(coverageToken, false);
+            throw new CollectionException("D2B candidate evidence persistence failed",
+                    counter.count(), "D2B_CANDIDATE_PERSISTENCE");
+        }
+    }
+
+    private void observe(Map<CandidateKey, D2bCandidateObservation> observations, ListedNotice notice,
+            String path, Element detail, String status) {
+        D2bCandidateObservation previous = observations.get(notice.key());
+        Set<String> operations = new HashSet<>(Set.of(notice.operation().name()));
+        Set<String> paths = new HashSet<>(Set.of(path));
+        Map<String, String> listedFields = safePublicFields(notice.values());
+        Map<String, String> detailFields = detail == null ? Map.of() : safePublicFields(fields(detail));
+        if (previous != null) {
+            operations.addAll(previous.operations());
+            paths.addAll(previous.paths());
+            if ("AVAILABLE".equals(previous.detailStatus()) || "PENDING".equals(status)) {
+                status = previous.detailStatus();
+                detailFields = previous.detailFields();
+            }
+        }
+        Map<String, String> titleFields = new LinkedHashMap<>(listedFields);
+        detailFields.forEach((key, value) -> { if (!value.isBlank()) titleFields.put(key, value); });
+        observations.put(notice.key(), new D2bCandidateObservation(
+                safeEvidenceText(notice.sourceNoticeId()), safeEvidenceText(notice.key().revision()),
+                operations, paths,
+                firstValue(titleFields, notice.operation().titleField, "bidNm", "othbcNtatNm", "cntrwkNm"),
+                listedFields, detailFields, status));
+    }
+
+    private Map<String, String> safePublicFields(Map<String, String> fields) {
+        Map<String, String> selected = D2bCandidateEvidenceService.publicFields(fields);
+        selected.replaceAll((key, value) -> safeEvidenceText(value));
+        return selected;
+    }
+
+    private String safeEvidenceText(String value) {
+        if (value == null) return "";
+        if (!serviceKey.isBlank()) {
+            value = value.replace(serviceKey, "[REDACTED]")
+                    .replace(encodedServiceKey(serviceKey), "[REDACTED]");
+        }
+        return D2bCandidateEvidenceService.safeText(value);
+    }
+
+    private static String detailFailureStatus(RuntimeException exception) {
+        return exception instanceof MissingDetailItemException ? "ITEM_MISSING" : "FAILED";
+    }
+
+    private static class MissingDetailItemException extends IllegalStateException {
+        private MissingDetailItemException() { super("D2B detail response item is missing."); }
+    }
+
+    private int relevancePriority(ListedNotice notice) {
+        String title = firstValue(
+                notice.values(), notice.operation().titleField,
+                "bidNm", "othbcNtatNm", "cntrwkNm"
+        );
+        return switch (relevanceClassifier.classify(title)) {
+            case RELEVANT -> 0;
+            case UNKNOWN -> 1;
+            case IRRELEVANT -> 2;
+        };
+    }
+
+    private String serializeValues(Map<String, String> values) {
+        try {
+            return objectMapper.writeValueAsString(values);
+        } catch (IOException exception) {
+            throw new IllegalStateException("D2B retry payload could not be serialized.", exception);
+        }
+    }
+
+    private Map<String, String> deserializeValues(String payload) {
+        try {
+            return objectMapper.readValue(payload, new TypeReference<LinkedHashMap<String, String>>() { });
+        } catch (IOException exception) {
+            throw new IllegalStateException("D2B retry payload could not be deserialized.", exception);
+        }
+    }
+
+    private CoveragePage readCoveragePage(
+            Operation operation,
+            BidSourceCollectionCursor cursor,
+            RequestCounter counter
+    ) {
+        Map<String, String> parameters = new LinkedHashMap<>();
+        parameters.put("pageNo", Integer.toString(cursor.nextPage()));
+        parameters.put("numOfRows", Integer.toString(cursor.pageSize()));
+        parameters.put(operation.startDateParameter, cursor.windowStart().format(REQUEST_DATE));
+        parameters.put(operation.endDateParameter, cursor.windowEnd().format(REQUEST_DATE));
+        Document document = request(operation.listPath, parameters, counter);
+        if (first(document, "body") == null || first(document, "totalCount") == null) {
+            throw new ParseException(new IllegalStateException("D2B coverage page metadata is missing."));
+        }
+        int totalCount = requiredNonNegativeInteger(text(first(document, "totalCount")));
+        List<Element> items = elements(document, "item");
+        if (items.size() > cursor.pageSize()) {
+            throw new ParseException(new IllegalStateException("D2B coverage page exceeds page size."));
+        }
+        List<ListedNotice> notices = new ArrayList<>();
+        for (Element item : items) {
+            ListedNotice notice = new ListedNotice(operation, fields(item));
+            validateIdentity(notice);
+            notices.add(notice);
+        }
+        return new CoveragePage(totalCount, List.copyOf(notices));
+    }
+
+    public void completeCoverage(String token, boolean persistenceSucceeded) {
+        if (token == null || token.isBlank()) {
+            return;
+        }
+        PendingCoverageCompletion completion = pendingCoverageCompletions.remove(token);
+        if (!persistenceSucceeded || completion == null) {
+            return;
+        }
+        for (Long retryId : completion.resolvedRetryIds()) {
+            retryRepository.delete(retryId);
+        }
+        for (CursorAdvance advance : completion.cursorAdvances()) {
+            boolean updated = cursorRepository.advance(
+                    advance.id(), advance.expectedVersion(), advance.nextPage(),
+                    advance.totalCount(), advance.status(), clock.instant()
+            );
+            if (!updated) {
+                log.warn("D2B coverage cursor advance skipped due to concurrent update: cursorId={}",
+                        advance.id());
+            }
+        }
+    }
+
+    private void validateCoverageConfiguration() {
+        if (coverageConfig.fastPathMaxCalls() < Operation.values().length * SEARCH_TERMS.size()) {
+            throw new IllegalArgumentException("D2B fast-path request budget is too small.");
+        }
+        if (!coverageConfig.enabled()) {
+            return;
+        }
+        if (cursorRepository == null || retryRepository == null
+                || relevanceClassifier == null || clock == null
+                || coverageConfig.listMaxCalls() <= 0 || coverageConfig.detailMaxCalls() <= 0
+                || coverageConfig.pageSize() <= 0
+                || coverageConfig.fastPathMaxCalls() + coverageConfig.listMaxCalls()
+                + coverageConfig.detailMaxCalls() > MAX_REQUESTS_PER_COLLECTION) {
+            throw new IllegalArgumentException("Invalid D2B coverage configuration.");
+        }
+    }
+
+    private static boolean isDailyQuotaFailure(Throwable failure) {
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            if (current instanceof D2bDailyQuotaExceededException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int requiredNonNegativeInteger(String value) {
+        try {
+            int parsed = Integer.parseInt(value);
+            if (parsed < 0) {
+                throw new NumberFormatException("negative");
+            }
+            return parsed;
+        } catch (NumberFormatException exception) {
+            throw new ParseException(exception);
+        }
     }
 
     private List<ListedNotice> collectOperation(
@@ -160,7 +592,8 @@ public class D2bBidCollector implements BidCandidateCollector {
             LocalDate startDate,
             LocalDate endDate,
             RequestBudget budget,
-            RequestCounter counter
+            RequestCounter counter,
+            Map<CandidateKey, D2bCandidateObservation> observations
     ) {
         LinkedHashMap<CandidateKey, ListedNotice> notices = new LinkedHashMap<>();
         for (String term : SEARCH_TERMS) {
@@ -183,6 +616,7 @@ public class D2bBidCollector implements BidCandidateCollector {
                     if (!isWithinRequestedPeriod(notice, startDate, endDate)) {
                         continue;
                     }
+                    observe(observations, notice, "FAST", null, "PENDING");
                     notices.putIfAbsent(notice.key(), notice);
                 }
                 page++;
@@ -200,7 +634,9 @@ public class D2bBidCollector implements BidCandidateCollector {
             }
             parameters.put(name, value);
         }
-        return first(request(notice.operation.detailPath, parameters, counter), "item");
+        Element item = first(request(notice.operation.detailPath, parameters, counter), "item");
+        if (item == null) throw new MissingDetailItemException();
+        return item;
     }
 
     private Document request(String path, Map<String, String> parameters, RequestCounter counter) {
@@ -542,13 +978,51 @@ public class D2bBidCollector implements BidCandidateCollector {
     private record CandidateKey(String sourceNoticeId, String revision) {
     }
 
-    public record CollectionResult(List<BidQualificationDto> candidates, int apiCallCount) {
+    public record CollectionResult(
+            List<BidQualificationDto> candidates,
+            int apiCallCount,
+            String coverageToken
+    ) {
+        public CollectionResult(List<BidQualificationDto> candidates, int apiCallCount) {
+            this(candidates, apiCallCount, null);
+        }
+
         public CollectionResult {
             candidates = List.copyOf(candidates);
             if (apiCallCount < 0) {
                 throw new IllegalArgumentException("apiCallCount must not be negative.");
             }
         }
+    }
+
+    record CoverageConfig(
+            boolean enabled,
+            int fastPathMaxCalls,
+            int listMaxCalls,
+            int detailMaxCalls,
+            int pageSize
+    ) {
+        private static CoverageConfig disabled() {
+            return new CoverageConfig(false, MAX_REQUESTS_PER_COLLECTION, 0, 0, 0);
+        }
+    }
+
+    private record CoveragePage(int totalCount, List<ListedNotice> notices) {
+    }
+
+    private record CursorAdvance(
+            long id,
+            long expectedVersion,
+            int nextPage,
+            int totalCount,
+            BidSourceCollectionCursor.Status status
+    ) {
+    }
+
+    private record PendingCoverageCompletion(
+            List<CursorAdvance> cursorAdvances,
+            List<Long> resolvedRetryIds
+    ) {
     }
 
     public static class CollectionException extends IllegalStateException {
@@ -639,6 +1113,10 @@ public class D2bBidCollector implements BidCandidateCollector {
             }
             remaining--;
             return true;
+        }
+
+        private int remaining() {
+            return remaining;
         }
     }
 

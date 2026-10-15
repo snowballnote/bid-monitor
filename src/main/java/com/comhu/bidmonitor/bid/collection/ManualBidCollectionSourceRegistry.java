@@ -120,6 +120,8 @@ public class ManualBidCollectionSourceRegistry {
         boolean registrationManaged = collector.registrationBindingSupported();
         if (registrationManaged && !executionEligibility.isEligible(collector)) return;
         sources.add(new ManualBidCollectionSource() {
+            private String d2bCoverageToken;
+
             @Override
             public String sourceCode() {
                 return sourceCode;
@@ -149,6 +151,7 @@ public class ManualBidCollectionSourceRegistry {
                 if (collector instanceof D2bBidCollector d2bCollector) {
                     try {
                         D2bBidCollector.CollectionResult measured = d2bCollector.collectMeasured(startDate, endDate);
+                        d2bCoverageToken = measured.coverageToken();
                         return new CollectionBatch(
                                 g2bApiService.processAdditionalBidQualificationList(
                                         collector, measured.candidates(), allowedLicenseCodes
@@ -164,6 +167,20 @@ public class ManualBidCollectionSourceRegistry {
                 return CollectionBatch.unmeasured(g2bApiService.getAdditionalBidQualificationList(
                         collector, startDate, endDate, allowedLicenseCodes
                 ));
+            }
+
+            @Override
+            public void afterPersistence(
+                    com.comhu.bidmonitor.bid.persistence.service.BidSourcePersistenceResult result
+            ) {
+                if (collector instanceof D2bBidCollector d2bCollector) {
+                    d2bCollector.completeCoverage(
+                            d2bCoverageToken,
+                            result.status()
+                                    == com.comhu.bidmonitor.bid.persistence.service.BidSourcePersistenceResult.Status.SUCCESS
+                    );
+                    d2bCoverageToken = null;
+                }
             }
         });
     }

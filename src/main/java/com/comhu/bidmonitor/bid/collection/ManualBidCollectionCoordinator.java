@@ -134,6 +134,7 @@ public class ManualBidCollectionCoordinator {
         List<String> skippedSources = new ArrayList<>();
         List<BidSourceCollectionResult> collectedResults = new ArrayList<>();
         Map<String, ExecutionContext> executions = new LinkedHashMap<>();
+        Map<String, ManualBidCollectionSource> executedSources = new LinkedHashMap<>();
         Map<String, Long> runIdsBySource = new LinkedHashMap<>();
         List<BidCollectionExecutionLockService.LockedRun> acquiredLocks = new ArrayList<>();
 
@@ -161,6 +162,7 @@ public class ManualBidCollectionCoordinator {
                 acquiredLocks.add(lockedRun);
                 runIdsBySource.put(sourceCode, lockedRun.run().getId());
                 executions.put(sourceCode, new ExecutionContext(lockedRun, null));
+                executedSources.put(sourceCode, source);
                 try {
                     markAttempt(sourceCode, startedAt);
                     ManualBidCollectionSource.CollectionBatch batch = source.collect(
@@ -205,6 +207,7 @@ public class ManualBidCollectionCoordinator {
                 allFailed = true;
             }
 
+            notifyPersistence(executedSources, persistenceResult.sourceResults());
             finishExecutions(executions, persistenceResult.sourceResults());
             ManualBidCollectionResult result = toCoordinatorResult(
                     persistenceResult, startDate, endDate, skippedSources, runIdsBySource
@@ -283,6 +286,29 @@ public class ManualBidCollectionCoordinator {
                 markSuccess(sourceCode, finishedAt);
             } else {
                 markFailure(sourceCode, finishedAt, result.errorCode());
+            }
+        }
+    }
+
+    private void notifyPersistence(
+            Map<String, ManualBidCollectionSource> executedSources,
+            List<BidSourcePersistenceResult> sourceResults
+    ) {
+        Map<String, BidSourcePersistenceResult> resultsBySource = new LinkedHashMap<>();
+        sourceResults.forEach(result -> resultsBySource.put(result.sourceCode(), result));
+        for (Map.Entry<String, ManualBidCollectionSource> entry : executedSources.entrySet()) {
+            BidSourcePersistenceResult result = resultsBySource.get(entry.getKey());
+            if (result == null) {
+                result = new BidSourcePersistenceResult(
+                        entry.getKey(), BidSourcePersistenceResult.Status.FAILED,
+                        0, 0, 0, 0, "PERSISTENCE_RESULT_MISSING"
+                );
+            }
+            try {
+                entry.getValue().afterPersistence(result);
+            } catch (RuntimeException exception) {
+                log.warn("Bid source post-persistence callback failed: sourceCode={}, errorType={}",
+                        entry.getKey(), exception.getClass().getSimpleName());
             }
         }
     }

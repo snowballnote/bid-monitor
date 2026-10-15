@@ -168,6 +168,47 @@ class PostgresqlFlywayBaselineTests {
     }
 
     @Test
+    void collectionCursorMigrationUsesGenericNaturalKeyAndOptimisticVersion() throws IOException {
+        String sql = Files.readString(Path.of(
+                "src/main/resources/db/migration/postgresql/V7__bid_source_collection_cursor.sql"));
+
+        assertTrue(sql.contains("CREATE TABLE bid_source_collection_cursor"));
+        assertTrue(sql.contains("source_code, scope, operation, window_start, window_end"));
+        assertTrue(sql.contains("next_page INTEGER NOT NULL"));
+        assertTrue(sql.contains("status IN ('PENDING', 'PARTIAL', 'COMPLETE')"));
+        assertTrue(sql.contains("version BIGINT NOT NULL DEFAULT 0"));
+        assertFalse(Pattern.compile("(?i)DROP\\s+(TABLE|COLUMN)").matcher(sql).find());
+    }
+
+    @Test
+    void collectionRetryMigrationPreservesUnfinishedCandidatesDurably() throws IOException {
+        String sql = Files.readString(Path.of(
+                "src/main/resources/db/migration/postgresql/V8__bid_source_collection_retry.sql"));
+
+        assertTrue(sql.contains("CREATE TABLE bid_source_collection_retry"));
+        assertTrue(sql.contains("source_code, scope, operation, window_start, window_end, source_notice_id, revision"));
+        assertTrue(sql.contains("payload TEXT NOT NULL"));
+        assertTrue(sql.contains("retry_count INTEGER NOT NULL DEFAULT 0"));
+        assertTrue(sql.contains("ix_bid_source_collection_retry_pending"));
+        assertFalse(Pattern.compile("(?i)DROP\\s+(TABLE|COLUMN)").matcher(sql).find());
+    }
+
+    @Test
+    void candidateMigrationAddsEvidenceWithoutChangingNoticesOrCursorTables() throws IOException {
+        String sql = Files.readString(Path.of(
+                "src/main/resources/db/migration/postgresql/V9__bid_source_candidate.sql"));
+        assertEquals(Set.of("bid_source_candidate"), tableNames(sql));
+        assertTrue(sql.contains("UNIQUE (source_code, source_notice_id, revision_key)"));
+        assertTrue(sql.contains("detail_fields TEXT NOT NULL"));
+        assertTrue(sql.contains("parsed_qualification TEXT NOT NULL"));
+        assertTrue(sql.contains("allowed_codes_hash VARCHAR(64) NOT NULL"));
+        assertTrue(sql.contains("'MATCH', 'MISMATCH', 'INCOMPLETE', 'ABSENT'"));
+        assertTrue(sql.contains("'MAIN', 'REVIEW', 'ARCHIVED'"));
+        assertTrue(sql.contains("first_seen_at TIMESTAMP WITH TIME ZONE NOT NULL"));
+        assertFalse(Pattern.compile("(?i)(DROP|DELETE|TRUNCATE|ALTER)\\s").matcher(sql).find());
+    }
+
+    @Test
     @EnabledIfEnvironmentVariable(named = "BIZ_ASSIST_POSTGRES_TEST_ENABLED", matches = "(?i)true")
     void migratesEmptyPostgresqlAndRoundTripsDatesTimesAndLocatorHashes() throws Exception {
         String url = "jdbc:postgresql://" + env("DB_HOST") + ":" + env("DB_PORT") + "/" + env("DB_NAME");
@@ -187,7 +228,7 @@ class PostgresqlFlywayBaselineTests {
     }
 
     private void assertPostgresqlSchema(Connection connection) throws SQLException {
-        assertEquals(31, queryInt(connection, """
+        assertEquals(34, queryInt(connection, """
                 SELECT COUNT(*) FROM pg_tables
                 WHERE schemaname = 'public' AND tablename <> 'flyway_schema_history'
                 """));

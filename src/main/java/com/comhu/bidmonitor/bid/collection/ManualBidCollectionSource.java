@@ -1,6 +1,7 @@
 package com.comhu.bidmonitor.bid.collection;
 
 import com.comhu.bidmonitor.dto.BidQualificationDto;
+import com.comhu.bidmonitor.bid.persistence.service.BidSourcePersistenceResult;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -20,6 +21,9 @@ public interface ManualBidCollectionSource {
     }
 
     CollectionBatch collect(LocalDate startDate, LocalDate endDate, Set<String> allowedLicenseCodes);
+
+    default void afterPersistence(BidSourcePersistenceResult result) {
+    }
 
     record CollectionBatch(List<BidQualificationDto> candidates, Integer apiCallCount) {
         public CollectionBatch {

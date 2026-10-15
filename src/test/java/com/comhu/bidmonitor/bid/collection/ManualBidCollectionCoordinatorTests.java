@@ -266,6 +266,57 @@ class ManualBidCollectionCoordinatorTests {
     }
 
     @Test
+    void repeatedD2bCoveragePageUsesNoticeIdentityDeduplication() {
+        BidQualificationDto candidate = candidate(
+                "D2B", "2026:10:COVERAGE-RETRY", "1", "정보시스템 유지관리 용역"
+        );
+
+        coordinator(source("D2B", true, List.of(candidate), 1)).collect(START, END, LICENSE_CODES);
+        ManualBidCollectionResult repeated = coordinator(
+                source("D2B", true, List.of(candidate), 1)
+        ).collect(START, END, LICENSE_CODES);
+
+        assertEquals(1, noticeRepository.findAll().stream()
+                .filter(notice -> notice.getSourceCode().equals("D2B"))
+                .filter(notice -> notice.getSourceNoticeId().equals("2026:10:COVERAGE-RETRY"))
+                .count());
+        assertEquals(1, repeated.sourceResults().getFirst().unchangedCount());
+    }
+
+    @Test
+    void reportsPersistenceOutcomeToSourceAfterPersistenceFinishes() {
+        List<com.comhu.bidmonitor.bid.persistence.service.BidSourcePersistenceResult.Status> statuses
+                = new java.util.ArrayList<>();
+        ManualBidCollectionSource source = new ManualBidCollectionSource() {
+            @Override
+            public String sourceCode() {
+                return "D2B";
+            }
+
+            @Override
+            public CollectionBatch collect(LocalDate startDate, LocalDate endDate, Set<String> codes) {
+                return new CollectionBatch(
+                        List.of(candidate("D2B", "HOOK-1", null, "정보시스템 감리")), 1
+                );
+            }
+
+            @Override
+            public void afterPersistence(
+                    com.comhu.bidmonitor.bid.persistence.service.BidSourcePersistenceResult result
+            ) {
+                statuses.add(result.status());
+                assertTrue(noticeRepository.findByIdentity("D2B", "HOOK-1", null).isPresent());
+            }
+        };
+
+        coordinator(source).collect(START, END, LICENSE_CODES);
+
+        assertEquals(List.of(
+                com.comhu.bidmonitor.bid.persistence.service.BidSourcePersistenceResult.Status.SUCCESS
+        ), statuses);
+    }
+
+    @Test
     void productionRegistryKeepsD2bDisabledWithoutServiceKey() {
         ManualBidCollectionSource d2b = sourceRegistry.sources().stream()
                 .filter(source -> source.sourceCode().equals("D2B"))
@@ -604,6 +655,7 @@ class ManualBidCollectionCoordinatorTests {
         when(collector.sourceCode()).thenReturn(sourceCode);
         when(collector.executionEnabled()).thenReturn(enabled);
         when(collector.registrationBindingSupported()).thenReturn(bindingSupported);
+        when(collector.includeUnknownRelevance()).thenReturn(true);
         when(collector.collect(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(candidates);
         return collector;
