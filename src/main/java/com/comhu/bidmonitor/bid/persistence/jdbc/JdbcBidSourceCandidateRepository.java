@@ -9,12 +9,34 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.Optional;
+import java.util.List;
 
 @Repository
 public class JdbcBidSourceCandidateRepository implements BidSourceCandidateRepository {
     private final JdbcTemplate jdbc;
 
     public JdbcBidSourceCandidateRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+
+    @Override
+    public void lockD2bEvaluation() {
+        jdbc.queryForObject("SELECT id FROM bid_candidate_evaluation_lock WHERE id = 1 FOR UPDATE", Integer.class);
+    }
+
+    @Override
+    public List<StoredCandidate> findD2bAfterId(long afterId, int size) {
+        return jdbc.query("SELECT * FROM bid_source_candidate WHERE source_code = 'D2B' AND id > ? ORDER BY id LIMIT ?",
+                (r, row) -> new StoredCandidate(r.getLong("id"), map(r, row)), afterId, size);
+    }
+
+    @Override
+    public void updateDecision(long id, BidSourceCandidate c) {
+        jdbc.update("""
+                UPDATE bid_source_candidate SET qualification_state=?, promotion_state=?, decision_reason=?,
+                    allowed_codes=?, allowed_codes_hash=?, policy_version=?, updated_at=?
+                WHERE id=? AND source_code='D2B'
+                """, c.qualificationState(), c.promotionState(), c.decisionReason(), c.allowedCodes(),
+                c.allowedCodesHash(), c.policyVersion(), Timestamp.from(c.updatedAt()), id);
+    }
 
     @Override
     public void save(BidSourceCandidate c) {

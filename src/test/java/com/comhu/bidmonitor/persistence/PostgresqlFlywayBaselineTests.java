@@ -209,6 +209,15 @@ class PostgresqlFlywayBaselineTests {
     }
 
     @Test
+    void reevaluationLockMigrationAddsOnlyASingleCoordinationRow() throws IOException {
+        String sql = Files.readString(Path.of("src/main/resources/db/migration/postgresql/V10__bid_candidate_evaluation_lock.sql"));
+        assertEquals(Set.of("bid_candidate_evaluation_lock"), tableNames(sql));
+        assertTrue(sql.contains("PRIMARY KEY CHECK (id = 1)"));
+        assertTrue(sql.contains("VALUES (1)"));
+        assertFalse(Pattern.compile("(?i)(DROP|DELETE|TRUNCATE|ALTER)\\s").matcher(sql).find());
+    }
+
+    @Test
     @EnabledIfEnvironmentVariable(named = "BIZ_ASSIST_POSTGRES_TEST_ENABLED", matches = "(?i)true")
     void migratesEmptyPostgresqlAndRoundTripsDatesTimesAndLocatorHashes() throws Exception {
         String url = "jdbc:postgresql://" + env("DB_HOST") + ":" + env("DB_PORT") + "/" + env("DB_NAME");
@@ -228,7 +237,7 @@ class PostgresqlFlywayBaselineTests {
     }
 
     private void assertPostgresqlSchema(Connection connection) throws SQLException {
-        assertEquals(34, queryInt(connection, """
+        assertEquals(35, queryInt(connection, """
                 SELECT COUNT(*) FROM pg_tables
                 WHERE schemaname = 'public' AND tablename <> 'flyway_schema_history'
                 """));

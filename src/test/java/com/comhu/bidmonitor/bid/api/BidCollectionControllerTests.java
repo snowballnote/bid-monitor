@@ -11,6 +11,8 @@ import com.comhu.bidmonitor.bid.persistence.BidSourceState;
 import com.comhu.bidmonitor.bid.persistence.BidSourceStateRepository;
 import com.comhu.bidmonitor.bid.persistence.service.BidSourcePersistenceResult;
 import com.comhu.bidmonitor.bid.settings.AllowedIndustryCodeProvider;
+import com.comhu.bidmonitor.bid.source.d2b.promotion.D2bCandidateEvidenceService;
+import com.comhu.bidmonitor.bid.source.d2b.promotion.D2bCandidateObservation;
 import com.comhu.bidmonitor.service.G2bApiService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -77,6 +79,9 @@ class BidCollectionControllerTests {
     @Autowired
     private AllowedIndustryCodeProvider allowedIndustryCodeProvider;
 
+    @Autowired
+    private D2bCandidateEvidenceService evidenceService;
+
     @MockitoBean
     private ManualBidCollectionCoordinator coordinator;
 
@@ -85,6 +90,7 @@ class BidCollectionControllerTests {
 
     @BeforeEach
     void clearTables() {
+        jdbcTemplate.update("DELETE FROM bid_source_candidate");
         allowedIndustryCodeProvider.replaceCodes(List.of("6146", "1468"));
         jdbcTemplate.update("DELETE FROM bid_collection_run_notice");
         jdbcTemplate.update("DELETE FROM bid_notice_version");
@@ -360,6 +366,10 @@ class BidCollectionControllerTests {
 
     @Test
     void getsAndAtomicallyReplacesAllowedIndustryCodes() throws Exception {
+        evidenceService.saveAll(List.of(new D2bCandidateObservation("API-REEVALUATE", "1",
+                Set.of("DOMESTIC_COMPETITIVE"), Set.of("COVERAGE"), "냉장고 구매", Map.of(),
+                Map.of("lcnsLmttList", "6525"), "AVAILABLE")));
+        String raw = jdbcTemplate.queryForObject("SELECT detail_fields FROM bid_source_candidate", String.class);
         mockMvc.perform(get("/api/settings/allowed-industry-codes"))
                 .andExpect(status().isOk())
                 .andExpect(content().json("[\"1468\",\"6146\"]"));
@@ -369,6 +379,10 @@ class BidCollectionControllerTests {
                         .content("{\"codes\":[\"1468\",\"6525\"]}"))
                 .andExpect(status().isOk())
                 .andExpect(content().json("[\"1468\",\"6525\"]"));
+
+        assertEquals("[\"1468\",\"6525\"]", jdbcTemplate.queryForObject("SELECT allowed_codes FROM bid_source_candidate", String.class));
+        assertEquals("INCOMPLETE", jdbcTemplate.queryForObject("SELECT qualification_state FROM bid_source_candidate", String.class));
+        assertEquals(raw, jdbcTemplate.queryForObject("SELECT detail_fields FROM bid_source_candidate", String.class));
 
         mockMvc.perform(get("/api/settings/allowed-industry-codes"))
                 .andExpect(status().isOk())
@@ -551,7 +565,8 @@ class BidCollectionControllerTests {
     void returnsUnifiedCatalogWithAllFixedSourcesIncludingDisabledCollectors() throws Exception {
         mockMvc.perform(get("/api/bid-sources/catalog"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(5))
+                .andExpect(jsonPath("$.length()").value(6))
+                .andExpect(jsonPath("$[?(@.sourceCode == 'KWATER')]").isNotEmpty())
                 .andExpect(jsonPath("$[?(@.sourceCode == 'G2B')].sourceName").value("나라장터"))
                 .andExpect(jsonPath("$[?(@.sourceCode == 'KOREA_EXPRESSWAY')].sourceName")
                         .value("한국도로공사"))

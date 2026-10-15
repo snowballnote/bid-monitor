@@ -12,7 +12,7 @@ import java.util.Set;
 import static com.comhu.bidmonitor.bid.source.d2b.promotion.D2bPromotionDecision.*;
 import static com.comhu.bidmonitor.bid.source.d2b.promotion.D2bQualificationEvidence.*;
 
-/** Phase 1 model only: deliberately not connected to the live collection pipeline. */
+/** Independent qualification/promotion model; does not control main-list visibility. */
 @Service
 public class D2bPromotionEvaluator {
     private final AllowedIndustryCodeProvider allowedIndustryCodeProvider;
@@ -22,9 +22,13 @@ public class D2bPromotionEvaluator {
     }
 
     public D2bPromotionDecision evaluate(D2bQualificationEvidence evidence, BidRelevance relevance) {
+        return evaluate(evidence, relevance, allowedIndustryCodeProvider.currentCodes());
+    }
+
+    D2bPromotionDecision evaluate(D2bQualificationEvidence evidence, BidRelevance relevance, Set<String> codes) {
         Objects.requireNonNull(evidence, "evidence");
         Objects.requireNonNull(relevance, "relevance");
-        Set<String> allowedCodes = allowedIndustryCodeProvider.currentCodes();
+        Set<String> allowedCodes = Set.copyOf(codes);
         if (evidence.detailStatus() != DetailStatus.AVAILABLE) {
             return new D2bPromotionDecision(Optional.empty(), Optional.empty(),
                     evidence.detailStatus() == DetailStatus.FAILED

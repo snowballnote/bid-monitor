@@ -49,7 +49,10 @@ public class D2bCandidateEvidenceService {
     }
 
     public void saveAll(Collection<D2bCandidateObservation> observations) {
-        transaction.executeWithoutResult(status -> observations.forEach(this::save));
+        transaction.executeWithoutResult(status -> {
+            repository.lockD2bEvaluation();
+            observations.forEach(this::save);
+        });
     }
 
     private void save(D2bCandidateObservation observation) {
@@ -87,7 +90,7 @@ public class D2bCandidateEvidenceService {
                 decision.qualification().map(Enum::name).orElse(null), relevance.name(),
                 decision.promotion().map(Enum::name).orElse(null),
                 "PENDING".equals(observation.detailStatus()) ? "DETAIL_NOT_REQUESTED" : decision.reason().name(),
-                allowed, hash(allowed), "d2b-public-fields-v1-unverified", "d2b-promotion-v1",
+                allowed, hash(allowed), "d2b-public-fields-v1-unverified", D2bCandidateReevaluationService.POLICY_VERSION,
                 previous == null ? clock.instant() : previous.firstSeenAt(), clock.instant()));
     }
 
@@ -123,7 +126,7 @@ public class D2bCandidateEvidenceService {
         catch (JsonProcessingException exception) { throw new IllegalStateException("Candidate evidence serialization failed."); }
     }
 
-    private static String hash(String value) {
+    static String hash(String value) {
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); }
         catch (NoSuchAlgorithmException exception) { throw new IllegalStateException(exception); }
     }

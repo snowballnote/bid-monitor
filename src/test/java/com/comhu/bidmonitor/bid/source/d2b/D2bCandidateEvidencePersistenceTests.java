@@ -63,6 +63,9 @@ class D2bCandidateEvidencePersistenceTests {
             public Set<String> replaceAll(Set<String> codes) { throw new UnsupportedOperationException(); }
         }));
         BidSourceCandidateRepository failingRepository = new BidSourceCandidateRepository() {
+            public void lockD2bEvaluation() { candidates.lockD2bEvaluation(); }
+            public List<StoredCandidate> findD2bAfterId(long id, int size) { return candidates.findD2bAfterId(id, size); }
+            public void updateDecision(long id, BidSourceCandidate c) { candidates.updateDecision(id, c); }
             public void insert(BidSourceCandidate candidate) { candidates.insert(candidate); }
             public void save(BidSourceCandidate candidate) {
                 candidates.save(candidate);

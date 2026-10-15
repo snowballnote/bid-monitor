@@ -103,6 +103,9 @@ class D2bLegacyCandidateBackfillServiceTests {
         var before = candidate(first);
         AtomicInteger attempts = new AtomicInteger();
         BidSourceCandidateRepository failing = new BidSourceCandidateRepository() {
+            public void lockD2bEvaluation() { candidates.lockD2bEvaluation(); }
+            public List<StoredCandidate> findD2bAfterId(long id, int size) { return candidates.findD2bAfterId(id, size); }
+            public void updateDecision(long id, BidSourceCandidate c) { candidates.updateDecision(id, c); }
             public void save(BidSourceCandidate c) { fail("Backfill must not upsert"); }
             public void insert(BidSourceCandidate c) {
                 candidates.insert(c);

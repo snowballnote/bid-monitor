@@ -43,6 +43,7 @@ public class D2bLegacyCandidateBackfillService {
             throw new IllegalArgumentException("Expected nonnegative checkpoint and batch size 1..1000.");
         }
         return transaction.execute(status -> {
+            candidates.lockD2bEvaluation();
             var ids = jdbc.queryForList("""
                     SELECT id FROM bid_notice WHERE source_code = ? AND id > ? ORDER BY id LIMIT ?
                     """, Long.class, "D2B", afterNoticeId, batchSize);
