@@ -1,6 +1,7 @@
 package com.comhu.bidmonitor.bid.collection;
 
 import com.comhu.bidmonitor.bid.persistence.BidSourceStateRepository;
+import com.comhu.bidmonitor.bid.settings.AllowedIndustryCodeProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
@@ -15,6 +16,7 @@ class BidCollectionSchedulerContextTests {
             .withBean(ManualBidCollectionCoordinator.class, () -> mock(ManualBidCollectionCoordinator.class))
             .withBean(ManualBidCollectionSourceRegistry.class, () -> mock(ManualBidCollectionSourceRegistry.class))
             .withBean(BidSourceStateRepository.class, () -> mock(BidSourceStateRepository.class))
+            .withBean(AllowedIndustryCodeProvider.class, () -> mock(AllowedIndustryCodeProvider.class))
             .withBean(Clock.class, Clock::systemUTC)
             .withUserConfiguration(BidCollectionSchedulingConfiguration.class);
 
@@ -37,7 +39,7 @@ class BidCollectionSchedulerContextTests {
                 )
                 .run(context -> {
                     assertThat(context).hasSingleBean(BidCollectionScheduler.class);
-                    assertThat(context).getBeans(BidCollectionSourceSchedule.class).hasSize(4);
+                    assertThat(context).getBeans(BidCollectionSourceSchedule.class).hasSize(5);
                     assertThat(context).hasSingleBean(GenericPublicPageSchedule.class);
                     assertThat(context.getBean(GenericPublicPageSchedule.class)).isEqualTo(
                             new GenericPublicPageSchedule(java.time.Duration.ofMinutes(30), 2)
