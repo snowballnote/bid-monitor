@@ -147,7 +147,10 @@ public class LhBidCollector implements BidCandidateCollector {
             if (pageNo > MAX_PAGES) {
                 throw new IllegalStateException("LH pagination exceeded the safe page limit.");
             }
-            ApiPage page = parseApiPage(transport.get(createApiUri(startDate, endDate, pageNo)));
+            ApiPage page = parseApiPage(
+                    transport.get(createApiUri(startDate, endDate, pageNo)),
+                    pageNo
+            );
             totalCount = page.totalCount();
             List<NoticeKey> pageIdentity = page.items().stream().map(this::noticeKey).toList();
             if (!seenPages.add(pageIdentity)) {
@@ -182,11 +185,24 @@ public class LhBidCollector implements BidCandidateCollector {
                 + "&bidNum=" + encode(notice.get("bidNum")));
     }
 
-    private ApiPage parseApiPage(String xml) {
+    private ApiPage parseApiPage(String xml, int pageNo) {
         org.w3c.dom.Document document = parseXml(xml);
         String resultCode = firstText(document, "resultCode");
+        if ("03".equals(resultCode)) {
+            String resultMsg = firstText(document, "resultMsg");
+
+            if (pageNo == 1
+                    && "NODATA_ERROR".equalsIgnoreCase(resultMsg)
+                    && document.getElementsByTagName("item").getLength() == 0) {
+                return new ApiPage(0, List.of());
+            }
+
+            throw new IllegalStateException("LH API returned failure resultCode=03");
+        }
         if (!resultCode.isBlank() && !"00".equals(resultCode) && !"0".equals(resultCode)) {
-            throw new IllegalStateException("LH API returned a failure result code.");
+            String safeCode = resultCode.matches("[A-Za-z0-9_-]{1,20}")
+                    ? resultCode : "UNEXPECTED";
+            throw new IllegalStateException("LH API returned failure resultCode=" + safeCode);
         }
         int totalCount = parseNonNegativeInt(firstText(document, "totalCount"));
         List<Map<String, String>> items = new ArrayList<>();
