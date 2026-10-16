@@ -64,6 +64,15 @@ function CollectionResult({ result, sourceNames }) {
       <span>{source.status === 'FAILED' ? '수집 실패'
         : `신규 ${source.newCount || 0} · 변경 ${source.updatedCount || 0} · 동일 ${source.unchangedCount || 0}`}</span>
     </li>)}</ul>
+    {result.skippedSourceCodes?.length > 0 && (
+        <p>
+          이번 갱신에서 수집하지 않은 기관:{' '}
+          {result.skippedSourceCodes
+              .map(code => sourceName(code, sourceNames))
+              .join(', ')}
+          {' '}(비활성 또는 중복 수집 방지)
+        </p>
+    )}
   </section>;
 }
 

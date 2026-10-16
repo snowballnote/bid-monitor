@@ -1,8 +1,20 @@
 import { fetchList } from './client';
+import { getBidNotices } from './bids';
 
 export const getSubmissions = signal => fetchList('/api/submission-cases', signal);
 export const getDocuments = signal => fetchList('/api/submission-document-masters', signal);
-export const getBids = signal => fetchList('/api/bids/target/qualification?allowedLicenseCodes=6146,1468', signal);
+export async function getBids(signal) {
+  const size = 100;
+  const first = await getBidNotices({ page: 0, size }, signal);
+  const notices = [...first.items];
+
+  for (let page = 1; page < first.totalPages; page++) {
+    const next = await getBidNotices({ page, size }, signal);
+    notices.push(...next.items);
+  }
+
+  return notices;
+}
 export const getNotices = signal => fetchList('/api/external-notices?piaRelated=true', signal);
 
 export async function getPerformances(signal) {
