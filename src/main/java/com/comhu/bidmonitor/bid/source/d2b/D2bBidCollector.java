@@ -203,6 +203,10 @@ public class D2bBidCollector implements BidCandidateCollector {
                 FailureDiagnostic diagnostic = diagnose(exception, FailureStage.LIST);
                 failureDiagnostics.add(diagnostic);
                 logFailure(operation, diagnostic);
+
+                if (isDailyQuotaFailure(exception)) {
+                    break;
+                }
             }
         }
 

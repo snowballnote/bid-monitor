@@ -611,6 +611,55 @@ class ManualBidCollectionCoordinatorTests {
         }
     }
 
+    @Test
+    void skipsRecentlyCollectedD2bButAllowsExplicitRefresh() {
+        AtomicInteger d2bCalls = new AtomicInteger();
+
+        ManualBidCollectionSource d2b = new ManualBidCollectionSource() {
+            @Override
+            public String sourceCode() {
+                return "D2B";
+            }
+
+            @Override
+            public boolean executionEnabled() {
+                return true;
+            }
+
+            @Override
+            public CollectionBatch collect(
+                    LocalDate startDate,
+                    LocalDate endDate,
+                    Set<String> codes
+            ) {
+                d2bCalls.incrementAndGet();
+                return new CollectionBatch(List.of(), 1);
+            }
+        };
+
+        ManualBidCollectionCoordinator coordinator = coordinator(
+                source("G2B", true, List.of(), 1),
+                d2b
+        );
+
+        // 첫 번째 전체 갱신: D2B 수집
+        coordinator.collect(START, END, LICENSE_CODES);
+        assertEquals(1, d2bCalls.get());
+
+        // 두 번째 전체 갱신: 최근 수집했으므로 D2B 제외
+        ManualBidCollectionResult repeated =
+                coordinator.collect(START, END, LICENSE_CODES);
+
+        assertEquals(1, d2bCalls.get());
+        assertTrue(repeated.skippedSourceCodes().contains("D2B"));
+        assertEquals(1, runRepository.findBySourceCodeLatestFirst("D2B").size());
+
+        // D2B를 직접 선택하면 다시 수집 가능
+        coordinator.collect(START, END, LICENSE_CODES, Set.of("D2B"));
+
+        assertEquals(2, d2bCalls.get());
+    }
+
     private ManualBidCollectionCoordinator coordinator(ManualBidCollectionSource... sources) {
         return new ManualBidCollectionCoordinator(
                 persistenceService,

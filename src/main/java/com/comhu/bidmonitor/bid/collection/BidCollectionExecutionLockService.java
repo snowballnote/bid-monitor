@@ -111,6 +111,23 @@ public class BidCollectionExecutionLockService {
         return lockRepository.find(sourceCode, startDate, endDate).map(BidCollectionLock::runId);
     }
 
+    public boolean hasRecentSuccessfulRun(
+            String sourceCode,
+            LocalDate startDate,
+            LocalDate endDate,
+            Instant since
+    ) {
+        return runRepository.findBySourceCodeLatestFirst(sourceCode)
+                .stream()
+                .anyMatch(run ->
+                        run.getStatus() == BidCollectionRun.Status.SUCCESS
+                                && startDate.equals(run.getQueryStartDate())
+                                && endDate.equals(run.getQueryEndDate())
+                                && run.getFinishedAt() != null
+                                && !run.getFinishedAt().isBefore(since)
+                );
+    }
+
     public void completeAndRelease(LockedRun lockedRun, BidCollectionRun completedRun) {
         transactions.executeWithoutResult(status -> {
             if (!lockedRun.run().getId().equals(completedRun.getId())) {

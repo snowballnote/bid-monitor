@@ -25,6 +25,7 @@ import java.util.Set;
 import java.util.Locale;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
+import java.time.Duration;
 
 @Slf4j
 @Service
@@ -148,6 +149,28 @@ public class ManualBidCollectionCoordinator {
                     skippedSources.add(sourceCode);
                     continue;
                 }
+
+                if (!source.executionEnabled()) {
+                    skippedSources.add(sourceCode);
+                    continue;
+                }
+
+// 전체 갱신에서 최근 수집한 D2B의 반복 호출 방지
+                if ("D2B".equals(sourceCode)
+                        && normalizedSources.isEmpty()
+                        && sources.stream().anyMatch(other ->
+                        other.executionEnabled()
+                                && !"D2B".equals(other.sourceCode()))
+                        && lockService.hasRecentSuccessfulRun(
+                        sourceCode,
+                        startDate,
+                        endDate,
+                        clock.instant().minus(Duration.ofMinutes(30))
+                )) {
+                    skippedSources.add(sourceCode);
+                    continue;
+                }
+
                 Instant startedAt = clock.instant();
                 Optional<BidCollectionExecutionLockService.LockedRun> acquired = lockService.tryStart(
                         sourceCode, startDate, endDate, triggerType, startedAt
