@@ -41,6 +41,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+
 class KogasBidCollectorTests {
 
     private static final String BASE_URL = "https://bid.kogas.or.kr:9443";
@@ -680,6 +682,58 @@ class KogasBidCollectorTests {
         } catch (IOException exception) {
             throw new UncheckedIOException(exception);
         }
+    }
+
+
+    @Test
+    @EnabledIfSystemProperty(
+            named = "kogas.compare.live",
+            matches = "true"
+    )
+    void comparesRealApiAndHtmlNotices() {
+        String apiKey = System.getenv("KOGAS_API_SERVICE_KEY");
+
+        assertTrue(apiKey != null && !apiKey.isBlank());
+
+        var apiReader = new KogasOpenApiReader(
+                new KogasOpenApiClient(
+                        "https://apis.data.go.kr/B551210/bidInfoList2/getBidInfoList2",
+                        apiKey
+                ),
+                new KogasOpenApiParser()
+        );
+
+        LocalDate date = LocalDate.of(2026, 10, 14);
+
+        var apiNotices = apiReader.fetchAll(date, date);
+
+        var htmlCollector = new KogasBidCollector(
+                BASE_URL,
+                false,
+                mock(BidSourceExecutionEligibilityService.class)
+        );
+
+        var htmlNotices = htmlCollector.collectListNotices();
+
+        Set<String> htmlCodes = htmlNotices.stream()
+                .map(KogasBidCollector.ListNotice::noticeCode)
+                .collect(java.util.stream.Collectors.toSet());
+
+        long matchedCount = apiNotices.stream()
+                .filter(notice -> htmlCodes.contains(notice.noticeCode()))
+                .count();
+
+        System.out.println("API 공고 수: " + apiNotices.size());
+        System.out.println("HTML 목록 공고 수: " + htmlNotices.size());
+        System.out.println("공고번호 일치 수: " + matchedCount);
+
+        // 목록 범위가 다를 수 있으므로 불일치를 즉시 오류로 판단하지 않는다.
+        apiNotices.stream()
+                .filter(notice -> !htmlCodes.contains(notice.noticeCode()))
+                .limit(5)
+                .forEach(notice -> System.out.println(
+                        "HTML 목록 미일치: " + notice.noticeCode()
+                ));
     }
 
     private static List<String> licenseCodes(BidQualificationDto qualification) {

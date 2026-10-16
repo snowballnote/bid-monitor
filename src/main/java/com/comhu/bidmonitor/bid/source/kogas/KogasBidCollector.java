@@ -198,7 +198,7 @@ public class KogasBidCollector implements BidCandidateCollector {
         return List.copyOf(candidates);
     }
 
-    private List<ListNotice> collectListNotices() {
+    List<ListNotice> collectListNotices() {
         List<ListNotice> notices = new ArrayList<>();
         Set<List<NoticeKey>> seenPageIdentities = new HashSet<>();
         int totalPages = 1;
