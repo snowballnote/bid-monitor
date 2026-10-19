@@ -17,7 +17,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Objects;
 
-/** Sends KORAIL service-bid list requests and delegates response parsing. */
+/** Sends KORAIL service-bid requests and delegates response parsing. */
 public final class KorailBidHttpClient {
 
     static final String DEFAULT_BASE_URL = "https://ebid.korail.com";
@@ -25,6 +25,7 @@ public final class KorailBidHttpClient {
     static final String FORM_CONTENT_TYPE = "application/x-www-form-urlencoded; charset=UTF-8";
 
     private static final String LIST_FUNCTION = "ZMME_EBID_INFO_0009F";
+    private static final String DETAIL_FUNCTION = "ZMME_EBID_INFO_0010F";
     private static final DateTimeFormatter REQUEST_DATE = DateTimeFormatter.BASIC_ISO_DATE;
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
@@ -32,6 +33,7 @@ public final class KorailBidHttpClient {
     private final String baseUrl;
     private final ObjectMapper objectMapper;
     private final KorailBidListParser parser;
+    private final KorailBidDetailParser detailParser;
     private final Transport transport;
 
     public KorailBidHttpClient(ObjectMapper objectMapper) {
@@ -39,6 +41,7 @@ public final class KorailBidHttpClient {
                 DEFAULT_BASE_URL,
                 objectMapper,
                 new KorailBidListParser(objectMapper),
+                new KorailBidDetailParser(objectMapper),
                 new JdkTransport(HttpClient.newBuilder()
                         .connectTimeout(CONNECT_TIMEOUT)
                         .followRedirects(HttpClient.Redirect.NORMAL)
@@ -52,35 +55,58 @@ public final class KorailBidHttpClient {
             KorailBidListParser parser,
             Transport transport
     ) {
+        this(baseUrl, objectMapper, parser, new KorailBidDetailParser(objectMapper), transport);
+    }
+
+    KorailBidHttpClient(
+            String baseUrl,
+            ObjectMapper objectMapper,
+            KorailBidListParser parser,
+            KorailBidDetailParser detailParser,
+            Transport transport
+    ) {
         this.baseUrl = stripTrailingSlash(baseUrl);
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.parser = Objects.requireNonNull(parser, "parser");
+        this.detailParser = Objects.requireNonNull(detailParser, "detailParser");
         this.transport = Objects.requireNonNull(transport, "transport");
     }
 
     public List<KorailBidListParser.Notice> fetchList(LocalDate startDate, LocalDate endDate) {
         HttpRequest request = createListRequest(startDate, endDate);
+        return parser.parse(send(request, "list"));
+    }
+
+    public KorailBidDetailParser.ParsedDetail fetchDetail(String noticeNo, String round) {
+        HttpRequest request = createDetailRequest(noticeNo, round);
+        KorailBidDetailParser.ParsedDetail parsed = detailParser.parse(send(request, "detail"));
+        if (!noticeNo.equals(parsed.detail().noticeNo()) || !round.equals(parsed.detail().round())) {
+            throw new IllegalStateException("KORAIL detail response identity does not match request.");
+        }
+        return parsed;
+    }
+
+    private String send(HttpRequest request, String operation) {
         Response response;
         try {
             response = transport.send(request);
         } catch (IOException exception) {
-            throw new IllegalStateException("KORAIL list request failed.", exception);
+            throw new IllegalStateException("KORAIL " + operation + " request failed.", exception);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("KORAIL list request was interrupted.", exception);
+            throw new IllegalStateException("KORAIL " + operation + " request was interrupted.", exception);
         }
 
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             throw new IllegalStateException(
-                    "KORAIL list request failed with HTTP " + response.statusCode() + "."
+                    "KORAIL " + operation + " request failed with HTTP " + response.statusCode() + "."
             );
         }
-        return parser.parse(response.body());
+        return response.body();
     }
 
     HttpRequest createListRequest(LocalDate startDate, LocalDate endDate) {
         validateRange(startDate, endDate);
-        String function = writeJson(objectMapper.createObjectNode().put("ZFUNCNM", LIST_FUNCTION));
         ArrayNode parameters = objectMapper.createArrayNode();
         addParameter(parameters, "I_ZZBIDTYPECODE", "5");
         addParameter(parameters, "I_ZZCTRMETHOD", "");
@@ -92,6 +118,22 @@ public final class KorailBidHttpClient {
         addParameter(parameters, "I_SDAT_FR", "");
         addParameter(parameters, "I_SDAT_TO", "");
         addParameter(parameters, "I_LIFNR", "");
+
+        return createPostRequest(LIST_FUNCTION, parameters);
+    }
+
+    HttpRequest createDetailRequest(String noticeNo, String round) {
+        validateDetailIdentity(noticeNo, round);
+        ArrayNode parameters = objectMapper.createArrayNode();
+        addParameter(parameters, "I_ZBIDINV", noticeNo);
+        addParameter(parameters, "I_ZESTNUMM", round);
+        addParameter(parameters, "I_ERDAT", "");
+        addParameter(parameters, "I_LIFNR", "");
+        return createPostRequest(DETAIL_FUNCTION, parameters);
+    }
+
+    private HttpRequest createPostRequest(String functionName, ArrayNode parameters) {
+        String function = writeJson(objectMapper.createObjectNode().put("ZFUNCNM", functionName));
 
         String formBody = formField("fn", function) + "&" + formField("p", writeJson(parameters));
         return HttpRequest.newBuilder(URI.create(baseUrl + RFC_PATH))
@@ -112,7 +154,7 @@ public final class KorailBidHttpClient {
         try {
             return objectMapper.writeValueAsString(value);
         } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("KORAIL list request JSON could not be created.", exception);
+            throw new IllegalStateException("KORAIL request JSON could not be created.", exception);
         }
     }
 
@@ -125,6 +167,15 @@ public final class KorailBidHttpClient {
     private void validateRange(LocalDate startDate, LocalDate endDate) {
         if (startDate == null || endDate == null || startDate.isAfter(endDate)) {
             throw new IllegalArgumentException("KORAIL list request date range is invalid.");
+        }
+    }
+
+    private void validateDetailIdentity(String noticeNo, String round) {
+        if (noticeNo == null || noticeNo.isBlank()) {
+            throw new IllegalArgumentException("KORAIL detail notice number must not be blank.");
+        }
+        if (round == null || round.isBlank()) {
+            throw new IllegalArgumentException("KORAIL detail round must not be blank.");
         }
     }
 
