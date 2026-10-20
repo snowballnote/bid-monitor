@@ -67,10 +67,10 @@ public final class KorailBidDtoMapper {
                 detail == null ? "" : detail.awardMethod(), notice.awardMethod()
         ));
         qualification.setSucsfbidMthdCd("");
-        qualification.setNoticeStatus(detail == null ? "" : detail.statusName());
-        qualification.setNoticeStatusCode(firstNonBlank(
-                detail == null ? "" : detail.statusCode(), notice.statusCode()
-        ));
+        // KORAIL's zzbidinfo/zzbidinfo_t describe a source notice classification
+        // (for example, "1"/"일반공고"), not a confirmed bid progress state.
+        qualification.setNoticeStatus("");
+        qualification.setNoticeStatusCode("");
         qualification.setAttachments(attachmentMappings.stream().map(AttachmentMapping::attachment).toList());
 
         // Qualification and document-analysis facts are not present in the parsed metadata.

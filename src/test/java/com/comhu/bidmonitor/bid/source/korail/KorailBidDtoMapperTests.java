@@ -31,8 +31,8 @@ class KorailBidDtoMapperTests {
         assertEquals("제한경쟁", result.getContractMethod());
         assertEquals("전자입찰", result.getBidForm());
         assertEquals("협상에 의한 계약", result.getSucsfbidMthdNm());
-        assertEquals("공고", result.getNoticeStatus());
-        assertEquals("UNRECOGNIZED_SOURCE_STATUS", result.getNoticeStatusCode());
+        assertEquals("", result.getNoticeStatus());
+        assertEquals("", result.getNoticeStatusCode());
         assertNull(result.getDetailUrl());
         assertNull(result.getBidNtceDtlUrl());
     }
@@ -112,9 +112,10 @@ class KorailBidDtoMapperTests {
 
     @Test
     void leavesQualificationAndProposalFactsUnknown() {
-        BidQualificationDto result = mapper.map(listNotice(), parsedDetail()).qualification();
+        BidQualificationDto result = mapper.map(listNotice()).qualification();
 
-        assertEquals("UNRECOGNIZED_SOURCE_STATUS", result.getNoticeStatusCode());
+        assertEquals("", result.getNoticeStatus());
+        assertEquals("", result.getNoticeStatusCode());
         assertEquals("UNKNOWN", result.getAwardMethodCategory());
         assertEquals("UNKNOWN", result.getAwardMethodStatus());
         assertEquals("NOT_AVAILABLE", result.getAwardMethodSource());
@@ -172,8 +173,8 @@ class KorailBidDtoMapperTests {
                 "9258430-00",
                 "00",
                 "의왕ICD 통합운영플랫폼 구축 감리 용역",
-                "UNRECOGNIZED_SOURCE_STATUS",
-                "공고",
+                "1",
+                "일반공고",
                 "용역",
                 "제한경쟁",
                 "협상에 의한 계약",
