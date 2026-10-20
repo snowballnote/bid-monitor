@@ -57,7 +57,7 @@ class KorailBidCollectorTests {
         assertEquals("협상에 의한 계약", bid.getSucsfbidMthdNm());
         assertNull(bid.getReviewStatus());
         assertNull(bid.getReviewReason());
-        assertEquals(2, transport.callCount());
+        assertEquals(3, transport.callCount());
     }
 
     @Test
@@ -106,7 +106,7 @@ class KorailBidCollectorTests {
         );
 
         assertEquals("KORAIL list request failed with HTTP 503.", exception.getMessage());
-        assertEquals(1, transport.callCount());
+        assertEquals(2, transport.callCount());
     }
 
     @Test
@@ -114,7 +114,7 @@ class KorailBidCollectorTests {
         FakeTransport transport = new FakeTransport(response(200, listResponse()));
 
         assertEquals(List.of(), collector(transport).collect(START_DATE, END_DATE));
-        assertEquals(1, transport.callCount());
+        assertEquals(2, transport.callCount());
     }
 
     @Test
@@ -141,7 +141,7 @@ class KorailBidCollectorTests {
         assertEquals(1, result.size());
         assertEquals("9258430-00", result.getFirst().getSourceNoticeId());
         assertEquals("00", result.getFirst().getRevision());
-        assertEquals(2, transport.callCount());
+        assertEquals(3, transport.callCount());
     }
 
     private KorailBidCollector collector(KorailBidHttpClient.Transport transport) {
@@ -249,6 +249,9 @@ class KorailBidCollectorTests {
         @Override
         public KorailBidHttpClient.Response send(java.net.http.HttpRequest request) {
             requests.add(request);
+            if ("GET".equals(request.method())) {
+                return new KorailBidHttpClient.Response(200, "public page without cookies");
+            }
             KorailBidHttpClient.Response response = responses.poll();
             if (response == null) {
                 throw new AssertionError("unexpected HTTP request");

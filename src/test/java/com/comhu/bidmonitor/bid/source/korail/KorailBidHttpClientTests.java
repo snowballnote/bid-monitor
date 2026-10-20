@@ -1,5 +1,7 @@
 package com.comhu.bidmonitor.bid.source.korail;
 
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -8,6 +10,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.net.http.HttpRequest;
@@ -15,11 +18,13 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -51,6 +56,87 @@ class KorailBidHttpClientTests {
         assertEquals(Duration.ofSeconds(30), request.timeout().orElseThrow());
         assertFalse(request.headers().firstValue("Cookie").isPresent());
         assertFalse(request.headers().firstValue("Authorization").isPresent());
+    }
+
+    @Test
+    void initializesPublicRootOnceBeforeReusingSessionForListAndDetail() {
+        List<HttpRequest> requests = new ArrayList<>();
+        AtomicInteger rpcCalls = new AtomicInteger();
+        KorailBidHttpClient client = rawClient(request -> {
+            requests.add(request);
+            if ("GET".equals(request.method())) {
+                return new KorailBidHttpClient.Response(200, "public page without cookies");
+            }
+            if (rpcCalls.getAndIncrement() == 0) {
+                return new KorailBidHttpClient.Response(200, responseWithNotice("9258430-00", "00"));
+            }
+            return new KorailBidHttpClient.Response(200, detailResponse("9258430-00", "00"));
+        });
+
+        client.fetchList(LocalDate.of(2026, 10, 16), LocalDate.of(2026, 10, 16));
+        client.fetchDetail("9258430-00", "00");
+
+        assertEquals(3, requests.size());
+        assertEquals("GET", requests.get(0).method());
+        assertEquals(URI.create("https://example.test/"), requests.get(0).uri());
+        assertEquals("POST", requests.get(1).method());
+        assertEquals("POST", requests.get(2).method());
+    }
+
+    @Test
+    void doesNotSendRpcWhenPublicSessionInitializationFails() {
+        List<HttpRequest> requests = new ArrayList<>();
+        KorailBidHttpClient client = rawClient(request -> {
+            requests.add(request);
+            return new KorailBidHttpClient.Response(403, "JSESSIONID=sensitive-cookie-value");
+        });
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class, () -> client.fetchList(
+                LocalDate.of(2026, 10, 16), LocalDate.of(2026, 10, 16)
+        ));
+
+        assertEquals(1, requests.size());
+        assertEquals("GET", requests.getFirst().method());
+        assertEquals("KORAIL session initialization request failed with HTTP 403.", exception.getMessage());
+        assertFalse(exception.getMessage().contains("sensitive-cookie-value"));
+    }
+
+    @Test
+    void forwardsServerIssuedCookiesToListAndDetailUsingOneCookieStore() throws Exception {
+        List<String> rpcCookieHeaders = new ArrayList<>();
+        AtomicInteger rpcCalls = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            if ("/".equals(exchange.getRequestURI().getPath())) {
+                exchange.getResponseHeaders().add("Set-Cookie", "JSESSIONID=test-session; Path=/; HttpOnly");
+                exchange.getResponseHeaders().add("Set-Cookie", "cookieName_10000=test-public; Path=/");
+                sendResponse(exchange, 200, "public page");
+                return;
+            }
+            exchange.getRequestBody().readAllBytes();
+            rpcCookieHeaders.add(exchange.getRequestHeaders().getFirst("Cookie"));
+            String body = rpcCalls.getAndIncrement() == 0
+                    ? responseWithNotice("9258430-00", "00")
+                    : detailResponse("9258430-00", "00");
+            sendResponse(exchange, 200, body);
+        });
+        server.start();
+
+        try {
+            KorailBidHttpClient client = new KorailBidHttpClient(
+                    "http://127.0.0.1:" + server.getAddress().getPort(), objectMapper
+            );
+            client.fetchList(LocalDate.of(2026, 10, 16), LocalDate.of(2026, 10, 16));
+            client.fetchDetail("9258430-00", "00");
+        } finally {
+            server.stop(0);
+        }
+
+        assertEquals(2, rpcCookieHeaders.size());
+        for (String cookieHeader : rpcCookieHeaders) {
+            assertTrue(cookieHeader.contains("JSESSIONID=test-session"));
+            assertTrue(cookieHeader.contains("cookieName_10000=test-public"));
+        }
     }
 
     @Test
@@ -238,12 +324,26 @@ class KorailBidHttpClientTests {
     }
 
     private KorailBidHttpClient client(KorailBidHttpClient.Transport transport) {
+        return rawClient(request -> "GET".equals(request.method())
+                ? new KorailBidHttpClient.Response(200, "public page without cookies")
+                : transport.send(request));
+    }
+
+    private KorailBidHttpClient rawClient(KorailBidHttpClient.Transport transport) {
         return new KorailBidHttpClient(
                 "https://example.test/",
                 objectMapper,
                 new KorailBidListParser(objectMapper),
                 transport
         );
+    }
+
+    private static void sendResponse(HttpExchange exchange, int statusCode, String body) throws IOException {
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        exchange.sendResponseHeaders(statusCode, bytes.length);
+        try (var responseBody = exchange.getResponseBody()) {
+            responseBody.write(bytes);
+        }
     }
 
     private String emptyResponse() {

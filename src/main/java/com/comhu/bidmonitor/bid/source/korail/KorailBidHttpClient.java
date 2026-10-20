@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 
 import java.io.IOException;
+import java.net.CookieManager;
+import java.net.CookiePolicy;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -17,7 +19,11 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Objects;
 
-/** Sends KORAIL service-bid requests and delegates response parsing. */
+/**
+ * Sends KORAIL service-bid requests and delegates response parsing.
+ * One client instance owns one cookie store. Public-session initialization is serialized and
+ * performed once; this class does not add request retries or parallel execution.
+ */
 public final class KorailBidHttpClient {
 
     static final String DEFAULT_BASE_URL = "https://ebid.korail.com";
@@ -35,17 +41,20 @@ public final class KorailBidHttpClient {
     private final KorailBidListParser parser;
     private final KorailBidDetailParser detailParser;
     private final Transport transport;
+    private final Object sessionInitializationLock = new Object();
+    private volatile boolean sessionInitialized;
 
     public KorailBidHttpClient(ObjectMapper objectMapper) {
+        this(DEFAULT_BASE_URL, objectMapper);
+    }
+
+    KorailBidHttpClient(String baseUrl, ObjectMapper objectMapper) {
         this(
-                DEFAULT_BASE_URL,
+                baseUrl,
                 objectMapper,
                 new KorailBidListParser(objectMapper),
                 new KorailBidDetailParser(objectMapper),
-                new JdkTransport(HttpClient.newBuilder()
-                        .connectTimeout(CONNECT_TIMEOUT)
-                        .followRedirects(HttpClient.Redirect.NORMAL)
-                        .build())
+                createJdkTransport()
         );
     }
 
@@ -74,11 +83,13 @@ public final class KorailBidHttpClient {
 
     public List<KorailBidListParser.Notice> fetchList(LocalDate startDate, LocalDate endDate) {
         HttpRequest request = createListRequest(startDate, endDate);
+        ensureSessionInitialized();
         return parser.parse(send(request, "list"));
     }
 
     public KorailBidDetailParser.ParsedDetail fetchDetail(String noticeNo, String round) {
         HttpRequest request = createDetailRequest(noticeNo, round);
+        ensureSessionInitialized();
         KorailBidDetailParser.ParsedDetail parsed = detailParser.parse(send(request, "detail"));
         if (!noticeNo.equals(parsed.detail().noticeNo()) || !round.equals(parsed.detail().round())) {
             throw new IllegalStateException("KORAIL detail response identity does not match request.");
@@ -103,6 +114,26 @@ public final class KorailBidHttpClient {
             );
         }
         return response.body();
+    }
+
+    private void ensureSessionInitialized() {
+        if (sessionInitialized) {
+            return;
+        }
+        synchronized (sessionInitializationLock) {
+            if (sessionInitialized) {
+                return;
+            }
+            send(createSessionInitializationRequest(), "session initialization");
+            sessionInitialized = true;
+        }
+    }
+
+    HttpRequest createSessionInitializationRequest() {
+        return HttpRequest.newBuilder(URI.create(baseUrl + "/"))
+                .timeout(REQUEST_TIMEOUT)
+                .GET()
+                .build();
     }
 
     HttpRequest createListRequest(LocalDate startDate, LocalDate endDate) {
@@ -184,6 +215,15 @@ public final class KorailBidHttpClient {
             throw new IllegalArgumentException("KORAIL base URL must not be blank.");
         }
         return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
+    }
+
+    private static Transport createJdkTransport() {
+        CookieManager cookieManager = new CookieManager(null, CookiePolicy.ACCEPT_ORIGINAL_SERVER);
+        return new JdkTransport(HttpClient.newBuilder()
+                .cookieHandler(cookieManager)
+                .connectTimeout(CONNECT_TIMEOUT)
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build());
     }
 
     @FunctionalInterface
