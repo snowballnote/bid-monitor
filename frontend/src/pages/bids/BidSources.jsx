@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   BidSourceRegistrationRequestError,
+  checkBidSource,
+  discoverBidSource,
   getBidSourceCatalog,
+  getBidSourceDiscovery,
+  getBidSourceRegistrations,
   registerBidSource,
 } from '../../api/bidSources';
 import './bid-sources.css';
@@ -19,6 +23,24 @@ const METHOD_NAMES = {
   PUBLIC_PAGE: '공개 페이지',
   RSS: 'RSS',
 };
+
+const CHECK_STATUS_NAMES = {
+  NOT_CHECKED: '미점검',
+  CHECKING: '점검 중',
+  REACHABLE: '접근 가능',
+  UNREACHABLE: '접근 불가',
+  BLOCKED: '접근 제한',
+};
+
+const DISCOVERY_STATUS_NAMES = {
+  NOT_ANALYZED: '미분석',
+  ANALYZING: '분석 중',
+  READY: '분석 완료',
+  MANUAL_REVIEW: '수동 검토 필요',
+  FAILED: '분석 실패',
+};
+
+const CONFIDENCE_NAMES = { HIGH: '높음', MEDIUM: '보통', LOW: '낮음', NONE: '없음' };
 
 function formatDateTime(value) {
   if (!value) return '—';
@@ -55,8 +77,57 @@ function reviewStatus(item) {
   return statuses.length ? statuses.join(' · ') : '해당 없음';
 }
 
-function CatalogRow({ item }) {
+function mergeCatalogAndRegistrations(catalog, registrations) {
+  const registrationsById = new Map(registrations.map(registration => [registration.sourceId, registration]));
+  return catalog.map(item => {
+    const registration = registrationsById.get(item.sourceId);
+    if (!registration) return item;
+    return {
+      ...item,
+      checkStatus: registration.checkStatus,
+      detectedCollectionMethod: registration.detectedCollectionMethod,
+      httpStatus: registration.httpStatus,
+      contentType: registration.contentType,
+      checkedAt: registration.checkedAt,
+      safeFailureCode: registration.safeFailureCode,
+      siteIdentification: registration.siteIdentification,
+      matchedSourceCode: registration.matchedSourceCode,
+    };
+  });
+}
+
+function identificationLabel(item) {
+  if (item.sourceType === 'FIXED') return '기본 지원';
+  if (item.siteIdentification === 'SUPPORTED') {
+    return `기존 지원 · ${item.matchedSourceCode}`;
+  }
+  if (item.siteIdentification === 'NEW_SITE') return '신규 사이트';
+  return '미확인';
+}
+
+function DiscoverySummary({ item }) {
+  const discovery = item.discovery;
+  if (!discovery) {
+    return <span className="bid-source-detail-muted">
+      {item.discoveryLoadError ? '저장된 분석 결과 조회 실패' : '분석 정보 없음'}
+    </span>;
+  }
+  return <dl className="bid-source-discovery-details">
+    <div><dt>감지 방식</dt><dd>{METHOD_NAMES[discovery.detectedCollectionMethod] || '미확정'}</dd></div>
+    <div><dt>식별자</dt><dd>{CONFIDENCE_NAMES[discovery.identifierConfidence] || '미확인'}</dd></div>
+    <div><dt>제목</dt><dd>{CONFIDENCE_NAMES[discovery.titleConfidence] || '미확인'}</dd></div>
+    <div><dt>마감일</dt><dd>{CONFIDENCE_NAMES[discovery.deadlineConfidence] || '미확인'}</dd></div>
+    <div><dt>첨부/페이지</dt><dd>{discovery.attachmentDetected ? '감지' : '미감지'} / {discovery.paginationDetected ? '감지' : '미감지'}</dd></div>
+    {discovery.reasonCodes.length > 0
+      && <div><dt>사유</dt><dd>{discovery.reasonCodes.join(', ')}</dd></div>}
+  </dl>;
+}
+
+function CatalogRow({ item, operation, onCheck, onDiscover }) {
   const statusClass = item.registrationStatus?.toLowerCase() || 'not_applicable';
+  const checkLoading = operation?.check === 'loading';
+  const discoveryLoading = operation?.discovery === 'loading';
+  const canDiscover = item.sourceId != null && item.checkStatus === 'REACHABLE';
   return <tr>
     <td data-label="수집처 이름"><strong>{item.sourceName}</strong>
       {item.sourceCode && <small className="bid-source-code">{item.sourceCode}</small>}</td>
@@ -73,6 +144,25 @@ function CatalogRow({ item }) {
     </span></td>
     <td data-label="최근 성공">{formatDateTime(item.lastSuccessAt)}</td>
     <td data-label="최근 실패">{formatDateTime(item.lastFailureAt)}</td>
+    <td data-label="지원 식별"><span className={`site-identification site-identification-${(item.siteIdentification || item.sourceType).toLowerCase()}`}>
+      {identificationLabel(item)}
+    </span></td>
+    <td data-label="사이트 점검" className="bid-source-action-cell">
+      <span className={`source-check-status source-check-status-${(item.checkStatus || 'not_checked').toLowerCase()}`}>
+        {CHECK_STATUS_NAMES[item.checkStatus] || (item.sourceId == null ? '등록 필요' : '미점검')}
+      </span>
+      {item.sourceId != null && <button type="button" disabled={checkLoading}
+        onClick={() => onCheck(item.sourceId)}>{checkLoading ? '점검 중…' : '사이트 점검'}</button>}
+      {operation?.check === 'error' && <small role="alert">점검 요청에 실패했습니다.</small>}
+      {item.safeFailureCode && <small>{item.safeFailureCode}</small>}
+    </td>
+    <td data-label="구조 분석" className="bid-source-action-cell bid-source-discovery-cell">
+      <span>{DISCOVERY_STATUS_NAMES[item.discoveryStatus] || '미분석'}</span>
+      {canDiscover && <button type="button" disabled={discoveryLoading}
+        onClick={() => onDiscover(item.sourceId)}>{discoveryLoading ? '분석 중…' : '구조 분석'}</button>}
+      {operation?.discovery === 'error' && <small role="alert">구조 분석 요청에 실패했습니다.</small>}
+      <DiscoverySummary item={item} />
+    </td>
   </tr>;
 }
 
@@ -80,6 +170,7 @@ export default function BidSources() {
   const [form, setForm] = useState({ sourceName: '', siteUrl: '' });
   const [resource, setResource] = useState({ status: 'loading', data: [] });
   const [submission, setSubmission] = useState({ status: 'idle', message: '' });
+  const [operations, setOperations] = useState({});
   const [reloadVersion, setReloadVersion] = useState(0);
   const submittingRef = useRef(false);
   const registrationControllerRef = useRef(null);
@@ -87,9 +178,22 @@ export default function BidSources() {
   useEffect(() => {
     const controller = new AbortController();
     setResource(current => ({ status: 'loading', data: current.data }));
-    getBidSourceCatalog(controller.signal)
-      .then(data => {
-        if (!controller.signal.aborted) setResource({ status: 'success', data });
+    Promise.all([
+      getBidSourceCatalog(controller.signal),
+      getBidSourceRegistrations(controller.signal),
+    ])
+      .then(async ([catalog, registrations]) => {
+        const merged = mergeCatalogAndRegistrations(catalog, registrations);
+        const withStoredDiscovery = await Promise.all(merged.map(async item => {
+          if (item.sourceId == null || !item.discoveryStatus) return item;
+          try {
+            return { ...item, discovery: await getBidSourceDiscovery(item.sourceId, controller.signal) };
+          } catch (error) {
+            if (controller.signal.aborted) throw error;
+            return { ...item, discoveryLoadError: true };
+          }
+        }));
+        if (!controller.signal.aborted) setResource({ status: 'success', data: withStoredDiscovery });
       })
       .catch(() => {
         if (!controller.signal.aborted) setResource(current => ({ status: 'error', data: current.data }));
@@ -98,6 +202,57 @@ export default function BidSources() {
   }, [reloadVersion]);
 
   useEffect(() => () => registrationControllerRef.current?.abort(), []);
+
+  function setOperation(sourceId, type, status) {
+    setOperations(current => ({
+      ...current,
+      [sourceId]: { ...current[sourceId], [type]: status },
+    }));
+  }
+
+  function updateSource(sourceId, update) {
+    setResource(current => ({
+      ...current,
+      data: current.data.map(item => item.sourceId === sourceId ? { ...item, ...update } : item),
+    }));
+  }
+
+  async function checkSource(sourceId) {
+    if (operations[sourceId]?.check === 'loading') return;
+    setOperation(sourceId, 'check', 'loading');
+    try {
+      const result = await checkBidSource(sourceId);
+      updateSource(sourceId, {
+        checkStatus: result.checkStatus,
+        detectedCollectionMethod: result.detectedCollectionMethod,
+        httpStatus: result.httpStatus,
+        contentType: result.contentType,
+        checkedAt: result.checkedAt,
+        safeFailureCode: result.safeFailureCode,
+        siteIdentification: result.siteIdentification,
+        matchedSourceCode: result.matchedSourceCode,
+      });
+      setOperation(sourceId, 'check', 'success');
+    } catch {
+      setOperation(sourceId, 'check', 'error');
+    }
+  }
+
+  async function discoverSource(sourceId) {
+    if (operations[sourceId]?.discovery === 'loading') return;
+    setOperation(sourceId, 'discovery', 'loading');
+    try {
+      const result = await discoverBidSource(sourceId);
+      updateSource(sourceId, {
+        discoveryStatus: result.discoveryStatus,
+        discovery: result,
+        discoveryLoadError: false,
+      });
+      setOperation(sourceId, 'discovery', 'success');
+    } catch {
+      setOperation(sourceId, 'discovery', 'error');
+    }
+  }
 
   async function submit(event) {
     event.preventDefault();
@@ -113,13 +268,16 @@ export default function BidSources() {
     submittingRef.current = true;
     setSubmission({ status: 'loading', message: '' });
     try {
-      await registerBidSource({
+      const result = await registerBidSource({
         sourceName: form.sourceName.trim(),
         siteUrl: form.siteUrl.trim(),
       }, controller.signal);
       if (controller.signal.aborted) return;
       setForm({ sourceName: '', siteUrl: '' });
-      setSubmission({ status: 'success', message: '수집처가 등록되었습니다. 검토 후 수집 대상으로 연결됩니다.' });
+      const message = result.siteIdentification === 'SUPPORTED'
+        ? `기존 지원 사이트(${result.matchedSourceCode})로 확인되었습니다. 자동 연결이나 활성화는 수행되지 않았습니다.`
+        : '새 수집처로 등록되었습니다. 필요한 경우 사이트 점검을 실행해 주세요.';
+      setSubmission({ status: 'success', message });
       setReloadVersion(current => current + 1);
     } catch (error) {
       if (!controller.signal.aborted) {
@@ -174,8 +332,10 @@ export default function BidSources() {
         {resource.status === 'success' && resource.data.length > 0 && <div className="bid-source-table-wrap">
           <table className="bid-source-table">
             <thead><tr><th>수집처 이름</th><th>유형</th><th>사이트 URL</th><th>검토 상태</th>
-              <th>수집 방식</th><th>자동수집</th><th>최근 성공</th><th>최근 실패</th></tr></thead>
+              <th>수집 방식</th><th>자동수집</th><th>최근 성공</th><th>최근 실패</th><th>지원 식별</th>
+              <th>사이트 점검</th><th>구조 분석</th></tr></thead>
             <tbody>{resource.data.map(item => <CatalogRow item={item}
+              operation={operations[item.sourceId]} onCheck={checkSource} onDiscover={discoverSource}
               key={item.sourceCode || `registration-${item.sourceId}`} />)}</tbody>
           </table>
         </div>}

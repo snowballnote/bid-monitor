@@ -24,6 +24,8 @@ function isRegistration(value) {
     && typeof value.registrationStatus === 'string'
     && typeof value.collectionMethod === 'string'
     && typeof value.executionEnabled === 'boolean'
+    && ['SUPPORTED', 'NEW_SITE'].includes(value.siteIdentification)
+    && isNullableString(value.matchedSourceCode)
     && typeof value.createdAt === 'string'
     && typeof value.updatedAt === 'string';
 }
@@ -49,6 +51,38 @@ function isCatalogItem(value) {
     && isNullableString(value.safeFailureCode);
 }
 
+function isDiscovery(value) {
+  return value && Number.isInteger(value.sourceId)
+    && typeof value.discoveryStatus === 'string'
+    && isNullableString(value.detectedCollectionMethod)
+    && isNullableString(value.listPageUrl)
+    && isNullableString(value.detailUrlPattern)
+    && isNullableString(value.identifierMapping)
+    && isNullableString(value.titleMapping)
+    && isNullableString(value.agencyMapping)
+    && isNullableString(value.publishedDateMapping)
+    && isNullableString(value.deadlineMapping)
+    && isNullableString(value.statusMapping)
+    && isNullableString(value.attachmentMapping)
+    && isNullableString(value.paginationMapping)
+    && isNullableString(value.identifierConfidence)
+    && isNullableString(value.titleConfidence)
+    && isNullableString(value.deadlineConfidence)
+    && typeof value.attachmentDetected === 'boolean'
+    && typeof value.paginationDetected === 'boolean'
+    && Array.isArray(value.reasonCodes)
+    && value.reasonCodes.every(reason => typeof reason === 'string')
+    && isNullableString(value.analyzedAt);
+}
+
+async function requestJson(url, options, validator) {
+  const response = await fetch(url, options);
+  const result = await readJson(response);
+  if (!response.ok) throw new BidSourceRegistrationRequestError(response.status);
+  if (!validator(result)) throw new BidSourceRegistrationRequestError(503);
+  return result;
+}
+
 export async function getBidSourceCatalog(signal) {
   const response = await fetch(CATALOG_URL, { signal, headers: { Accept: 'application/json' } });
   if (!response.ok) throw new BidSourceRegistrationRequestError(response.status);
@@ -60,14 +94,40 @@ export async function getBidSourceCatalog(signal) {
 }
 
 export async function registerBidSource({ sourceName, siteUrl }, signal) {
-  const response = await fetch(BASE_URL, {
+  return requestJson(BASE_URL, {
     method: 'POST',
     signal,
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify({ sourceName, siteUrl }),
-  });
-  const result = await readJson(response);
-  if (!response.ok) throw new BidSourceRegistrationRequestError(response.status);
-  if (!isRegistration(result)) throw new BidSourceRegistrationRequestError(503);
-  return result;
+  }, isRegistration);
+}
+
+export async function getBidSourceRegistrations(signal) {
+  return requestJson(BASE_URL, {
+    signal,
+    headers: { Accept: 'application/json' },
+  }, value => Array.isArray(value) && value.every(isRegistration));
+}
+
+export async function checkBidSource(sourceId, signal) {
+  return requestJson(`${BASE_URL}/${sourceId}/check`, {
+    method: 'POST',
+    signal,
+    headers: { Accept: 'application/json' },
+  }, isRegistration);
+}
+
+export async function discoverBidSource(sourceId, signal) {
+  return requestJson(`${BASE_URL}/${sourceId}/discovery`, {
+    method: 'POST',
+    signal,
+    headers: { Accept: 'application/json' },
+  }, isDiscovery);
+}
+
+export async function getBidSourceDiscovery(sourceId, signal) {
+  return requestJson(`${BASE_URL}/${sourceId}/discovery`, {
+    signal,
+    headers: { Accept: 'application/json' },
+  }, isDiscovery);
 }

@@ -7,6 +7,14 @@ const pendingRegistration = {
   registrationStatus: 'PENDING_REVIEW',
   collectionMethod: 'UNDETERMINED',
   executionEnabled: false,
+  checkStatus: 'NOT_CHECKED',
+  detectedCollectionMethod: 'UNDETERMINED',
+  httpStatus: null,
+  contentType: null,
+  checkedAt: null,
+  safeFailureCode: null,
+  siteIdentification: 'NEW_SITE',
+  matchedSourceCode: null,
   createdAt: '2026-09-23T01:00:00Z',
   updatedAt: '2026-09-23T01:00:00Z',
 };
@@ -63,6 +71,29 @@ const reviewedCatalog = [...fixedCatalog, ...reviewedRegistrations.map(registrat
   checkStatus: 'NOT_CHECKED',
 }))];
 
+const readyDiscovery = {
+  sourceId: 1,
+  discoveryStatus: 'READY',
+  detectedCollectionMethod: 'PUBLIC_PAGE',
+  listPageUrl: 'https://bids.example.go.kr/notices',
+  detailUrlPattern: 'https://bids.example.go.kr/notices/{key}',
+  identifierMapping: 'a.notice@href::{key}',
+  titleMapping: 'a.notice::text',
+  agencyMapping: null,
+  publishedDateMapping: null,
+  deadlineMapping: 'td.deadline::text',
+  statusMapping: null,
+  attachmentMapping: 'a.attachment@href',
+  paginationMapping: null,
+  identifierConfidence: 'HIGH',
+  titleConfidence: 'HIGH',
+  deadlineConfidence: 'MEDIUM',
+  attachmentDetected: true,
+  paginationDetected: false,
+  reasonCodes: ['PAGINATION_NOT_DETECTED'],
+  analyzedAt: '2026-10-20T01:00:00Z',
+};
+
 async function mockBidPageApis(page) {
   await page.route('**/api/**', route => {
     const path = new URL(route.request().url()).pathname;
@@ -95,12 +126,17 @@ test('App Shell and saved bid list navigate to the bid source route', async ({ p
 test('renders the unified fixed catalog and registers only name and URL before reloading it', async ({ page }) => {
   const requests = [];
   let listCount = 0;
+  let registered = false;
   await page.route('**/api/**', route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     requests.push({ path, method: request.method(), body: request.postDataJSON?.() });
     if (path === '/api/bid-source-registrations' && request.method() === 'POST') {
+      registered = true;
       return route.fulfill({ status: 201, json: pendingRegistration });
+    }
+    if (path === '/api/bid-source-registrations' && request.method() === 'GET') {
+      return route.fulfill({ json: registered ? reviewedRegistrations : [] });
     }
     if (path === '/api/bid-sources/catalog') {
       listCount += 1;
@@ -122,7 +158,7 @@ test('renders the unified fixed catalog and registers only name and URL before r
   await page.getByLabel('사이트 URL').fill('https://bids.example.go.kr/notices');
   await page.getByRole('button', { name: '수집처 등록' }).click();
 
-  await expect(page.locator('.bid-source-form-message.success')).toContainText('수집처가 등록되었습니다.');
+  await expect(page.locator('.bid-source-form-message.success')).toContainText('새 수집처로 등록되었습니다.');
   await expect(page.locator('.bid-source-table tbody tr')).toHaveCount(6);
   await expect(page.locator('.bid-source-table')).toContainText('검토 대기');
   await expect(page.locator('.bid-source-table')).toContainText('검토 중');
@@ -150,6 +186,7 @@ test('shows safe validation, internal URL and duplicate URL messages', async ({ 
     const path = new URL(request.url()).pathname;
     if (path === '/api/bid-sources/catalog') return route.fulfill({ json: fixedCatalog });
     if (path !== '/api/bid-source-registrations') return route.fulfill({ status: 404, json: {} });
+    if (request.method() === 'GET') return route.fulfill({ json: [] });
     postCount += 1;
     return route.fulfill({ status: responseStatus, json: { message: 'internal exception and URI' } });
   });
@@ -182,6 +219,7 @@ test('prevents duplicate registration posts while a request is pending', async (
     const path = new URL(request.url()).pathname;
     if (path === '/api/bid-sources/catalog') return route.fulfill({ json: fixedCatalog });
     if (path !== '/api/bid-source-registrations') return route.fulfill({ status: 404, json: {} });
+    if (request.method() === 'GET') return route.fulfill({ json: [] });
     postCount += 1;
     await gate;
     return route.fulfill({ status: 201, json: pendingRegistration });
@@ -195,18 +233,124 @@ test('prevents duplicate registration posts while a request is pending', async (
   await pendingButton.evaluate(button => button.dispatchEvent(new MouseEvent('click', { bubbles: true })));
   expect(postCount).toBe(1);
   releasePost();
-  await expect(page.locator('.bid-source-form-message.success')).toContainText('수집처가 등록되었습니다.');
+  await expect(page.locator('.bid-source-form-message.success')).toContainText('새 수집처로 등록되었습니다.');
+});
+
+test('runs availability check and structure discovery only after explicit button clicks', async ({ page }) => {
+  const requests = [];
+  let storedDiscovery = false;
+  let checkAttempts = 0;
+  const reachableRegistration = {
+    ...pendingRegistration,
+    checkStatus: 'REACHABLE',
+    detectedCollectionMethod: 'PUBLIC_PAGE',
+    httpStatus: 200,
+    contentType: 'text/html; charset=UTF-8',
+    checkedAt: '2026-10-20T00:30:00Z',
+  };
+
+  await page.route('**/api/**', route => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    requests.push({ path, method: request.method() });
+    if (path === '/api/bid-sources/catalog') {
+      return route.fulfill({ json: [catalogItem({
+        sourceId: 1,
+        sourceName: pendingRegistration.sourceName,
+        siteUrl: pendingRegistration.siteUrl,
+        registrationStatus: 'PENDING_REVIEW',
+        checkStatus: storedDiscovery ? 'REACHABLE' : 'NOT_CHECKED',
+        discoveryStatus: storedDiscovery ? 'READY' : null,
+      })] });
+    }
+    if (path === '/api/bid-source-registrations' && request.method() === 'GET') {
+      return route.fulfill({ json: [storedDiscovery ? reachableRegistration : pendingRegistration] });
+    }
+    if (path === '/api/bid-source-registrations/1/check' && request.method() === 'POST') {
+      checkAttempts += 1;
+      if (checkAttempts === 1) return route.fulfill({ status: 503, json: {} });
+      return route.fulfill({ json: reachableRegistration });
+    }
+    if (path === '/api/bid-source-registrations/1/discovery' && request.method() === 'POST') {
+      storedDiscovery = true;
+      return route.fulfill({ json: readyDiscovery });
+    }
+    if (path === '/api/bid-source-registrations/1/discovery' && request.method() === 'GET') {
+      return route.fulfill({ json: readyDiscovery });
+    }
+    return route.fulfill({ status: 404, json: {} });
+  });
+
+  await page.goto('/react/index.html#/bid-sources');
+  expect(requests.some(request => request.path.endsWith('/check'))).toBe(false);
+  expect(requests.some(request => request.path.endsWith('/discovery'))).toBe(false);
+  await expect(page.getByText('신규 사이트')).toBeVisible();
+  await expect(page.getByRole('button', { name: '구조 분석' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: '사이트 점검' }).click();
+  await expect(page.getByRole('alert')).toHaveText('점검 요청에 실패했습니다.');
+  await page.getByRole('button', { name: '사이트 점검' }).click();
+  await expect(page.getByText('접근 가능')).toBeVisible();
+  await expect(page.getByRole('button', { name: '구조 분석' })).toBeVisible();
+  expect(requests.filter(request => request.path.endsWith('/check'))).toHaveLength(2);
+
+  await page.getByRole('button', { name: '구조 분석' }).click();
+  await expect(page.getByText('분석 완료')).toBeVisible();
+  await expect(page.locator('.bid-source-discovery-details')).toContainText('공개 페이지');
+  await expect(page.locator('.bid-source-discovery-details')).toContainText('높음');
+  await expect(page.locator('.bid-source-discovery-details')).toContainText('PAGINATION_NOT_DETECTED');
+  expect(requests.filter(request => request.path.endsWith('/discovery') && request.method === 'POST')).toHaveLength(1);
+
+  await page.reload();
+  await expect(page.getByText('분석 완료')).toBeVisible();
+  await expect(page.locator('.bid-source-discovery-details')).toContainText('PAGINATION_NOT_DETECTED');
+  expect(requests.some(request => request.path.endsWith('/discovery') && request.method === 'GET')).toBe(true);
+});
+
+test('shows supported-site identification after registration without checking or binding it', async ({ page }) => {
+  const requests = [];
+  const supportedRegistration = {
+    ...pendingRegistration,
+    sourceName: '나라장터 등록',
+    siteUrl: 'https://www.g2b.go.kr/',
+    siteIdentification: 'SUPPORTED',
+    matchedSourceCode: 'G2B',
+  };
+  await page.route('**/api/**', route => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    requests.push({ path, method: request.method() });
+    if (path === '/api/bid-sources/catalog') return route.fulfill({ json: fixedCatalog });
+    if (path === '/api/bid-source-registrations' && request.method() === 'GET') {
+      return route.fulfill({ json: [] });
+    }
+    if (path === '/api/bid-source-registrations' && request.method() === 'POST') {
+      return route.fulfill({ status: 201, json: supportedRegistration });
+    }
+    return route.fulfill({ status: 404, json: {} });
+  });
+
+  await page.goto('/react/index.html#/bid-sources');
+  await page.getByLabel('수집처 이름').fill('나라장터 등록');
+  await page.getByLabel('사이트 URL').fill('https://www.g2b.go.kr/');
+  await page.getByRole('button', { name: '수집처 등록' }).click();
+  await expect(page.locator('.bid-source-form-message.success')).toContainText('기존 지원 사이트(G2B)');
+  expect(requests.some(request => request.path.endsWith('/check'))).toBe(false);
+  expect(requests.some(request => request.path.endsWith('/binding'))).toBe(false);
+  expect(requests.some(request => request.path.endsWith('/activation'))).toBe(false);
 });
 
 test('shows loading, list error and server registration error without raw details', async ({ page }) => {
   let pendingList;
   await page.route('**/api/**', route => {
-    const path = new URL(route.request().url()).pathname;
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
     if (path === '/api/bid-sources/catalog') {
       pendingList = route;
       return;
     }
     if (path !== '/api/bid-source-registrations') return route.fulfill({ status: 404, json: {} });
+    if (request.method() === 'GET') return route.fulfill({ json: [] });
     return route.fulfill({ status: 503, json: { message: 'database path and stack trace' } });
   });
   await page.goto('/react/index.html#/bid-sources');
@@ -225,6 +369,7 @@ test('shows loading, list error and server registration error without raw detail
 test('bid source management fits a 390px viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/bid-sources/catalog', route => route.fulfill({ json: reviewedCatalog }));
+  await page.route('**/api/bid-source-registrations', route => route.fulfill({ json: reviewedRegistrations }));
   await page.goto('/react/index.html#/bid-sources');
   await expect(page.locator('.bid-source-table tbody tr')).toHaveCount(6);
   await expect(page.locator('.bid-source-table thead')).toBeHidden();
