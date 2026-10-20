@@ -201,6 +201,11 @@ public class BidQualificationEvaluationService {
         LicenseReviewResult licenseReviewResult = reviewLicenseGroups(
                 qualification.getLicenseGroups(), allowedLicenseCodes
         );
+        if (licenseReviewResult.definitiveMismatch()) {
+            qualification.setReviewStatus("제외");
+            qualification.setReviewReason(licenseReviewResult.reason());
+            return;
+        }
         if (!licenseReviewResult.satisfied()) {
             additionalCheckReasons.add(licenseReviewResult.reason());
         }
@@ -258,7 +263,7 @@ public class BidQualificationEvaluationService {
             }
 
             if (missingCodes.isEmpty() && !groupHasUnknownLicenseCode) {
-                return new LicenseReviewResult(true, "");
+                return new LicenseReviewResult(true, false, "");
             }
             hasUnknownLicenseCode |= groupHasUnknownLicenseCode;
             if (!missingCodes.isEmpty()
@@ -267,20 +272,20 @@ public class BidQualificationEvaluationService {
             }
         }
 
-        if (closestMissingCodes != null) {
-            return new LicenseReviewResult(false,
+        if (closestMissingCodes != null && !hasUnknownLicenseCode) {
+            return new LicenseReviewResult(false, true,
                     "허용 면허조건 불일치: " + String.join(", ", closestMissingCodes));
         }
         if (hasUnknownLicenseCode) {
-            return new LicenseReviewResult(false, "면허조건 코드 확인 필요");
+            return new LicenseReviewResult(false, false, "면허조건 코드 확인 필요");
         }
-        return new LicenseReviewResult(false, "면허조건 정보 확인 필요");
+        return new LicenseReviewResult(false, false, "면허조건 정보 확인 필요");
     }
 
     private String safeValue(String value) {
         return value == null ? "" : value;
     }
 
-    private record LicenseReviewResult(boolean satisfied, String reason) {
+    private record LicenseReviewResult(boolean satisfied, boolean definitiveMismatch, String reason) {
     }
 }

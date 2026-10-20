@@ -2145,7 +2145,7 @@ public class G2bApiService {
             Set<String> allowedLicenseCodes,
             boolean includeUnknownRelevance
     ) {
-        if (hasConclusiveLicenseQualification(candidate, allowedLicenseCodes)) {
+        if (hasMatchingLicenseQualification(candidate, allowedLicenseCodes)) {
             return true;
         }
         String title = candidate == null ? null : candidate.getBidNtceNm();
@@ -2154,15 +2154,13 @@ public class G2bApiService {
                 || (relevance == BidRelevance.UNKNOWN && includeUnknownRelevance);
     }
 
-    private boolean hasConclusiveLicenseQualification(
+    private boolean hasMatchingLicenseQualification(
             BidQualificationDto candidate,
             Set<String> allowedLicenseCodes
     ) {
         List<LicenseRequirementGroup> groups = candidate == null || candidate.getLicenseGroups() == null
                 ? List.of()
                 : candidate.getLicenseGroups();
-        boolean hasQualificationGroup = false;
-        boolean hasIncompleteAlternative = false;
 
         for (LicenseRequirementGroup group : groups) {
             List<LicenseRequirement> requirements = group == null || group.getRequirements() == null
@@ -2171,7 +2169,6 @@ public class G2bApiService {
             if (requirements.isEmpty()) {
                 continue;
             }
-            hasQualificationGroup = true;
             boolean groupComplete = true;
             boolean groupSatisfied = true;
             for (LicenseRequirement requirement : requirements) {
@@ -2188,9 +2185,8 @@ public class G2bApiService {
             if (groupComplete && groupSatisfied) {
                 return true;
             }
-            hasIncompleteAlternative |= !groupComplete;
         }
-        return hasQualificationGroup && !hasIncompleteAlternative;
+        return false;
     }
 
     private void addUniqueCandidate(

@@ -38,12 +38,12 @@ class G2bApiServiceLicenseReviewTests {
     }
 
     @Test
-    void unallowedCodeInAndGroupRequiresAdditionalReview() throws Exception {
+    void unallowedCodeInCompleteAndGroupIsExcluded() throws Exception {
         BidQualificationDto qualification = qualification(group("1", "6146", "3572"));
 
         applyReview(qualification, DEFAULT_ALLOWED_CODES);
 
-        assertEquals("추가확인필요", qualification.getReviewStatus());
+        assertEquals("제외", qualification.getReviewStatus());
         assertEquals("허용 면허조건 불일치: 3572", qualification.getReviewReason());
     }
 
@@ -74,7 +74,7 @@ class G2bApiServiceLicenseReviewTests {
 
         applyReview(qualification, DEFAULT_ALLOWED_CODES);
 
-        assertEquals("추가확인필요", qualification.getReviewStatus());
+        assertEquals("제외", qualification.getReviewStatus());
         assertEquals("허용 면허조건 불일치: 9999", qualification.getReviewReason());
     }
 

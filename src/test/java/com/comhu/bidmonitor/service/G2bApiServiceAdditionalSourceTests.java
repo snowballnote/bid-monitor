@@ -165,7 +165,7 @@ class G2bApiServiceAdditionalSourceTests {
     }
 
     @Test
-    void explicitMismatchOverridesRelevantTitleAndPreservesQualificationResult() {
+    void explicitMismatchOverridesRelevantTitleAndIsExcluded() {
         G2bApiService service = new EmptyG2bFixtureService(List.of());
         BidQualificationDto candidate = qualifiedCandidate(
                 "D2B-MISMATCH", "정보시스템 감리 용역", group("1", "6146")
@@ -175,7 +175,7 @@ class G2bApiServiceAdditionalSourceTests {
                 collector("D2B", List.of()), List.of(candidate), Set.of("6525")
         ).getFirst();
 
-        assertEquals("추가확인필요", result.getReviewStatus());
+        assertEquals("제외", result.getReviewStatus());
         assertTrue(result.getReviewReason().contains("6146"));
     }
 

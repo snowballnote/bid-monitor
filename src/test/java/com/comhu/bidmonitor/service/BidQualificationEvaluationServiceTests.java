@@ -150,7 +150,18 @@ class BidQualificationEvaluationServiceTests {
     }
 
     @Test
-    void rejectsRequirementOutsideCurrentSettingAndPreservesAndWithinGroup() {
+    void privacyImpactAssessmentWithUnallowedIndustryIsExcluded() {
+        BidQualificationDto notice = eligibleNotice("개인정보 영향평가 용역");
+        notice.setLicenseGroups(List.of(group("6525")));
+
+        service.evaluate(notice, ALLOWED_LICENSE_CODES);
+
+        assertEquals("제외", notice.getReviewStatus());
+        assertEquals("허용 면허조건 불일치: 6525", notice.getReviewReason());
+    }
+
+    @Test
+    void excludesRequirementsOutsideCurrentSettingAndPreservesAndWithinGroup() {
         BidQualificationDto removedCode = eligibleNotice("삭제된 업종 공고");
         BidQualificationDto andGroup = eligibleNotice("복수 필수 업종 공고");
         andGroup.setLicenseGroups(List.of(new LicenseRequirementGroup("1", List.of(
@@ -160,10 +171,24 @@ class BidQualificationEvaluationServiceTests {
         service.evaluate(removedCode, Set.of("1468"));
         service.evaluate(andGroup, Set.of("6525"));
 
-        assertEquals("추가확인필요", removedCode.getReviewStatus());
+        assertEquals("제외", removedCode.getReviewStatus());
         assertTrue(removedCode.getReviewReason().contains("6146"));
-        assertEquals("추가확인필요", andGroup.getReviewStatus());
+        assertEquals("제외", andGroup.getReviewStatus());
         assertTrue(andGroup.getReviewReason().contains("6146"));
+    }
+
+    @Test
+    void incompleteAlternativeRemainsUnknownInsteadOfBecomingDefinitiveMismatch() {
+        BidQualificationDto notice = eligibleNotice("불완전한 복수 면허 공고");
+        notice.setLicenseGroups(List.of(
+                group("6525"),
+                new LicenseRequirementGroup("2", List.of(requirement("")))
+        ));
+
+        service.evaluate(notice, ALLOWED_LICENSE_CODES);
+
+        assertEquals("추가확인필요", notice.getReviewStatus());
+        assertTrue(notice.getReviewReason().contains("면허조건 코드 확인 필요"));
     }
 
     @Test
