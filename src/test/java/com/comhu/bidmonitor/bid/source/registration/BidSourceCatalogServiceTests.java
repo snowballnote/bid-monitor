@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -33,6 +34,18 @@ class BidSourceCatalogServiceTests {
     private final BidSourceCatalogService service = new BidSourceCatalogService(
             registrations, discoveries, reviews, states, registry
     );
+
+    @Test
+    void exposesOnlyTheSixVerifiedFixedSiteUrlsForIdentification() {
+        assertEquals(Map.of(
+                "G2B", "https://www.g2b.go.kr/",
+                "KOREA_EXPRESSWAY", "https://ebid.ex.co.kr/",
+                "KOGAS", "https://bid.kogas.or.kr:9443/",
+                "D2B", "https://www.d2b.go.kr/",
+                "LH", "https://ebid.lh.or.kr/",
+                "KWATER", "https://ebid.kwater.or.kr/"
+        ), service.fixedSiteUrlsBySourceCode());
+    }
 
     @Test
     void alwaysIncludesSixFixedSourcesEvenWhenOptionalCollectorsAreDisabled() {

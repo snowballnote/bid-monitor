@@ -424,6 +424,8 @@ class BidSourceRegistrationControllerTests {
                 .andExpect(jsonPath("$.detectedCollectionMethod").value("UNDETERMINED"))
                 .andExpect(jsonPath("$.httpStatus").doesNotExist())
                 .andExpect(jsonPath("$.checkedAt").doesNotExist())
+                .andExpect(jsonPath("$.siteIdentification").value("NEW_SITE"))
+                .andExpect(jsonPath("$.matchedSourceCode").doesNotExist())
                 .andExpect(jsonPath("$.createdAt").exists())
                 .andExpect(jsonPath("$.updatedAt").exists());
 
@@ -439,6 +441,37 @@ class BidSourceRegistrationControllerTests {
                 "SELECT COUNT(*) FROM bid_source_registration WHERE source_code IS NOT NULL",
                 Integer.class
         ));
+    }
+
+    @Test
+    void identifiesSupportedSiteWithoutBindingOrActivatingIt() throws Exception {
+        mockMvc.perform(post("/api/bid-source-registrations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "sourceName", "G2B registration",
+                                "siteUrl", "HTTPS://WWW.G2B.GO.KR:443"
+                        ))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.siteUrl").value("https://www.g2b.go.kr/"))
+                .andExpect(jsonPath("$.siteIdentification").value("SUPPORTED"))
+                .andExpect(jsonPath("$.matchedSourceCode").value("G2B"))
+                .andExpect(jsonPath("$.sourceCode").doesNotExist())
+                .andExpect(jsonPath("$.executionEnabled").value(false));
+    }
+
+    @Test
+    void keepsKorailClassifiedAsNewSiteAndDisabled() throws Exception {
+        mockMvc.perform(post("/api/bid-source-registrations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "sourceName", "KORAIL registration",
+                                "siteUrl", "https://ebid.korail.com/"
+                        ))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.siteIdentification").value("NEW_SITE"))
+                .andExpect(jsonPath("$.matchedSourceCode").doesNotExist())
+                .andExpect(jsonPath("$.sourceCode").doesNotExist())
+                .andExpect(jsonPath("$.executionEnabled").value(false));
     }
 
     @Test

@@ -75,6 +75,14 @@ public class BidSourceCatalogService {
                 .toList();
     }
 
+    public Map<String, String> fixedSiteUrlsBySourceCode() {
+        Map<String, String> result = new LinkedHashMap<>();
+        for (FixedSource source : FIXED_SOURCES) {
+            result.put(source.sourceCode(), source.siteUrl());
+        }
+        return Map.copyOf(result);
+    }
+
     private BidSourceCatalogItem toItem(
             CatalogEntry entry,
             Map<String, Boolean> executableByCode,

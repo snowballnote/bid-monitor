@@ -211,6 +211,11 @@ public class ManualBidCollectionSourceRegistry {
         return Set.copyOf(sourceCodes);
     }
 
+    public boolean isBuiltInSourceCode(String sourceCode) {
+        String normalized = normalizeSourceCode(sourceCode);
+        return normalized != null && BUILT_IN_SOURCE_CODES.contains(normalized);
+    }
+
     /** Collectors that can satisfy registration activation, including discovered adapters. */
     public List<BidCandidateCollector> registrationBindingCollectors() {
         List<BidCandidateCollector> collectors = new ArrayList<>(additionalCollectors);

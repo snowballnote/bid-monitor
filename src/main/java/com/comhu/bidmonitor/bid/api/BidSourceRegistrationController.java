@@ -10,6 +10,7 @@ import com.comhu.bidmonitor.bid.api.dto.BidSourceBindingRequest;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceActivationRequest;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceRegistrationService;
+import com.comhu.bidmonitor.bid.source.registration.BidSourceSiteIdentificationService;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceDiscoveryService;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceDiscoveryReviewService;
 import org.springframework.http.ResponseEntity;
@@ -30,15 +31,18 @@ import java.util.List;
 public class BidSourceRegistrationController {
 
     private final BidSourceRegistrationService service;
+    private final BidSourceSiteIdentificationService siteIdentificationService;
     private final BidSourceDiscoveryService discoveryService;
     private final BidSourceDiscoveryReviewService discoveryReviewService;
 
     public BidSourceRegistrationController(
             BidSourceRegistrationService service,
+            BidSourceSiteIdentificationService siteIdentificationService,
             BidSourceDiscoveryService discoveryService,
             BidSourceDiscoveryReviewService discoveryReviewService
     ) {
         this.service = service;
+        this.siteIdentificationService = siteIdentificationService;
         this.discoveryService = discoveryService;
         this.discoveryReviewService = discoveryReviewService;
     }
@@ -54,7 +58,10 @@ public class BidSourceRegistrationController {
         BidSourceRegistration registration = service.register(request.sourceName(), request.siteUrl());
         return ResponseEntity.created(URI.create(
                         "/api/bid-source-registrations/" + registration.getSourceId()))
-                .body(BidSourceRegistrationResponse.from(registration));
+                .body(BidSourceRegistrationResponse.from(
+                        registration,
+                        siteIdentificationService.identify(registration.getSiteUrl())
+                ));
     }
 
     @GetMapping
