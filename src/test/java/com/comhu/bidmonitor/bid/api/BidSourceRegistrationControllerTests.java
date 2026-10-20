@@ -852,12 +852,15 @@ class BidSourceRegistrationControllerTests {
         mockMvc.perform(get("/api/bid-source-registrations"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].sourceName").value("Second"))
+                .andExpect(jsonPath("$[0].siteIdentification").value("NEW_SITE"))
+                .andExpect(jsonPath("$[0].matchedSourceCode").doesNotExist())
                 .andExpect(jsonPath("$[1].sourceName").value("First"));
 
         mockMvc.perform(get("/api/bid-source-registrations/{sourceId}", secondId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sourceId").value(secondId))
-                .andExpect(jsonPath("$.sourceName").value("Second"));
+                .andExpect(jsonPath("$.sourceName").value("Second"))
+                .andExpect(jsonPath("$.siteIdentification").value("NEW_SITE"));
 
         mockMvc.perform(get("/api/bid-source-registrations/999999"))
                 .andExpect(status().isNotFound())

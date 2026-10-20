@@ -58,20 +58,17 @@ public class BidSourceRegistrationController {
         BidSourceRegistration registration = service.register(request.sourceName(), request.siteUrl());
         return ResponseEntity.created(URI.create(
                         "/api/bid-source-registrations/" + registration.getSourceId()))
-                .body(BidSourceRegistrationResponse.from(
-                        registration,
-                        siteIdentificationService.identify(registration.getSiteUrl())
-                ));
+                .body(toResponse(registration));
     }
 
     @GetMapping
     public List<BidSourceRegistrationResponse> findAll() {
-        return service.findAll().stream().map(BidSourceRegistrationResponse::from).toList();
+        return service.findAll().stream().map(this::toResponse).toList();
     }
 
     @GetMapping("/{sourceId}")
     public BidSourceRegistrationResponse findById(@PathVariable long sourceId) {
-        return BidSourceRegistrationResponse.from(service.findById(sourceId));
+        return toResponse(service.findById(sourceId));
     }
 
     @PatchMapping("/{sourceId}/review")
@@ -84,7 +81,7 @@ public class BidSourceRegistrationController {
             throw new IllegalArgumentException("Request body is required.");
         }
         request.rejectExecutionSetting();
-        return BidSourceRegistrationResponse.from(service.review(
+        return toResponse(service.review(
                 sourceId,
                 request.registrationStatus(),
                 request.collectionMethod(),
@@ -94,7 +91,7 @@ public class BidSourceRegistrationController {
 
     @PostMapping("/{sourceId}/check")
     public BidSourceRegistrationResponse check(@PathVariable long sourceId) {
-        return BidSourceRegistrationResponse.from(service.check(sourceId));
+        return toResponse(service.check(sourceId));
     }
 
     @PostMapping("/{sourceId}/discovery")
@@ -138,7 +135,7 @@ public class BidSourceRegistrationController {
         if (request == null) {
             throw new IllegalArgumentException("Request body is required.");
         }
-        return BidSourceRegistrationResponse.from(
+        return toResponse(
                 service.bind(sourceId, request.sourceCode(), actor(principal))
         );
     }
@@ -152,8 +149,15 @@ public class BidSourceRegistrationController {
         if (request == null) {
             throw new IllegalArgumentException("Request body is required.");
         }
-        return BidSourceRegistrationResponse.from(
+        return toResponse(
                 service.activate(sourceId, request.requiredExecutionEnabled(), actor(principal))
+        );
+    }
+
+    private BidSourceRegistrationResponse toResponse(BidSourceRegistration registration) {
+        return BidSourceRegistrationResponse.from(
+                registration,
+                siteIdentificationService.identify(registration.getSiteUrl())
         );
     }
 
