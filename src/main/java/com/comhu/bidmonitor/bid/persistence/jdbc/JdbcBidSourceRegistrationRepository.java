@@ -40,20 +40,21 @@ public class JdbcBidSourceRegistrationRepository implements BidSourceRegistratio
         jdbcTemplate.update(connection -> {
             PreparedStatement statement = connection.prepareStatement("""
                     INSERT INTO bid_source_registration (
-                        source_name, site_url, registration_status, collection_method,
+                        source_name, site_url, source_code, registration_status, collection_method,
                         execution_enabled, check_status, detected_collection_method,
                         created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, new String[]{"source_id"});
             statement.setString(1, registration.getSourceName());
             statement.setString(2, registration.getSiteUrl());
-            statement.setString(3, registration.getRegistrationStatus().name());
-            statement.setString(4, registration.getCollectionMethod().name());
-            statement.setBoolean(5, registration.isExecutionEnabled());
-            statement.setString(6, registration.getCheckStatus().name());
-            statement.setString(7, registration.getDetectedCollectionMethod().name());
-            statement.setTimestamp(8, Timestamp.from(registration.getCreatedAt()));
-            statement.setTimestamp(9, Timestamp.from(registration.getUpdatedAt()));
+            statement.setString(3, registration.getSourceCode());
+            statement.setString(4, registration.getRegistrationStatus().name());
+            statement.setString(5, registration.getCollectionMethod().name());
+            statement.setBoolean(6, registration.isExecutionEnabled());
+            statement.setString(7, registration.getCheckStatus().name());
+            statement.setString(8, registration.getDetectedCollectionMethod().name());
+            statement.setTimestamp(9, Timestamp.from(registration.getCreatedAt()));
+            statement.setTimestamp(10, Timestamp.from(registration.getUpdatedAt()));
             return statement;
         }, keyHolder);
         Long sourceId = keyHolder.getKeyAs(Long.class);
@@ -136,6 +137,44 @@ public class JdbcBidSourceRegistrationRepository implements BidSourceRegistratio
                         """,
                 Timestamp.from(updatedAt), sourceId
         ) == 1;
+    }
+
+    @Override
+    public boolean updateConfiguration(
+            long sourceId,
+            String sourceName,
+            String siteUrl,
+            String sourceCode,
+            BidSourceRegistration.RegistrationStatus registrationStatus,
+            BidSourceRegistration.CollectionMethod collectionMethod,
+            boolean executionEnabled,
+            BidSourceRegistration.CollectionMethod detectedCollectionMethod,
+            Instant updatedAt
+    ) {
+        Objects.requireNonNull(registrationStatus, "Registration status is required.");
+        Objects.requireNonNull(collectionMethod, "Collection method is required.");
+        Objects.requireNonNull(detectedCollectionMethod, "Detected collection method is required.");
+        Objects.requireNonNull(updatedAt, "Configuration update time is required.");
+        return jdbcTemplate.update("""
+                        UPDATE bid_source_registration
+                        SET source_name = ?, site_url = ?, source_code = ?, registration_status = ?,
+                            collection_method = ?, execution_enabled = ?, check_status = 'NOT_CHECKED',
+                            detected_collection_method = ?, http_status = NULL, content_type = NULL,
+                            check_attempt_id = NULL, check_started_at = NULL, checked_at = NULL,
+                            safe_failure_code = NULL, updated_at = ?
+                        WHERE source_id = ?
+                        """,
+                sourceName, siteUrl, sourceCode, registrationStatus.name(), collectionMethod.name(),
+                executionEnabled, detectedCollectionMethod.name(), Timestamp.from(updatedAt), sourceId
+        ) == 1;
+    }
+
+    @Override
+    @Transactional
+    public boolean deleteById(long sourceId) {
+        jdbcTemplate.update("DELETE FROM bid_source_discovery_review_audit WHERE source_id = ?", sourceId);
+        jdbcTemplate.update("DELETE FROM bid_source_registration_audit WHERE source_id = ?", sourceId);
+        return jdbcTemplate.update("DELETE FROM bid_source_registration WHERE source_id = ?", sourceId) == 1;
     }
 
     @Override
@@ -257,7 +296,6 @@ public class JdbcBidSourceRegistrationRepository implements BidSourceRegistratio
     private void validateNew(BidSourceRegistration registration) {
         Objects.requireNonNull(registration, "Bid source registration is required.");
         if (registration.getSourceId() != null
-                || registration.getSourceCode() != null
                 || registration.getSourceName() == null || registration.getSourceName().isBlank()
                 || registration.getSiteUrl() == null || registration.getSiteUrl().isBlank()
                 || registration.getRegistrationStatus() == null
@@ -267,8 +305,11 @@ public class JdbcBidSourceRegistrationRepository implements BidSourceRegistratio
                 || registration.getCreatedAt() == null || registration.getUpdatedAt() == null) {
             throw new IllegalArgumentException("A complete new bid source registration is required.");
         }
-        if (registration.isExecutionEnabled()) {
-            throw new IllegalArgumentException("New bid source registrations cannot be enabled.");
+        if (registration.isExecutionEnabled()
+                && (registration.getSourceCode() == null
+                || registration.getRegistrationStatus() != BidSourceRegistration.RegistrationStatus.APPROVED
+                || registration.getCollectionMethod() == BidSourceRegistration.CollectionMethod.UNDETERMINED)) {
+            throw new IllegalArgumentException("Enabled registrations require a supported collector configuration.");
         }
     }
 

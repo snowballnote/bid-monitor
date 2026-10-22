@@ -8,6 +8,7 @@ import com.comhu.bidmonitor.bid.api.dto.BidSourceDiscoveryReviewResponse;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceReviewRequest;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceBindingRequest;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceActivationRequest;
+import com.comhu.bidmonitor.bid.api.dto.BidSourceUpdateRequest;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
 import com.comhu.bidmonitor.bid.collection.ManualBidCollectionSourceRegistry;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceRegistrationService;
@@ -16,6 +17,7 @@ import com.comhu.bidmonitor.bid.source.registration.BidSourceDiscoveryService;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceDiscoveryReviewService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -75,6 +77,23 @@ public class BidSourceRegistrationController {
     @GetMapping("/{sourceId}")
     public BidSourceRegistrationResponse findById(@PathVariable long sourceId) {
         return toResponse(service.findById(sourceId));
+    }
+
+    @PatchMapping("/{sourceId}")
+    public BidSourceRegistrationResponse update(
+            @PathVariable long sourceId,
+            @RequestBody BidSourceUpdateRequest request
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException("Request body is required.");
+        }
+        return toResponse(service.update(sourceId, request.sourceName(), request.siteUrl()));
+    }
+
+    @DeleteMapping("/{sourceId}")
+    public ResponseEntity<Void> delete(@PathVariable long sourceId) {
+        service.delete(sourceId);
+        return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/{sourceId}/review")
@@ -164,7 +183,8 @@ public class BidSourceRegistrationController {
         BidSourceSiteIdentificationService.Identification identification =
                 siteIdentificationService.identify(registration.getSiteUrl());
         boolean bindingSupported = identification.matchedSourceCode() != null
-                && sourceRegistry.registrationBindingSourceCodes().contains(identification.matchedSourceCode());
+                && (sourceRegistry.isBuiltInSourceCode(identification.matchedSourceCode())
+                || sourceRegistry.registrationBindingSourceCodes().contains(identification.matchedSourceCode()));
         return BidSourceRegistrationResponse.from(registration, identification, bindingSupported);
     }
 

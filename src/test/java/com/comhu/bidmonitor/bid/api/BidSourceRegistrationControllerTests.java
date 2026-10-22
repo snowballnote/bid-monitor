@@ -47,6 +47,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -380,7 +381,7 @@ class BidSourceRegistrationControllerTests {
     }
 
     @Test
-    void identifiesSupportedSiteWithoutBindingOrActivatingIt() throws Exception {
+    void automaticallyConnectsAndActivatesSupportedG2bUrl() throws Exception {
         mockMvc.perform(post("/api/bid-source-registrations")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of(
@@ -391,13 +392,16 @@ class BidSourceRegistrationControllerTests {
                 .andExpect(jsonPath("$.siteUrl").value("https://www.g2b.go.kr/"))
                 .andExpect(jsonPath("$.siteIdentification").value("SUPPORTED"))
                 .andExpect(jsonPath("$.matchedSourceCode").value("G2B"))
-                .andExpect(jsonPath("$.registrationBindingSupported").value(false))
-                .andExpect(jsonPath("$.sourceCode").doesNotExist())
-                .andExpect(jsonPath("$.executionEnabled").value(false));
+                .andExpect(jsonPath("$.registrationBindingSupported").value(true))
+                .andExpect(jsonPath("$.sourceCode").value("G2B"))
+                .andExpect(jsonPath("$.registrationStatus").value("APPROVED"))
+                .andExpect(jsonPath("$.collectionMethod").value("OFFICIAL_API"))
+                .andExpect(jsonPath("$.detectedCollectionMethod").value("OFFICIAL_API"))
+                .andExpect(jsonPath("$.executionEnabled").value(true));
     }
 
     @Test
-    void reportsBindingSupportOnlyForACollectorThatAllowsRegistrationBinding() throws Exception {
+    void automaticallyConnectsSupportedButConfiguredDisabledKogasUrl() throws Exception {
         mockMvc.perform(post("/api/bid-source-registrations")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of(
@@ -408,7 +412,9 @@ class BidSourceRegistrationControllerTests {
                 .andExpect(jsonPath("$.siteIdentification").value("SUPPORTED"))
                 .andExpect(jsonPath("$.matchedSourceCode").value("KOGAS"))
                 .andExpect(jsonPath("$.registrationBindingSupported").value(true))
-                .andExpect(jsonPath("$.sourceCode").doesNotExist())
+                .andExpect(jsonPath("$.sourceCode").value("KOGAS"))
+                .andExpect(jsonPath("$.registrationStatus").value("APPROVED"))
+                .andExpect(jsonPath("$.collectionMethod").value("PUBLIC_PAGE"))
                 .andExpect(jsonPath("$.executionEnabled").value(false));
     }
 
@@ -426,6 +432,38 @@ class BidSourceRegistrationControllerTests {
                 .andExpect(jsonPath("$.registrationBindingSupported").value(false))
                 .andExpect(jsonPath("$.sourceCode").doesNotExist())
                 .andExpect(jsonPath("$.executionEnabled").value(false));
+    }
+
+    @Test
+    void updatesRegistrationAndReidentifiesSupportedUrl() throws Exception {
+        register("Temporary source", "https://temporary.example/notices");
+        long sourceId = sourceId("Temporary source");
+
+        mockMvc.perform(patch("/api/bid-source-registrations/{sourceId}", sourceId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "sourceName", "G2B edited",
+                                "siteUrl", "HTTPS://WWW.G2B.GO.KR:443/"
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceName").value("G2B edited"))
+                .andExpect(jsonPath("$.siteUrl").value("https://www.g2b.go.kr/"))
+                .andExpect(jsonPath("$.sourceCode").value("G2B"))
+                .andExpect(jsonPath("$.registrationStatus").value("APPROVED"))
+                .andExpect(jsonPath("$.executionEnabled").value(true));
+    }
+
+    @Test
+    void deletesRegistrationAndAllowsTheSameUrlToBeRegisteredAgain() throws Exception {
+        register("Disposable source", "https://disposable.example/notices");
+        long sourceId = sourceId("Disposable source");
+
+        mockMvc.perform(delete("/api/bid-source-registrations/{sourceId}", sourceId))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/bid-source-registrations/{sourceId}", sourceId))
+                .andExpect(status().isNotFound());
+
+        register("Replacement source", "https://disposable.example/notices");
     }
 
     @Test

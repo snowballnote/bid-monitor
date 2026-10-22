@@ -200,6 +200,21 @@ public class ManualBidCollectionSourceRegistry {
                 .collect(Collectors.toUnmodifiableSet());
     }
 
+    /** Whether a verified built-in source has an executable collector in this installation. */
+    public boolean collectorConfigurationEnabled(String sourceCode) {
+        String normalized = normalizeSourceCode(sourceCode);
+        if (normalized == null || !BUILT_IN_SOURCE_CODES.contains(normalized)) {
+            return false;
+        }
+        if ("G2B".equals(normalized)) {
+            return true;
+        }
+        return additionalCollectors.stream()
+                .filter(java.util.Objects::nonNull)
+                .filter(collector -> normalized.equals(normalizeSourceCode(collector.sourceCode())))
+                .anyMatch(BidCandidateCollector::executionEnabled);
+    }
+
     /** Source codes owned by built-in collectors, compared case-insensitively. */
     public Set<String> fixedSourceCodes() {
         Set<String> sourceCodes = new LinkedHashSet<>(BUILT_IN_SOURCE_CODES);

@@ -21,6 +21,20 @@ public interface BidSourceRegistrationRepository {
 
     boolean updateExecutionEnabled(long sourceId, boolean executionEnabled, Instant updatedAt);
 
+    boolean updateConfiguration(
+            long sourceId,
+            String sourceName,
+            String siteUrl,
+            String sourceCode,
+            BidSourceRegistration.RegistrationStatus registrationStatus,
+            BidSourceRegistration.CollectionMethod collectionMethod,
+            boolean executionEnabled,
+            BidSourceRegistration.CollectionMethod detectedCollectionMethod,
+            Instant updatedAt
+    );
+
+    boolean deleteById(long sourceId);
+
     boolean updateReview(
             long sourceId,
             BidSourceRegistration.RegistrationStatus expectedStatus,

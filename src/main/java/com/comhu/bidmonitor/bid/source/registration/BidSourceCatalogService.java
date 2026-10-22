@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 @Service
 public class BidSourceCatalogService {
@@ -81,6 +82,17 @@ public class BidSourceCatalogService {
             result.put(source.sourceCode(), source.siteUrl());
         }
         return Map.copyOf(result);
+    }
+
+    public Optional<BidSourceRegistration.CollectionMethod> fixedCollectionMethod(String sourceCode) {
+        String normalized = normalize(sourceCode);
+        if (normalized == null) {
+            return Optional.empty();
+        }
+        return FIXED_SOURCES.stream()
+                .filter(source -> source.sourceCode().equals(normalized))
+                .map(source -> BidSourceRegistration.CollectionMethod.valueOf(source.collectionMethod()))
+                .findFirst();
     }
 
     private BidSourceCatalogItem toItem(

@@ -39,6 +39,8 @@ public class BidSourceRegistrationService {
     private final ManualBidCollectionSourceRegistry sourceRegistry;
     private final BidSourceExecutionEligibilityService executionEligibility;
     private final DiscoveredBidSourceConfigFactory discoveredConfigFactory;
+    private final BidSourceSiteIdentificationService siteIdentificationService;
+    private final BidSourceCatalogService catalogService;
     private final Clock clock;
     private final Duration checkTimeout;
 
@@ -50,6 +52,8 @@ public class BidSourceRegistrationService {
             ManualBidCollectionSourceRegistry sourceRegistry,
             BidSourceExecutionEligibilityService executionEligibility,
             DiscoveredBidSourceConfigFactory discoveredConfigFactory,
+            BidSourceSiteIdentificationService siteIdentificationService,
+            BidSourceCatalogService catalogService,
             Clock clock,
             @Value("${bid-source.registration.check-timeout:PT10M}") Duration checkTimeout
     ) {
@@ -60,6 +64,8 @@ public class BidSourceRegistrationService {
         this.sourceRegistry = sourceRegistry;
         this.executionEligibility = executionEligibility;
         this.discoveredConfigFactory = discoveredConfigFactory;
+        this.siteIdentificationService = siteIdentificationService;
+        this.catalogService = catalogService;
         this.clock = clock;
         if (checkTimeout == null || checkTimeout.isZero() || checkTimeout.isNegative()) {
             throw new IllegalArgumentException("Bid source check timeout must be positive.");
@@ -71,21 +77,57 @@ public class BidSourceRegistrationService {
     public BidSourceRegistration register(String sourceName, String siteUrl) {
         String normalizedName = normalizeName(sourceName);
         String normalizedUrl = urlNormalizer.normalize(siteUrl);
+        RegistrationConfiguration configuration = configurationFor(normalizedUrl, null);
         Instant now = clock.instant();
         try {
             return repository.save(BidSourceRegistration.builder()
                     .sourceName(normalizedName)
                     .siteUrl(normalizedUrl)
-                    .registrationStatus(BidSourceRegistration.RegistrationStatus.PENDING_REVIEW)
-                    .collectionMethod(BidSourceRegistration.CollectionMethod.UNDETERMINED)
-                    .executionEnabled(false)
+                    .sourceCode(configuration.sourceCode())
+                    .registrationStatus(configuration.registrationStatus())
+                    .collectionMethod(configuration.collectionMethod())
+                    .executionEnabled(configuration.executionEnabled())
                     .checkStatus(BidSourceRegistration.CheckStatus.NOT_CHECKED)
-                    .detectedCollectionMethod(BidSourceRegistration.CollectionMethod.UNDETERMINED)
+                    .detectedCollectionMethod(configuration.collectionMethod())
                     .createdAt(now)
                     .updatedAt(now)
                     .build());
         } catch (DuplicateKeyException exception) {
             throw new DuplicateBidSourceUrlException();
+        }
+    }
+
+    @Transactional
+    public BidSourceRegistration update(long sourceId, String sourceName, String siteUrl) {
+        BidSourceRegistration current = findById(sourceId);
+        String normalizedName = normalizeName(sourceName);
+        String normalizedUrl = urlNormalizer.normalize(siteUrl);
+        RegistrationConfiguration configuration = configurationFor(normalizedUrl, current);
+        try {
+            if (!repository.updateConfiguration(
+                    sourceId,
+                    normalizedName,
+                    normalizedUrl,
+                    configuration.sourceCode(),
+                    configuration.registrationStatus(),
+                    configuration.collectionMethod(),
+                    configuration.executionEnabled(),
+                    configuration.collectionMethod(),
+                    clock.instant()
+            )) {
+                throw new BidSourceRegistrationNotFoundException();
+            }
+        } catch (DuplicateKeyException exception) {
+            throw new DuplicateBidSourceUrlException();
+        }
+        return findById(sourceId);
+    }
+
+    @Transactional
+    public void delete(long sourceId) {
+        findById(sourceId);
+        if (!repository.deleteById(sourceId)) {
+            throw new BidSourceRegistrationNotFoundException();
         }
     }
 
@@ -196,10 +238,7 @@ public class BidSourceRegistrationService {
     public BidSourceRegistration activate(long sourceId, boolean executionEnabled, String actor) {
         BidSourceRegistration current = findById(sourceId);
         if (executionEnabled) {
-            executionEligibility.activationFailure(current, sourceRegistry.registrationBindingCollectors())
-                    .ifPresent(message -> {
-                        throw new IllegalArgumentException(message);
-                    });
+            validateActivation(current);
         }
         if (current.isExecutionEnabled() == executionEnabled) {
             return current;
@@ -221,6 +260,70 @@ public class BidSourceRegistrationService {
                 changedAt
         );
         return updated;
+    }
+
+    private void validateActivation(BidSourceRegistration registration) {
+        if (!sourceRegistry.isBuiltInSourceCode(registration.getSourceCode())) {
+            executionEligibility.activationFailure(registration, sourceRegistry.registrationBindingCollectors())
+                    .ifPresent(message -> {
+                        throw new IllegalArgumentException(message);
+                    });
+            return;
+        }
+        if (registration.getRegistrationStatus() != BidSourceRegistration.RegistrationStatus.APPROVED) {
+            throw new IllegalArgumentException("Only approved registrations can be activated.");
+        }
+        if (registration.getCollectionMethod() == null
+                || registration.getCollectionMethod() == BidSourceRegistration.CollectionMethod.UNDETERMINED) {
+            throw new IllegalArgumentException("collectionMethod must be determined before activation.");
+        }
+        if (registration.getCollectionMethod() != registration.getDetectedCollectionMethod()) {
+            throw new IllegalArgumentException(
+                    "The confirmed and detected collection methods must match before activation."
+            );
+        }
+        if (!sourceRegistry.collectorConfigurationEnabled(registration.getSourceCode())) {
+            throw new IllegalArgumentException("The collector is disabled by configuration.");
+        }
+    }
+
+    private RegistrationConfiguration configurationFor(
+            String normalizedUrl,
+            BidSourceRegistration current
+    ) {
+        BidSourceSiteIdentificationService.Identification identification =
+                siteIdentificationService.identify(normalizedUrl);
+        if (identification.status() != BidSourceSiteIdentificationService.Status.SUPPORTED) {
+            return new RegistrationConfiguration(
+                    null,
+                    BidSourceRegistration.RegistrationStatus.PENDING_REVIEW,
+                    BidSourceRegistration.CollectionMethod.UNDETERMINED,
+                    false
+            );
+        }
+        String sourceCode = identification.matchedSourceCode();
+        BidSourceRegistration.CollectionMethod collectionMethod = catalogService.fixedCollectionMethod(sourceCode)
+                .orElseThrow(() -> new IllegalStateException("Supported source collection method is missing."));
+        boolean sameCollector = current != null
+                && current.getSourceCode() != null
+                && current.getSourceCode().equalsIgnoreCase(sourceCode);
+        boolean executionEnabled = sameCollector
+                ? current.isExecutionEnabled()
+                : sourceRegistry.collectorConfigurationEnabled(sourceCode);
+        return new RegistrationConfiguration(
+                sourceCode,
+                BidSourceRegistration.RegistrationStatus.APPROVED,
+                collectionMethod,
+                executionEnabled
+        );
+    }
+
+    private record RegistrationConfiguration(
+            String sourceCode,
+            BidSourceRegistration.RegistrationStatus registrationStatus,
+            BidSourceRegistration.CollectionMethod collectionMethod,
+            boolean executionEnabled
+    ) {
     }
 
     @Transactional
