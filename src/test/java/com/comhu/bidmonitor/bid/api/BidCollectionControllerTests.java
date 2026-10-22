@@ -175,6 +175,44 @@ class BidCollectionControllerTests {
     }
 
     @Test
+    void exposesConfirmedLicenseCodesAndFiltersByAnyRequestedCodeBeforePaging() throws Exception {
+        saveNotice(
+                "G2B", "only-6146", "", LocalDateTime.of(2026, 9, 22, 9, 0), 'a', "MATCHED",
+                "{\"licenseCodes\":[\"6146\"]}"
+        );
+        saveNotice(
+                "G2B", "only-6525", "", LocalDateTime.of(2026, 9, 22, 10, 0), 'b', "MATCHED",
+                "{\"licenseCodes\":[\"6525\"]}"
+        );
+        saveNotice(
+                "G2B", "both", "", LocalDateTime.of(2026, 9, 22, 11, 0), 'c', "MATCHED",
+                "{\"licenseCodes\":[\"6146\",\"6525\"]}"
+        );
+        saveNotice(
+                "LH", "unconfirmed", "", LocalDateTime.of(2026, 9, 22, 12, 0), 'd', "추가확인필요",
+                "{}"
+        );
+
+        mockMvc.perform(get("/api/bid-notices")
+                        .param("licenseCode", "6525")
+                        .param("page", "0").param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].sourceNoticeId").value("both"))
+                .andExpect(jsonPath("$.items[0].licenseCodes[0]").value("6146"))
+                .andExpect(jsonPath("$.items[0].licenseCodes[1]").value("6525"))
+                .andExpect(jsonPath("$.totalCount").value(2))
+                .andExpect(jsonPath("$.totalPages").value(2));
+
+        mockMvc.perform(get("/api/bid-notices")
+                        .param("licenseCode", "6146", "6525")
+                        .param("size", "100"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(3))
+                .andExpect(jsonPath("$.totalCount").value(3));
+    }
+
+    @Test
     void filtersStoredNoticesByInclusivePublishedDateAndSource() throws Exception {
         saveNotice("G2B", "before", "", LocalDateTime.of(2026, 9, 20, 23, 59), 'd');
         saveNotice("G2B", "start", "", LocalDateTime.of(2026, 9, 21, 0, 0), 'e');
@@ -297,6 +335,9 @@ class BidCollectionControllerTests {
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/bid-notices").param("runId", "0"))
                 .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/bid-notices").param("licenseCode", "6146 OR 1=1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
     @Test

@@ -103,6 +103,7 @@ async function addAllowedLicenseCode(code) {
         renderAllowedLicenseCodes();
         licenseCodeInput.value = "";
         showLicenseCodeMessage("");
+        await refreshCurrentPeriod();
     } catch (error) {
         console.error(error);
         showLicenseCodeMessage("허용 업종코드를 저장하지 못했습니다.");
@@ -122,6 +123,7 @@ async function removeAllowedLicenseCode(code) {
         );
         renderAllowedLicenseCodes();
         showLicenseCodeMessage("");
+        await refreshCurrentPeriod();
     } catch (error) {
         console.error(error);
         showLicenseCodeMessage("허용 업종코드를 저장하지 못했습니다.");
@@ -925,6 +927,7 @@ function createBidRow(bid) {
     row.appendChild(createDeadlineCell(bid.bidClseDt));
     row.appendChild(createAwardMethodCell(bid));
     row.appendChild(createCell(bid.participationRegion, "지역제한", "bid-region-cell"));
+    row.appendChild(createLicenseCodeCell(bid.licenseCodes));
 
     const checkCell = document.createElement("td");
     checkCell.className = "bid-check-cell";
@@ -956,6 +959,27 @@ function createBidRow(bid) {
     row.appendChild(detailCell);
 
     return row;
+}
+
+/** 수집 응답에서 실제로 확인된 업종코드를 목록에 표시한다. */
+function createLicenseCodeCell(codes) {
+    const cell = document.createElement("td");
+    cell.className = "bid-license-code-cell";
+    cell.dataset.label = "확인 업종코드";
+    const normalizedCodes = Array.isArray(codes)
+        ? [...new Set(codes.filter((code) => /^[0-9]{4}$/.test(code)))]
+        : [];
+    if (normalizedCodes.length === 0) {
+        appendTextElement(cell, "span", "bid-license-code-unknown", "미확인");
+        return cell;
+    }
+    normalizedCodes.forEach((code) => {
+        const className = allowedLicenseCodes.includes(code)
+            ? "bid-license-code bid-license-code-matched"
+            : "bid-license-code";
+        appendTextElement(cell, "span", className, code);
+    });
+    return cell;
 }
 
 /** 브라우저의 로컬 날짜를 API에서 사용하는 yyyy-MM-dd 형식으로 변환한다. */
@@ -1032,6 +1056,7 @@ async function fetchStoredBids(startDate, endDate, runIds = []) {
     while (page < totalPages) {
         const query = new URLSearchParams({ startDate, endDate, page: String(page), size: "100" });
         runIds.forEach((runId) => query.append("runId", String(runId)));
+        allowedLicenseCodes.forEach((code) => query.append("licenseCode", code));
         const response = await fetch(`/api/bid-notices?${query}`);
         if (!response.ok) {
             throw new Error(`저장 공고 조회 실패: ${response.status}`);
@@ -1045,6 +1070,13 @@ async function fetchStoredBids(startDate, endDate, runIds = []) {
         page += 1;
     }
     return bids;
+}
+
+/** 코드 설정 변경 후 외부 수집 없이 현재 기간의 저장 결과만 다시 조회한다. */
+async function refreshCurrentPeriod() {
+    if (startDateInput.value && endDateInput.value) {
+        await loadBidsByRange(startDateInput.value, endDateInput.value, false);
+    }
 }
 
 /** 활성 수집처를 공통 파이프라인으로 수집한 뒤 저장 결과를 조회한다. */
@@ -1162,12 +1194,12 @@ document.addEventListener("keydown", (event) => {
 
 // 화면을 열 때 저장값을 불러오고 현재 허용 코드를 태그로 표시한다.
 loadAllowedLicenseCodes()
-    .then(renderAllowedLicenseCodes)
+    .then(() => {
+        renderAllowedLicenseCodes();
+        const today = formatDate(new Date());
+        return loadBidsByRange(today, today, false);
+    })
     .catch((error) => {
         console.error(error);
         showLicenseCodeMessage("허용 업종코드를 불러오지 못했습니다.");
     });
-
-// 최초 접속은 추가 수집 없이 오늘 저장된 공고를 조회한다.
-const today = formatDate(new Date());
-loadBidsByRange(today, today, false);

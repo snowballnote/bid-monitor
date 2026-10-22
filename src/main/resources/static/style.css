@@ -233,7 +233,7 @@ h1 {
 
 table {
     width: 100%;
-    min-width: 1540px;
+    min-width: 0;
     border-collapse: collapse;
     font-size: 14px;
 }
@@ -299,6 +299,33 @@ td:nth-child(10) {
 
 .external-check-cell {
     min-width: 230px;
+}
+
+.bid-license-code-cell {
+    min-width: 116px;
+}
+
+.bid-license-code {
+    display: inline-block;
+    margin: 0 4px 4px 0;
+    padding: 3px 7px;
+    border: 1px solid #d1d5db;
+    border-radius: 999px;
+    color: #374151;
+    background: #f9fafb;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.bid-license-code-matched {
+    border-color: #93c5fd;
+    color: #1e40af;
+    background: #dbeafe;
+}
+
+.bid-license-code-unknown {
+    color: #6b7280;
+    font-size: 13px;
 }
 
 .external-check-status {
@@ -1219,19 +1246,20 @@ body.modal-open {
 .license-code-tag { padding: 3px 7px 3px 9px; font-size: 12px; }
 .license-code-form input { min-height: 34px; }
 
-.table-wrapper { max-width: 100%; overflow-x: auto; }
-table { min-width: 980px; table-layout: fixed; font-size: 13px; }
+.table-wrapper { max-width: 100%; overflow-x: hidden; }
+table { min-width: 0; table-layout: fixed; font-size: 13px; }
 th, td { padding: 11px 10px; vertical-align: middle; line-height: 1.4; }
-th:nth-child(1) { width: 10%; }
-th:nth-child(2) { width: 22%; }
-th:nth-child(3) { width: 12%; }
-th:nth-child(4) { width: 9%; }
-th:nth-child(5) { width: 11%; }
-th:nth-child(6) { width: 10%; }
-th:nth-child(7) { width: 8%; }
-th:nth-child(8) { width: 11%; }
+th:nth-child(1) { width: 9%; }
+th:nth-child(2) { width: 21%; }
+th:nth-child(3) { width: 11%; }
+th:nth-child(4) { width: 8%; }
+th:nth-child(5) { width: 10%; }
+th:nth-child(6) { width: 12%; }
+th:nth-child(7) { width: 7%; }
+th:nth-child(8) { width: 9%; }
 th:nth-child(9) { width: 7%; }
-td:nth-child(2), td:nth-child(9), td:nth-child(10) { min-width: 0; }
+th:nth-child(10) { width: 6%; }
+td:nth-child(2), td:nth-child(8), td:nth-child(9), td:nth-child(10) { min-width: 0; }
 
 .bid-cell-clamp {
     display: -webkit-box;
@@ -1332,7 +1360,7 @@ td:nth-child(2), td:nth-child(9), td:nth-child(10) { min-width: 0; }
     tbody tr:hover { background: #fff; }
     tbody td { display: grid; min-width: 0; padding: 7px 0; grid-template-columns: 84px minmax(0, 1fr); gap: 8px; align-items: start; border: 0; }
     tbody td::before { content: attr(data-label); color: #667085; font-size: 11px; font-weight: 700; }
-    .bid-status-cell, .bid-title-cell, .bid-institution-cell, .bid-check-cell, .bid-action-cell { grid-column: 1 / -1; }
+    .bid-status-cell, .bid-title-cell, .bid-institution-cell, .bid-license-code-cell, .bid-check-cell, .bid-action-cell { grid-column: 1 / -1; }
     .bid-title-cell { font-size: 15px; line-height: 1.5; }
     .bid-check-cell { font-size: 0; }
     .bid-action-cell { display: block; padding-top: 10px; border-top: 1px solid #eef0f3; }

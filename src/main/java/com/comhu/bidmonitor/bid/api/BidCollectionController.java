@@ -44,7 +44,9 @@ import java.util.regex.Pattern;
 public class BidCollectionController {
 
     private static final Pattern SOURCE_CODE_PATTERN = Pattern.compile("[A-Z][A-Z0-9_]{0,99}");
+    private static final Pattern INDUSTRY_CODE_PATTERN = Pattern.compile("[0-9]{4}");
     private static final int MAX_PAGE_SIZE = 100;
+    private static final int MAX_INDUSTRY_CODE_FILTERS = 100;
 
     private final ManualBidCollectionCoordinator coordinator;
     private final BidCollectionRunRepository runRepository;
@@ -97,6 +99,7 @@ public class BidCollectionController {
             @RequestParam(required = false) String endDate,
             @RequestParam(required = false) String sourceCode,
             @RequestParam(name = "runId", required = false) List<Long> runIds,
+            @RequestParam(name = "licenseCode", required = false) List<String> licenseCodes,
             @RequestParam(defaultValue = "0") String page,
             @RequestParam(defaultValue = "20") String size
     ) {
@@ -114,6 +117,13 @@ public class BidCollectionController {
         }
 
         List<Long> normalizedRunIds = normalizeRunIds(runIds);
+        List<String> normalizedLicenseCodes = normalizeIndustryCodes(licenseCodes);
+        if (!normalizedLicenseCodes.isEmpty()) {
+            return findByLicenseCodes(
+                    normalizedRunIds, parsedStartDate, parsedEndDate, normalizedSourceCode,
+                    normalizedLicenseCodes, parsedPage, parsedSize
+            );
+        }
         BidNoticeRepository.BidNoticePage result = normalizedRunIds.isEmpty()
                 ? noticeRepository.findLatest(
                         parsedStartDate, parsedEndDate, normalizedSourceCode, parsedPage, parsedSize
@@ -123,6 +133,55 @@ public class BidCollectionController {
                         normalizedSourceCode, parsedPage, parsedSize
                 );
         return BidNoticeListResponse.from(result, parsedPage, parsedSize, objectMapper);
+    }
+
+    private BidNoticeListResponse findByLicenseCodes(
+            List<Long> runIds,
+            LocalDate startDate,
+            LocalDate endDate,
+            String sourceCode,
+            List<String> licenseCodes,
+            int page,
+            int size
+    ) {
+        BidNoticeRepository.BidNoticePage firstPage = findNoticePage(
+                runIds, startDate, endDate, sourceCode, 0, MAX_PAGE_SIZE
+        );
+        List<BidNotice> notices = new ArrayList<>(firstPage.items());
+        long sourcePageCount = pageCount(firstPage.totalCount(), MAX_PAGE_SIZE);
+        for (int sourcePage = 1; sourcePage < sourcePageCount; sourcePage++) {
+            notices.addAll(findNoticePage(
+                    runIds, startDate, endDate, sourceCode, sourcePage, MAX_PAGE_SIZE
+            ).items());
+        }
+
+        Set<String> requestedCodes = Set.copyOf(licenseCodes);
+        List<BidNoticeResponse> matched = notices.stream()
+                .map(notice -> BidNoticeResponse.from(notice, objectMapper))
+                .filter(notice -> notice.licenseCodes().stream().anyMatch(requestedCodes::contains))
+                .toList();
+        long from = Math.min((long) page * size, matched.size());
+        long to = Math.min(from + size, matched.size());
+        return BidNoticeListResponse.from(
+                matched.subList((int) from, (int) to), page, size, matched.size()
+        );
+    }
+
+    private BidNoticeRepository.BidNoticePage findNoticePage(
+            List<Long> runIds,
+            LocalDate startDate,
+            LocalDate endDate,
+            String sourceCode,
+            int page,
+            int size
+    ) {
+        return runIds.isEmpty()
+                ? noticeRepository.findLatest(startDate, endDate, sourceCode, page, size)
+                : noticeRepository.findLatestByRunIds(runIds, startDate, endDate, sourceCode, page, size);
+    }
+
+    private long pageCount(long totalCount, int size) {
+        return totalCount / size + (totalCount % size == 0 ? 0 : 1);
     }
 
     @GetMapping("/bid-sources/status")
@@ -194,6 +253,24 @@ public class BidCollectionController {
         return runIds.stream().distinct().toList();
     }
 
+    private List<String> normalizeIndustryCodes(List<String> requestedCodes) {
+        if (requestedCodes == null) {
+            return List.of();
+        }
+        if (requestedCodes.size() > MAX_INDUSTRY_CODE_FILTERS) {
+            throw new IllegalArgumentException(
+                    "licenseCode must not contain more than " + MAX_INDUSTRY_CODE_FILTERS + " values."
+            );
+        }
+        List<String> normalized = requestedCodes.stream()
+                .map(code -> code == null ? "" : code.trim())
+                .toList();
+        if (normalized.stream().anyMatch(code -> !INDUSTRY_CODE_PATTERN.matcher(code).matches())) {
+            throw new IllegalArgumentException("Each licenseCode must be exactly four digits.");
+        }
+        return normalized.stream().distinct().toList();
+    }
+
     private int parseNonNegativeInteger(String value, String field) {
         int parsed = parseInteger(value, field);
         if (parsed < 0) {
@@ -239,6 +316,16 @@ public class BidCollectionController {
                     + (result.totalCount() % size == 0 ? 0 : 1);
             return new BidNoticeListResponse(items, page, size, result.totalCount(), totalPages);
         }
+
+        private static BidNoticeListResponse from(
+                List<BidNoticeResponse> items,
+                int page,
+                int size,
+                long totalCount
+        ) {
+            long totalPages = totalCount / size + (totalCount % size == 0 ? 0 : 1);
+            return new BidNoticeListResponse(List.copyOf(items), page, size, totalCount, totalPages);
+        }
     }
 
     public record BidNoticeResponse(
@@ -268,6 +355,7 @@ public class BidCollectionController {
             String reviewReason,
             String budgetAmount,
             String licenseLimit,
+            List<String> licenseCodes,
             String participationRegion,
             String awardMethodName,
             List<Map<String, Object>> attachments,
@@ -304,6 +392,7 @@ public class BidCollectionController {
                     text(analysis, "reviewReason"),
                     text(analysis, "budgetAmount"),
                     text(analysis, "licenseLimit"),
+                    industryCodeArray(analysis, "licenseCodes", objectMapper),
                     text(analysis, "participationRegion"),
                     text(analysis, "awardMethodName"),
                     objectArray(analysis, "attachments", objectMapper),
@@ -339,6 +428,18 @@ public class BidCollectionController {
             return value.isArray()
                     ? objectMapper.convertValue(value, new TypeReference<List<String>>() { })
                     : List.of();
+        }
+
+        private static List<String> industryCodeArray(
+                JsonNode analysis,
+                String field,
+                ObjectMapper objectMapper
+        ) {
+            return stringArray(analysis, field, objectMapper).stream()
+                    .map(String::trim)
+                    .filter(code -> INDUSTRY_CODE_PATTERN.matcher(code).matches())
+                    .distinct()
+                    .toList();
         }
 
         private static List<Map<String, Object>> objectArray(

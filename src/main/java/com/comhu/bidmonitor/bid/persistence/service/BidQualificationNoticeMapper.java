@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.comhu.bidmonitor.bid.persistence.BidNotice;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
+import com.comhu.bidmonitor.dto.LicenseRequirement;
+import com.comhu.bidmonitor.dto.LicenseRequirementGroup;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -14,13 +16,16 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 @Component
 @Slf4j
 public class BidQualificationNoticeMapper {
 
+    private static final Pattern INDUSTRY_CODE_PATTERN = Pattern.compile("[0-9]{4}");
     private static final List<DateTimeFormatter> DATE_TIME_FORMATS = List.of(
             DateTimeFormatter.ISO_LOCAL_DATE_TIME,
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
@@ -94,6 +99,7 @@ public class BidQualificationNoticeMapper {
         result.put("reviewReason", nullable(source.getReviewReason()));
         result.put("budgetAmount", nullable(source.getAsignBdgtAmt()));
         result.put("licenseLimit", nullable(source.getLicenseLimit()));
+        result.put("licenseCodes", licenseCodes(source.getLicenseGroups()));
         result.put("participationRegion", nullable(source.getParticipationRegion()));
         result.put("awardMethodName", nullable(source.getSucsfbidMthdNm()));
         result.put("attachments", source.getAttachments() == null ? List.of() : source.getAttachments());
@@ -102,6 +108,28 @@ public class BidQualificationNoticeMapper {
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Bid analysis result could not be serialized.", exception);
         }
+    }
+
+    private List<String> licenseCodes(List<LicenseRequirementGroup> groups) {
+        if (groups == null) {
+            return List.of();
+        }
+        LinkedHashSet<String> codes = new LinkedHashSet<>();
+        for (LicenseRequirementGroup group : groups) {
+            if (group == null || group.getRequirements() == null) {
+                continue;
+            }
+            for (LicenseRequirement requirement : group.getRequirements()) {
+                if (requirement == null) {
+                    continue;
+                }
+                String code = nullable(requirement.getLicenseCode());
+                if (code != null && INDUSTRY_CODE_PATTERN.matcher(code).matches()) {
+                    codes.add(code);
+                }
+            }
+        }
+        return List.copyOf(codes);
     }
 
     private List<String> sorted(List<String> values) {
