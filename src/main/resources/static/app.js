@@ -1049,13 +1049,12 @@ function normalizeStoredBid(bid) {
 }
 
 /** 선택 기간에 저장된 공고를 페이지 끝까지 조회한다. */
-async function fetchStoredBids(startDate, endDate, runIds = []) {
+async function fetchStoredBids(startDate, endDate) {
     const bids = [];
     let page = 0;
     let totalPages = 1;
     while (page < totalPages) {
         const query = new URLSearchParams({ startDate, endDate, page: String(page), size: "100" });
-        runIds.forEach((runId) => query.append("runId", String(runId)));
         allowedLicenseCodes.forEach((code) => query.append("licenseCode", code));
         const response = await fetch(`/api/bid-notices?${query}`);
         if (!response.ok) {
@@ -1086,7 +1085,6 @@ async function loadBidsByRange(startDate, endDate, collect = true) {
     validationMessage.classList.add("hidden");
 
     try {
-        let runIds = [];
         if (collect) {
             const collectionResponse = await fetch("/api/bid-collections", {
                 method: "POST",
@@ -1099,16 +1097,9 @@ async function loadBidsByRange(startDate, endDate, collect = true) {
                     || !["SUCCESS", "PARTIAL_SUCCESS"].includes(collectionResult.status)) {
                 throw new Error(`공고 수집 실패: ${collectionResponse.status}`);
             }
-            runIds = (Array.isArray(collectionResult.sources) ? collectionResult.sources : [])
-                .filter((source) => source.status === "SUCCESS"
-                    && Number.isSafeInteger(source.runId) && source.runId > 0)
-                .map((source) => source.runId);
-            if (runIds.length === 0) {
-                renderBids([]);
-                return;
-            }
         }
-        renderBids(await fetchStoredBids(startDate, endDate, runIds));
+        // 일부 수집처가 실패해도 해당 기간에 이미 저장된 정상 공고는 계속 검토할 수 있어야 한다.
+        renderBids(await fetchStoredBids(startDate, endDate));
     } catch (error) {
         console.error(error);
         loadingMessage.classList.add("hidden");

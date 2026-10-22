@@ -42,11 +42,17 @@ class BidQualificationNoticeMapperTests {
     }
 
     @Test
-    void storesEmptyCodeListWhenStructuredLicenseEvidenceIsMissing() throws Exception {
-        BidNotice notice = mapper.map(candidate(), Instant.parse("2026-10-21T00:00:00Z"));
+    void storesExplicitCodesFromStructuredLicenseTextWhenGroupsAreMissing() throws Exception {
+        BidQualificationDto source = candidate();
+        source.setLicenseLimit(
+                "소프트웨어사업자(컴퓨터관련서비스사업)/1468,측량업(측지측량업)/5021"
+        );
+
+        BidNotice notice = mapper.map(source, Instant.parse("2026-10-21T00:00:00Z"));
         JsonNode analysis = objectMapper.readTree(notice.getAnalysisResult());
 
-        assertEquals(0, analysis.path("licenseCodes").size());
+        assertEquals(List.of("1468", "5021"),
+                objectMapper.convertValue(analysis.path("licenseCodes"), List.class));
     }
 
     private BidQualificationDto candidate() {

@@ -11,6 +11,7 @@ import com.comhu.bidmonitor.bid.collection.ManualBidCollectionCoordinator;
 import com.comhu.bidmonitor.bid.collection.ManualBidCollectionResult;
 import com.comhu.bidmonitor.bid.collection.ManualBidCollectionSource;
 import com.comhu.bidmonitor.bid.collection.ManualBidCollectionSourceRegistry;
+import com.comhu.bidmonitor.bid.license.LicenseNormalizer;
 import com.comhu.bidmonitor.bid.persistence.BidCollectionRun;
 import com.comhu.bidmonitor.bid.persistence.BidCollectionRunRepository;
 import com.comhu.bidmonitor.bid.persistence.BidNotice;
@@ -33,6 +34,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -435,11 +437,15 @@ public class BidCollectionController {
                 String field,
                 ObjectMapper objectMapper
         ) {
-            return stringArray(analysis, field, objectMapper).stream()
+            LinkedHashSet<String> codes = new LinkedHashSet<>();
+            stringArray(analysis, field, objectMapper).stream()
                     .map(String::trim)
                     .filter(code -> INDUSTRY_CODE_PATTERN.matcher(code).matches())
-                    .distinct()
-                    .toList();
+                    .forEach(codes::add);
+            LicenseNormalizer.normalizeStructuredQualification(text(analysis, "licenseLimit")).stream()
+                    .map(LicenseNormalizer.NormalizedLicense::code)
+                    .forEach(codes::add);
+            return List.copyOf(codes);
         }
 
         private static List<Map<String, Object>> objectArray(

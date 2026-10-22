@@ -2,6 +2,7 @@ package com.comhu.bidmonitor.bid.persistence.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.comhu.bidmonitor.bid.license.LicenseNormalizer;
 import com.comhu.bidmonitor.bid.persistence.BidNotice;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
 import com.comhu.bidmonitor.dto.LicenseRequirement;
@@ -99,7 +100,7 @@ public class BidQualificationNoticeMapper {
         result.put("reviewReason", nullable(source.getReviewReason()));
         result.put("budgetAmount", nullable(source.getAsignBdgtAmt()));
         result.put("licenseLimit", nullable(source.getLicenseLimit()));
-        result.put("licenseCodes", licenseCodes(source.getLicenseGroups()));
+        result.put("licenseCodes", licenseCodes(source.getLicenseGroups(), source.getLicenseLimit()));
         result.put("participationRegion", nullable(source.getParticipationRegion()));
         result.put("awardMethodName", nullable(source.getSucsfbidMthdNm()));
         result.put("attachments", source.getAttachments() == null ? List.of() : source.getAttachments());
@@ -110,25 +111,27 @@ public class BidQualificationNoticeMapper {
         }
     }
 
-    private List<String> licenseCodes(List<LicenseRequirementGroup> groups) {
-        if (groups == null) {
-            return List.of();
-        }
+    private List<String> licenseCodes(List<LicenseRequirementGroup> groups, String licenseLimit) {
         LinkedHashSet<String> codes = new LinkedHashSet<>();
-        for (LicenseRequirementGroup group : groups) {
-            if (group == null || group.getRequirements() == null) {
-                continue;
-            }
-            for (LicenseRequirement requirement : group.getRequirements()) {
-                if (requirement == null) {
+        if (groups != null) {
+            for (LicenseRequirementGroup group : groups) {
+                if (group == null || group.getRequirements() == null) {
                     continue;
                 }
-                String code = nullable(requirement.getLicenseCode());
-                if (code != null && INDUSTRY_CODE_PATTERN.matcher(code).matches()) {
-                    codes.add(code);
+                for (LicenseRequirement requirement : group.getRequirements()) {
+                    if (requirement == null) {
+                        continue;
+                    }
+                    String code = nullable(requirement.getLicenseCode());
+                    if (code != null && INDUSTRY_CODE_PATTERN.matcher(code).matches()) {
+                        codes.add(code);
+                    }
                 }
             }
         }
+        LicenseNormalizer.normalizeStructuredQualification(licenseLimit).stream()
+                .map(LicenseNormalizer.NormalizedLicense::code)
+                .forEach(codes::add);
         return List.copyOf(codes);
     }
 

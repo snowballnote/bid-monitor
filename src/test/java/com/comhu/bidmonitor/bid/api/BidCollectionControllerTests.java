@@ -213,6 +213,22 @@ class BidCollectionControllerTests {
     }
 
     @Test
+    void filtersLegacyStoredNoticesUsingCodesExplicitlyPublishedInLicenseText() throws Exception {
+        saveNotice(
+                "G2B", "legacy-license-text", "", LocalDateTime.of(2026, 9, 22, 9, 0),
+                'e', "추가확인필요",
+                "{\"licenseLimit\":\"소프트웨어사업자(컴퓨터관련서비스사업)/1468,측량업/5021\"}"
+        );
+
+        mockMvc.perform(get("/api/bid-notices").param("licenseCode", "1468"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].sourceNoticeId").value("legacy-license-text"))
+                .andExpect(jsonPath("$.items[0].licenseCodes[0]").value("1468"))
+                .andExpect(jsonPath("$.items[0].licenseCodes[1]").value("5021"));
+    }
+
+    @Test
     void filtersStoredNoticesByInclusivePublishedDateAndSource() throws Exception {
         saveNotice("G2B", "before", "", LocalDateTime.of(2026, 9, 20, 23, 59), 'd');
         saveNotice("G2B", "start", "", LocalDateTime.of(2026, 9, 21, 0, 0), 'e');
