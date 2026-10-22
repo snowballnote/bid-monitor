@@ -12,7 +12,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice(assignableTypes = {
         BidCollectionController.class,
-        AllowedIndustryCodeController.class
+        AllowedIndustryCodeController.class,
+        LiveBidNoticeController.class
 })
 public class BidCollectionApiExceptionHandler {
 
