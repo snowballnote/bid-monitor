@@ -22,7 +22,8 @@ public record BidSourceRegistrationResponse(
         Instant createdAt,
         Instant updatedAt,
         BidSourceSiteIdentificationService.Status siteIdentification,
-        String matchedSourceCode
+        String matchedSourceCode,
+        boolean registrationBindingSupported
 ) {
 
     public static BidSourceRegistrationResponse from(BidSourceRegistration registration) {
@@ -43,13 +44,15 @@ public record BidSourceRegistrationResponse(
                 registration.getCreatedAt(),
                 registration.getUpdatedAt(),
                 null,
-                null
+                null,
+                false
         );
     }
 
     public static BidSourceRegistrationResponse from(
             BidSourceRegistration registration,
-            BidSourceSiteIdentificationService.Identification identification
+            BidSourceSiteIdentificationService.Identification identification,
+            boolean registrationBindingSupported
     ) {
         BidSourceRegistrationResponse response = from(registration);
         return new BidSourceRegistrationResponse(
@@ -69,7 +72,8 @@ public record BidSourceRegistrationResponse(
                 response.createdAt(),
                 response.updatedAt(),
                 identification.status(),
-                identification.matchedSourceCode()
+                identification.matchedSourceCode(),
+                registrationBindingSupported
         );
     }
 }

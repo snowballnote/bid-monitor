@@ -26,6 +26,7 @@ function isRegistration(value) {
     && typeof value.executionEnabled === 'boolean'
     && ['SUPPORTED', 'NEW_SITE'].includes(value.siteIdentification)
     && isNullableString(value.matchedSourceCode)
+    && typeof value.registrationBindingSupported === 'boolean'
     && typeof value.createdAt === 'string'
     && typeof value.updatedAt === 'string';
 }
@@ -130,4 +131,22 @@ export async function getBidSourceDiscovery(sourceId, signal) {
     signal,
     headers: { Accept: 'application/json' },
   }, isDiscovery);
+}
+
+export async function reviewBidSource(sourceId, registrationStatus, collectionMethod, signal) {
+  return requestJson(`${BASE_URL}/${sourceId}/review`, {
+    method: 'PATCH',
+    signal,
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ registrationStatus, collectionMethod }),
+  }, isRegistration);
+}
+
+export async function bindBidSource(sourceId, sourceCode, signal) {
+  return requestJson(`${BASE_URL}/${sourceId}/binding`, {
+    method: 'PATCH',
+    signal,
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceCode }),
+  }, isRegistration);
 }

@@ -15,6 +15,7 @@ const pendingRegistration = {
   safeFailureCode: null,
   siteIdentification: 'NEW_SITE',
   matchedSourceCode: null,
+  registrationBindingSupported: false,
   createdAt: '2026-09-23T01:00:00Z',
   updatedAt: '2026-09-23T01:00:00Z',
 };
@@ -292,6 +293,7 @@ test('runs availability check and structure discovery only after explicit button
   await page.getByRole('button', { name: '사이트 점검' }).click();
   await expect(page.getByText('접근 가능')).toBeVisible();
   await expect(page.getByRole('button', { name: '구조 분석' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '검토 시작' })).toHaveCount(0);
   expect(requests.filter(request => request.path.endsWith('/check'))).toHaveLength(2);
 
   await page.getByRole('button', { name: '구조 분석' }).click();
@@ -337,6 +339,66 @@ test('shows supported-site identification after registration without checking or
   await expect(page.locator('.bid-source-form-message.success')).toContainText('기존 지원 사이트(G2B)');
   expect(requests.some(request => request.path.endsWith('/check'))).toBe(false);
   expect(requests.some(request => request.path.endsWith('/binding'))).toBe(false);
+  expect(requests.some(request => request.path.endsWith('/activation'))).toBe(false);
+});
+
+test('reviews and binds a supported collector only after explicit actions', async ({ page }) => {
+  const requests = [];
+  let registration = {
+    ...pendingRegistration,
+    sourceName: '한국가스공사 등록',
+    siteUrl: 'https://bid.kogas.or.kr:9443/',
+    checkStatus: 'REACHABLE',
+    detectedCollectionMethod: 'PUBLIC_PAGE',
+    siteIdentification: 'SUPPORTED',
+    matchedSourceCode: 'KOGAS',
+    registrationBindingSupported: true,
+  };
+  await page.route('**/api/**', route => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    const body = request.postDataJSON?.();
+    requests.push({ path, method: request.method(), body });
+    if (path === '/api/bid-sources/catalog') {
+      return route.fulfill({ json: [catalogItem({
+        sourceId: 1,
+        sourceName: registration.sourceName,
+        siteUrl: registration.siteUrl,
+        sourceType: registration.sourceCode ? 'FIXED' : 'DISCOVERED',
+        sourceCode: registration.sourceCode,
+        collectionMethod: registration.collectionMethod,
+        registrationStatus: registration.registrationStatus,
+        checkStatus: registration.checkStatus,
+      })] });
+    }
+    if (path === '/api/bid-source-registrations' && request.method() === 'GET') {
+      return route.fulfill({ json: [registration] });
+    }
+    if (path === '/api/bid-source-registrations/1/review' && request.method() === 'PATCH') {
+      registration = { ...registration,
+        registrationStatus: body.registrationStatus,
+        collectionMethod: body.collectionMethod };
+      return route.fulfill({ json: registration });
+    }
+    if (path === '/api/bid-source-registrations/1/binding' && request.method() === 'PATCH') {
+      registration = { ...registration, sourceCode: body.sourceCode };
+      return route.fulfill({ json: registration });
+    }
+    return route.fulfill({ status: 404, json: {} });
+  });
+
+  await page.goto('/react/index.html#/bid-sources');
+  expect(requests.some(request => request.path.endsWith('/review'))).toBe(false);
+  expect(requests.some(request => request.path.endsWith('/binding'))).toBe(false);
+  await page.getByRole('button', { name: '검토 시작' }).click();
+  await expect(page.getByRole('button', { name: '수집 방식 승인' })).toBeVisible();
+  await page.getByRole('button', { name: '수집 방식 승인' }).click();
+  await expect(page.getByRole('button', { name: 'KOGAS 연결' })).toBeVisible();
+  await page.getByRole('button', { name: 'KOGAS 연결' }).click();
+  await expect(page.getByText('연결됨')).toBeVisible();
+
+  expect(requests.filter(request => request.path.endsWith('/review'))).toHaveLength(2);
+  expect(requests.find(request => request.path.endsWith('/binding')).body).toEqual({ sourceCode: 'KOGAS' });
   expect(requests.some(request => request.path.endsWith('/activation'))).toBe(false);
 });
 

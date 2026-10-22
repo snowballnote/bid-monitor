@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   BidSourceRegistrationRequestError,
+  bindBidSource,
   checkBidSource,
   discoverBidSource,
   getBidSourceCatalog,
   getBidSourceDiscovery,
   getBidSourceRegistrations,
   registerBidSource,
+  reviewBidSource,
 } from '../../api/bidSources';
 import './bid-sources.css';
 
@@ -92,6 +94,7 @@ function mergeCatalogAndRegistrations(catalog, registrations) {
       safeFailureCode: registration.safeFailureCode,
       siteIdentification: registration.siteIdentification,
       matchedSourceCode: registration.matchedSourceCode,
+      registrationBindingSupported: registration.registrationBindingSupported,
     };
   });
 }
@@ -123,11 +126,17 @@ function DiscoverySummary({ item }) {
   </dl>;
 }
 
-function CatalogRow({ item, operation, onCheck, onDiscover }) {
+function CatalogRow({ item, operation, onCheck, onDiscover, onReview, onBind }) {
   const statusClass = item.registrationStatus?.toLowerCase() || 'not_applicable';
   const checkLoading = operation?.check === 'loading';
   const discoveryLoading = operation?.discovery === 'loading';
+  const workflowLoading = operation?.workflow === 'loading';
   const canDiscover = item.sourceId != null && item.checkStatus === 'REACHABLE';
+  const canReview = item.sourceId != null && item.siteIdentification === 'SUPPORTED'
+    && item.registrationBindingSupported && item.checkStatus === 'REACHABLE'
+    && ['PENDING_REVIEW', 'UNDER_REVIEW'].includes(item.registrationStatus);
+  const canBind = item.sourceId != null && item.registrationStatus === 'APPROVED'
+    && item.registrationBindingSupported && !item.sourceCode && item.matchedSourceCode;
   return <tr>
     <td data-label="수집처 이름"><strong>{item.sourceName}</strong>
       {item.sourceCode && <small className="bid-source-code">{item.sourceCode}</small>}</td>
@@ -162,6 +171,18 @@ function CatalogRow({ item, operation, onCheck, onDiscover }) {
         onClick={() => onDiscover(item.sourceId)}>{discoveryLoading ? '분석 중…' : '구조 분석'}</button>}
       {operation?.discovery === 'error' && <small role="alert">구조 분석 요청에 실패했습니다.</small>}
       <DiscoverySummary item={item} />
+    </td>
+    <td data-label="연결 관리" className="bid-source-action-cell">
+      {canReview && <button type="button" disabled={workflowLoading}
+        onClick={() => onReview(item)}>{workflowLoading ? '처리 중…'
+          : item.registrationStatus === 'PENDING_REVIEW' ? '검토 시작' : '수집 방식 승인'}</button>}
+      {canBind && <button type="button" disabled={workflowLoading}
+        onClick={() => onBind(item)}>{workflowLoading ? '처리 중…' : `${item.matchedSourceCode} 연결`}</button>}
+      {item.siteIdentification === 'SUPPORTED' && !item.registrationBindingSupported
+        && <span className="bid-source-detail-muted">URL 식별만 지원</span>}
+      {item.sourceCode && item.registrationStatus === 'APPROVED'
+        && <span className="collection-enabled">연결됨</span>}
+      {operation?.workflow === 'error' && <small role="alert">검토 또는 연결 요청에 실패했습니다.</small>}
     </td>
   </tr>;
 }
@@ -254,6 +275,38 @@ export default function BidSources() {
     }
   }
 
+  async function reviewSource(item) {
+    if (operations[item.sourceId]?.workflow === 'loading') return;
+    setOperation(item.sourceId, 'workflow', 'loading');
+    try {
+      const targetStatus = item.registrationStatus === 'PENDING_REVIEW' ? 'UNDER_REVIEW' : 'APPROVED';
+      const result = await reviewBidSource(
+        item.sourceId,
+        targetStatus,
+        item.detectedCollectionMethod || item.collectionMethod,
+      );
+      updateSource(item.sourceId, {
+        registrationStatus: result.registrationStatus,
+        collectionMethod: result.collectionMethod,
+      });
+      setOperation(item.sourceId, 'workflow', 'success');
+    } catch {
+      setOperation(item.sourceId, 'workflow', 'error');
+    }
+  }
+
+  async function bindSource(item) {
+    if (operations[item.sourceId]?.workflow === 'loading') return;
+    setOperation(item.sourceId, 'workflow', 'loading');
+    try {
+      await bindBidSource(item.sourceId, item.matchedSourceCode);
+      setOperation(item.sourceId, 'workflow', 'success');
+      setReloadVersion(current => current + 1);
+    } catch {
+      setOperation(item.sourceId, 'workflow', 'error');
+    }
+  }
+
   async function submit(event) {
     event.preventDefault();
     if (submittingRef.current) return;
@@ -333,9 +386,10 @@ export default function BidSources() {
           <table className="bid-source-table">
             <thead><tr><th>수집처 이름</th><th>유형</th><th>사이트 URL</th><th>검토 상태</th>
               <th>수집 방식</th><th>자동수집</th><th>최근 성공</th><th>최근 실패</th><th>지원 식별</th>
-              <th>사이트 점검</th><th>구조 분석</th></tr></thead>
+              <th>사이트 점검</th><th>구조 분석</th><th>연결 관리</th></tr></thead>
             <tbody>{resource.data.map(item => <CatalogRow item={item}
               operation={operations[item.sourceId]} onCheck={checkSource} onDiscover={discoverSource}
+              onReview={reviewSource} onBind={bindSource}
               key={item.sourceCode || `registration-${item.sourceId}`} />)}</tbody>
           </table>
         </div>}

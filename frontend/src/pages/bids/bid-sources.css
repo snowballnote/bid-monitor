@@ -19,7 +19,7 @@
 .bid-source-list-state { padding: 64px 18px; color: var(--muted); text-align: center; }
 .bid-source-list-state.error { color: var(--danger); }
 .bid-source-table-wrap { overflow-x: auto; }
-.bid-source-table { width: 100%; min-width: 1480px; border-collapse: collapse; table-layout: auto; }
+.bid-source-table { width: 100%; min-width: 1600px; border-collapse: collapse; table-layout: auto; }
 .bid-source-table th, .bid-source-table td { padding: 13px 12px; border-top: 1px solid var(--border); color: var(--text); font-size: 13px; line-height: 1.45; text-align: left; vertical-align: middle; }
 .bid-source-table th { border-top: 0; background: var(--surface-subtle); color: var(--muted); font-size: 12px; white-space: nowrap; }
 .bid-source-table th:nth-child(1) { min-width: 150px; }
@@ -31,6 +31,7 @@
 .bid-source-table th:nth-child(9) { min-width: 135px; }
 .bid-source-table th:nth-child(10) { min-width: 130px; }
 .bid-source-table th:nth-child(11) { min-width: 260px; }
+.bid-source-table th:nth-child(12) { min-width: 140px; }
 .bid-source-url { overflow-wrap: anywhere; color: #475569; }
 .bid-source-code { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; font-weight: 600; }
 .registration-status, .collection-enabled, .collection-disabled, .source-type, .site-identification, .source-check-status { display: inline-flex; padding: 4px 8px; border-radius: 999px; font-size: 12px; font-weight: 800; white-space: nowrap; }

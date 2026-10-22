@@ -9,6 +9,7 @@ import com.comhu.bidmonitor.bid.api.dto.BidSourceReviewRequest;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceBindingRequest;
 import com.comhu.bidmonitor.bid.api.dto.BidSourceActivationRequest;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
+import com.comhu.bidmonitor.bid.collection.ManualBidCollectionSourceRegistry;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceRegistrationService;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceSiteIdentificationService;
 import com.comhu.bidmonitor.bid.source.registration.BidSourceDiscoveryService;
@@ -34,17 +35,20 @@ public class BidSourceRegistrationController {
     private final BidSourceSiteIdentificationService siteIdentificationService;
     private final BidSourceDiscoveryService discoveryService;
     private final BidSourceDiscoveryReviewService discoveryReviewService;
+    private final ManualBidCollectionSourceRegistry sourceRegistry;
 
     public BidSourceRegistrationController(
             BidSourceRegistrationService service,
             BidSourceSiteIdentificationService siteIdentificationService,
             BidSourceDiscoveryService discoveryService,
-            BidSourceDiscoveryReviewService discoveryReviewService
+            BidSourceDiscoveryReviewService discoveryReviewService,
+            ManualBidCollectionSourceRegistry sourceRegistry
     ) {
         this.service = service;
         this.siteIdentificationService = siteIdentificationService;
         this.discoveryService = discoveryService;
         this.discoveryReviewService = discoveryReviewService;
+        this.sourceRegistry = sourceRegistry;
     }
 
     @PostMapping
@@ -155,10 +159,11 @@ public class BidSourceRegistrationController {
     }
 
     private BidSourceRegistrationResponse toResponse(BidSourceRegistration registration) {
-        return BidSourceRegistrationResponse.from(
-                registration,
-                siteIdentificationService.identify(registration.getSiteUrl())
-        );
+        BidSourceSiteIdentificationService.Identification identification =
+                siteIdentificationService.identify(registration.getSiteUrl());
+        boolean bindingSupported = identification.matchedSourceCode() != null
+                && sourceRegistry.registrationBindingSourceCodes().contains(identification.matchedSourceCode());
+        return BidSourceRegistrationResponse.from(registration, identification, bindingSupported);
     }
 
     private String actor(Principal principal) {

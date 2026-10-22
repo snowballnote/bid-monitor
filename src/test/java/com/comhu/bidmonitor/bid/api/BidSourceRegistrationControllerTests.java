@@ -455,6 +455,23 @@ class BidSourceRegistrationControllerTests {
                 .andExpect(jsonPath("$.siteUrl").value("https://www.g2b.go.kr/"))
                 .andExpect(jsonPath("$.siteIdentification").value("SUPPORTED"))
                 .andExpect(jsonPath("$.matchedSourceCode").value("G2B"))
+                .andExpect(jsonPath("$.registrationBindingSupported").value(false))
+                .andExpect(jsonPath("$.sourceCode").doesNotExist())
+                .andExpect(jsonPath("$.executionEnabled").value(false));
+    }
+
+    @Test
+    void reportsBindingSupportOnlyForACollectorThatAllowsRegistrationBinding() throws Exception {
+        mockMvc.perform(post("/api/bid-source-registrations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "sourceName", "KOGAS registration",
+                                "siteUrl", "https://bid.kogas.or.kr:9443/"
+                        ))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.siteIdentification").value("SUPPORTED"))
+                .andExpect(jsonPath("$.matchedSourceCode").value("KOGAS"))
+                .andExpect(jsonPath("$.registrationBindingSupported").value(true))
                 .andExpect(jsonPath("$.sourceCode").doesNotExist())
                 .andExpect(jsonPath("$.executionEnabled").value(false));
     }
@@ -470,6 +487,7 @@ class BidSourceRegistrationControllerTests {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.siteIdentification").value("NEW_SITE"))
                 .andExpect(jsonPath("$.matchedSourceCode").doesNotExist())
+                .andExpect(jsonPath("$.registrationBindingSupported").value(false))
                 .andExpect(jsonPath("$.sourceCode").doesNotExist())
                 .andExpect(jsonPath("$.executionEnabled").value(false));
     }
