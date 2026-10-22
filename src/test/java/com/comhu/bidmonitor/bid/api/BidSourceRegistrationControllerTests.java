@@ -49,8 +49,6 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -200,7 +198,7 @@ class BidSourceRegistrationControllerTests {
         assertEquals("APPROVED", audit.get("ACTION"));
         assertEquals("PENDING_REVIEW", audit.get("PREVIOUS_STATUS"));
         assertEquals("APPROVED", audit.get("NEW_STATUS"));
-        assertEquals("bid-admin", audit.get("ACTOR"));
+        assertEquals("local-ui", audit.get("ACTOR"));
         assertNotNull(audit.get("CREATED_AT"));
     }
 
@@ -255,68 +253,6 @@ class BidSourceRegistrationControllerTests {
     }
 
     @Test
-    void rejectsUnauthenticatedManagementRequests() throws Exception {
-        mockMvc.perform(patch("/api/bid-source-registrations/1/review")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("registrationStatus", "UNDER_REVIEW"))))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
-        mockMvc.perform(patch("/api/bid-source-registrations/1/binding")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("sourceCode", "KOGAS"))))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
-        mockMvc.perform(patch("/api/bid-source-registrations/1/activation")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("executionEnabled", true))))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
-        mockMvc.perform(patch("/api/bid-source-registrations/1/discovery/review")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("reviewStatus", "APPROVED"))))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
-    }
-
-    @Test
-    void rejectsDevBasicCredentialsOutsideDevProfile() throws Exception {
-        mockMvc.perform(patch("/api/bid-source-registrations/1/review")
-                        .with(httpBasic("dev-admin", "test-only-password"))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("registrationStatus", "UNDER_REVIEW"))))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
-    }
-
-    @Test
-    void rejectsManagementRequestsWithoutAdministratorRole() throws Exception {
-        mockMvc.perform(patch("/api/bid-source-registrations/1/review")
-                        .with(user("reviewer").roles("USER"))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("registrationStatus", "UNDER_REVIEW"))))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("ADMIN_ROLE_REQUIRED"));
-        mockMvc.perform(patch("/api/bid-source-registrations/1/binding")
-                        .with(user("reviewer").roles("USER"))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("sourceCode", "KOGAS"))))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("ADMIN_ROLE_REQUIRED"));
-        mockMvc.perform(patch("/api/bid-source-registrations/1/activation")
-                        .with(user("reviewer").roles("USER"))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("executionEnabled", true))))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("ADMIN_ROLE_REQUIRED"));
-        mockMvc.perform(patch("/api/bid-source-registrations/1/discovery/review")
-                        .with(user("reviewer").roles("USER"))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("reviewStatus", "APPROVED"))))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("ADMIN_ROLE_REQUIRED"));
-    }
-
-    @Test
     void recordsAdministratorAndStateChangesWithoutSensitiveColumns() throws Exception {
         when(kogasBidCollector.executionEnabled()).thenReturn(true);
         register("Audited KOGAS", "https://audited-kogas.example/notices");
@@ -345,7 +281,7 @@ class BidSourceRegistrationControllerTests {
         assertEquals(true, audits.get(3).get("NEW_EXECUTION_ENABLED"));
         assertEquals(true, audits.get(4).get("PREVIOUS_EXECUTION_ENABLED"));
         assertEquals(false, audits.get(4).get("NEW_EXECUTION_ENABLED"));
-        audits.forEach(row -> assertEquals("bid-admin", row.get("ACTOR")));
+        audits.forEach(row -> assertEquals("local-ui", row.get("ACTOR")));
 
         List<String> columns = jdbcTemplate.queryForList("""
                 SELECT column_name FROM information_schema.columns
@@ -639,7 +575,7 @@ class BidSourceRegistrationControllerTests {
                 """, sourceId);
         assertEquals(null, audit.get("PREVIOUS_SOURCE_CODE"));
         assertEquals(sourceCode, audit.get("NEW_SOURCE_CODE"));
-        assertEquals("bid-admin", audit.get("ACTOR"));
+        assertEquals("local-ui", audit.get("ACTOR"));
 
         activate(sourceId, true)
                 .andExpect(status().isOk())
@@ -1231,7 +1167,6 @@ class BidSourceRegistrationControllerTests {
             Map<String, ?> request
     ) throws Exception {
         return mockMvc.perform(patch("/api/bid-source-registrations/{sourceId}/review", sourceId)
-                .with(user("bid-admin").roles("ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json(request)));
     }
@@ -1239,7 +1174,6 @@ class BidSourceRegistrationControllerTests {
     private org.springframework.test.web.servlet.ResultActions bind(long sourceId, String sourceCode)
             throws Exception {
         return mockMvc.perform(patch("/api/bid-source-registrations/{sourceId}/binding", sourceId)
-                .with(user("bid-admin").roles("ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json(Map.of("sourceCode", sourceCode))));
     }
@@ -1247,7 +1181,6 @@ class BidSourceRegistrationControllerTests {
     private org.springframework.test.web.servlet.ResultActions bindAutomatic(long sourceId)
             throws Exception {
         return mockMvc.perform(patch("/api/bid-source-registrations/{sourceId}/binding", sourceId)
-                .with(user("bid-admin").roles("ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json(Map.of())));
     }
@@ -1257,7 +1190,6 @@ class BidSourceRegistrationControllerTests {
             Map<String, ?> request
     ) throws Exception {
         return mockMvc.perform(patch("/api/bid-source-registrations/{sourceId}/discovery/review", sourceId)
-                .with(user("bid-admin").roles("ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json(request)));
     }
@@ -1287,7 +1219,6 @@ class BidSourceRegistrationControllerTests {
     private org.springframework.test.web.servlet.ResultActions activate(long sourceId, boolean enabled)
             throws Exception {
         return mockMvc.perform(patch("/api/bid-source-registrations/{sourceId}/activation", sourceId)
-                .with(user("bid-admin").roles("ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json(Map.of("executionEnabled", enabled))));
     }

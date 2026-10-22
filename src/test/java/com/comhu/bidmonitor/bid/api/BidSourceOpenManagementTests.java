@@ -26,8 +26,6 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.when;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -39,9 +37,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @ActiveProfiles("dev")
 @TestPropertySource(properties = {
-        "BIZ_ASSIST_DEV_ADMIN_USERNAME=dev-admin",
-        "BIZ_ASSIST_DEV_ADMIN_PASSWORD=test-only-password",
-        "spring.datasource.url=jdbc:h2:mem:dev-admin-security;DB_CLOSE_DELAY=-1",
+        "spring.datasource.url=jdbc:h2:mem:open-management;DB_CLOSE_DELAY=-1",
         "spring.datasource.driver-class-name=org.h2.Driver",
         "spring.datasource.username=sa",
         "spring.datasource.password=",
@@ -49,7 +45,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "external-notice.scheduler.enabled=false",
         "bid.collection.scheduler.enabled=false"
 })
-class BidSourceDevAdminSecurityTests {
+class BidSourceOpenManagementTests {
 
     @Autowired
     private MockMvc mockMvc;
@@ -87,41 +83,23 @@ class BidSourceDevAdminSecurityTests {
     }
 
     @Test
-    void devBasicAdminCanReviewAndSuppliesAuditActor() throws Exception {
-        long sourceId = register("Dev admin source", "https://dev-admin.example/notices");
+    void localUiCanReviewWithoutAuthenticationAndSuppliesAuditActor() throws Exception {
+        long sourceId = register("Local UI source", "https://local-ui.example/notices");
 
         mockMvc.perform(patch("/api/bid-source-registrations/{sourceId}/review", sourceId)
-                        .with(httpBasic("dev-admin", "test-only-password"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("registrationStatus", "UNDER_REVIEW"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.registrationStatus").value("UNDER_REVIEW"));
 
-        assertEquals("dev-admin", jdbcTemplate.queryForObject("""
+        assertEquals("local-ui", jdbcTemplate.queryForObject("""
                 SELECT actor FROM bid_source_registration_audit
                 WHERE source_id = ? AND action = 'REVIEW_STATUS_CHANGED'
                 """, String.class, sourceId));
     }
 
     @Test
-    void devBasicRejectsWrongPasswordAndNonAdminAuthority() throws Exception {
-        mockMvc.perform(patch("/api/bid-source-registrations/1/review")
-                        .with(httpBasic("dev-admin", "wrong-password"))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("registrationStatus", "UNDER_REVIEW"))))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
-
-        mockMvc.perform(patch("/api/bid-source-registrations/1/review")
-                        .with(user("dev-user").roles("USER"))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("registrationStatus", "UNDER_REVIEW"))))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("ADMIN_ROLE_REQUIRED"));
-    }
-
-    @Test
-    void publicRegistrationAndCheckRemainAvailableWithoutAuthentication() throws Exception {
+    void publicRegistrationAndCheckRemainAvailable() throws Exception {
         String siteUrl = "https://public-dev.example/notices";
         long sourceId = register("Public dev source", siteUrl);
         when(availabilityChecker.check(siteUrl)).thenReturn(new BidSourceCheckResult(
@@ -140,7 +118,6 @@ class BidSourceDevAdminSecurityTests {
 
     @Test
     void devH2ConsoleAllowsOnlySameOriginFrames() throws Exception {
-        // MockMvc does not dispatch the H2 servlet; 404 confirms Security allowed the request through.
         mockMvc.perform(get("/h2-console/"))
                 .andExpect(status().isNotFound())
                 .andExpect(header().string("X-Frame-Options", "SAMEORIGIN"));

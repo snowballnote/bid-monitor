@@ -31,6 +31,8 @@ import java.util.List;
 @RequestMapping("/api/bid-source-registrations")
 public class BidSourceRegistrationController {
 
+    private static final String LOCAL_UI_ACTOR = "local-ui";
+
     private final BidSourceRegistrationService service;
     private final BidSourceSiteIdentificationService siteIdentificationService;
     private final BidSourceDiscoveryService discoveryService;
@@ -167,9 +169,7 @@ public class BidSourceRegistrationController {
     }
 
     private String actor(Principal principal) {
-        if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
-            throw new IllegalStateException("Authenticated administrator identity is required.");
-        }
-        return principal.getName();
+        return principal == null || principal.getName() == null || principal.getName().isBlank()
+                ? LOCAL_UI_ACTOR : principal.getName();
     }
 }

@@ -294,6 +294,7 @@ test('runs availability check and structure discovery only after explicit button
   await expect(page.getByText('접근 가능')).toBeVisible();
   await expect(page.getByRole('button', { name: '구조 분석' })).toBeVisible();
   await expect(page.getByRole('button', { name: '검토 시작' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '활성화' })).toHaveCount(0);
   expect(requests.filter(request => request.path.endsWith('/check'))).toHaveLength(2);
 
   await page.getByRole('button', { name: '구조 분석' }).click();
@@ -367,6 +368,7 @@ test('reviews and binds a supported collector only after explicit actions', asyn
         sourceType: registration.sourceCode ? 'FIXED' : 'DISCOVERED',
         sourceCode: registration.sourceCode,
         collectionMethod: registration.collectionMethod,
+        executionEnabled: registration.executionEnabled,
         registrationStatus: registration.registrationStatus,
         checkStatus: registration.checkStatus,
       })] });
@@ -384,6 +386,10 @@ test('reviews and binds a supported collector only after explicit actions', asyn
       registration = { ...registration, sourceCode: body.sourceCode };
       return route.fulfill({ json: registration });
     }
+    if (path === '/api/bid-source-registrations/1/activation' && request.method() === 'PATCH') {
+      registration = { ...registration, executionEnabled: body.executionEnabled };
+      return route.fulfill({ json: registration });
+    }
     return route.fulfill({ status: 404, json: {} });
   });
 
@@ -396,10 +402,15 @@ test('reviews and binds a supported collector only after explicit actions', asyn
   await expect(page.getByRole('button', { name: 'KOGAS 연결' })).toBeVisible();
   await page.getByRole('button', { name: 'KOGAS 연결' }).click();
   await expect(page.getByText('연결됨')).toBeVisible();
+  await page.getByRole('button', { name: '활성화' }).click();
+  await expect(page.getByText('활성', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '비활성화' }).click();
+  await expect(page.getByText('비활성', { exact: true })).toBeVisible();
 
   expect(requests.filter(request => request.path.endsWith('/review'))).toHaveLength(2);
   expect(requests.find(request => request.path.endsWith('/binding')).body).toEqual({ sourceCode: 'KOGAS' });
-  expect(requests.some(request => request.path.endsWith('/activation'))).toBe(false);
+  expect(requests.filter(request => request.path.endsWith('/activation')).map(request => request.body))
+    .toEqual([{ executionEnabled: true }, { executionEnabled: false }]);
 });
 
 test('shows loading, list error and server registration error without raw details', async ({ page }) => {

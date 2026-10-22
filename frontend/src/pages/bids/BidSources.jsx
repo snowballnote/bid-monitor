@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   BidSourceRegistrationRequestError,
+  activateBidSource,
   bindBidSource,
   checkBidSource,
   discoverBidSource,
@@ -126,17 +127,20 @@ function DiscoverySummary({ item }) {
   </dl>;
 }
 
-function CatalogRow({ item, operation, onCheck, onDiscover, onReview, onBind }) {
+function CatalogRow({ item, operation, onCheck, onDiscover, onReview, onBind, onActivation }) {
   const statusClass = item.registrationStatus?.toLowerCase() || 'not_applicable';
   const checkLoading = operation?.check === 'loading';
   const discoveryLoading = operation?.discovery === 'loading';
   const workflowLoading = operation?.workflow === 'loading';
+  const activationLoading = operation?.activation === 'loading';
   const canDiscover = item.sourceId != null && item.checkStatus === 'REACHABLE';
   const canReview = item.sourceId != null && item.siteIdentification === 'SUPPORTED'
     && item.registrationBindingSupported && item.checkStatus === 'REACHABLE'
     && ['PENDING_REVIEW', 'UNDER_REVIEW'].includes(item.registrationStatus);
   const canBind = item.sourceId != null && item.registrationStatus === 'APPROVED'
     && item.registrationBindingSupported && !item.sourceCode && item.matchedSourceCode;
+  const canActivate = item.sourceId != null && item.registrationStatus === 'APPROVED'
+    && item.registrationBindingSupported && item.sourceCode;
   return <tr>
     <td data-label="수집처 이름"><strong>{item.sourceName}</strong>
       {item.sourceCode && <small className="bid-source-code">{item.sourceCode}</small>}</td>
@@ -148,9 +152,15 @@ function CatalogRow({ item, operation, onCheck, onDiscover, onReview, onBind }) 
       {reviewStatus(item)}
     </span></td>
     <td data-label="수집 방식">{METHOD_NAMES[item.collectionMethod] || '해당 없음'}</td>
-    <td data-label="자동수집"><span className={item.executionEnabled ? 'collection-enabled' : 'collection-disabled'}>
-      {item.executionEnabled ? '활성' : '비활성'}
-    </span></td>
+    <td data-label="자동수집" className="bid-source-action-cell">
+      <span className={item.executionEnabled ? 'collection-enabled' : 'collection-disabled'}>
+        {item.executionEnabled ? '활성' : '비활성'}
+      </span>
+      {canActivate && <button type="button" disabled={activationLoading}
+        onClick={() => onActivation(item)}>{activationLoading ? '처리 중…'
+          : item.executionEnabled ? '비활성화' : '활성화'}</button>}
+      {operation?.activation === 'error' && <small role="alert">활성 상태 변경에 실패했습니다.</small>}
+    </td>
     <td data-label="최근 성공">{formatDateTime(item.lastSuccessAt)}</td>
     <td data-label="최근 실패">{formatDateTime(item.lastFailureAt)}</td>
     <td data-label="지원 식별"><span className={`site-identification site-identification-${(item.siteIdentification || item.sourceType).toLowerCase()}`}>
@@ -307,6 +317,18 @@ export default function BidSources() {
     }
   }
 
+  async function changeActivation(item) {
+    if (operations[item.sourceId]?.activation === 'loading') return;
+    setOperation(item.sourceId, 'activation', 'loading');
+    try {
+      const result = await activateBidSource(item.sourceId, !item.executionEnabled);
+      updateSource(item.sourceId, { executionEnabled: result.executionEnabled });
+      setOperation(item.sourceId, 'activation', 'success');
+    } catch {
+      setOperation(item.sourceId, 'activation', 'error');
+    }
+  }
+
   async function submit(event) {
     event.preventDefault();
     if (submittingRef.current) return;
@@ -390,6 +412,7 @@ export default function BidSources() {
             <tbody>{resource.data.map(item => <CatalogRow item={item}
               operation={operations[item.sourceId]} onCheck={checkSource} onDiscover={discoverSource}
               onReview={reviewSource} onBind={bindSource}
+              onActivation={changeActivation}
               key={item.sourceCode || `registration-${item.sourceId}`} />)}</tbody>
           </table>
         </div>}

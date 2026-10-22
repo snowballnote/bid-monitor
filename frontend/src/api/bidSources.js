@@ -150,3 +150,12 @@ export async function bindBidSource(sourceId, sourceCode, signal) {
     body: JSON.stringify({ sourceCode }),
   }, isRegistration);
 }
+
+export async function activateBidSource(sourceId, executionEnabled, signal) {
+  return requestJson(`${BASE_URL}/${sourceId}/activation`, {
+    method: 'PATCH',
+    signal,
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ executionEnabled }),
+  }, isRegistration);
+}
