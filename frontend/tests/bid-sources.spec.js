@@ -163,10 +163,13 @@ test('renders the unified fixed catalog and registers only name and URL before r
   await expect(page.locator('.bid-source-table tbody tr')).toHaveCount(6);
   await expect(page.locator('.bid-source-table')).toContainText('검토 대기');
   await expect(page.locator('.bid-source-table')).toContainText('검토 중');
-  await expect(page.locator('.bid-source-table')).toContainText('미확정');
-  await expect(page.locator('.bid-source-table')).toContainText('공개 페이지');
   await expect(page.locator('.bid-source-table')).toContainText('비활성');
-  await expect(page.locator('.bid-source-url a')).toHaveCount(0);
+  await expect(page.locator('.bid-source-table')).not.toContainText('https://bids.example.go.kr/notices');
+  await page.getByRole('button', { name: /검토 중인 입찰정보/ }).click();
+  const detailDialog = page.getByRole('dialog', { name: '검토 중인 입찰정보' });
+  await expect(detailDialog).toContainText('https://review.example.org/bids');
+  await expect(detailDialog).toContainText('공개 페이지');
+  await detailDialog.getByRole('button', { name: '닫기', exact: true }).click();
   await expect(page.getByText('기존 지원 사이트는 등록 즉시 해당 수집기에 연결됩니다.')).toBeVisible();
 
   const post = requests.find(request => request.method === 'POST');
@@ -288,8 +291,9 @@ test('runs availability check and structure discovery only after explicit button
   await expect(page.getByText('신규 사이트')).toBeVisible();
   await expect(page.getByRole('button', { name: '구조 분석' })).toHaveCount(0);
 
+  await page.getByRole('button', { name: '상세' }).click();
   await page.getByRole('button', { name: '사이트 점검' }).click();
-  await expect(page.getByRole('alert')).toHaveText('점검 요청에 실패했습니다.');
+  await expect(page.getByRole('alert')).toHaveText('사이트 점검에 실패했습니다.');
   await page.getByRole('button', { name: '사이트 점검' }).click();
   await expect(page.getByText('접근 가능')).toBeVisible();
   await expect(page.getByRole('button', { name: '구조 분석' })).toBeVisible();
@@ -305,6 +309,7 @@ test('runs availability check and structure discovery only after explicit button
   expect(requests.filter(request => request.path.endsWith('/discovery') && request.method === 'POST')).toHaveLength(1);
 
   await page.reload();
+  await page.getByRole('button', { name: '상세' }).click();
   await expect(page.getByText('분석 완료')).toBeVisible();
   await expect(page.locator('.bid-source-discovery-details')).toContainText('PAGINATION_NOT_DETECTED');
   expect(requests.some(request => request.path.endsWith('/discovery') && request.method === 'GET')).toBe(true);
@@ -458,12 +463,14 @@ test('reviews and binds a supported collector only after explicit actions', asyn
   await page.goto('/react/index.html#/bid-sources');
   expect(requests.some(request => request.path.endsWith('/review'))).toBe(false);
   expect(requests.some(request => request.path.endsWith('/binding'))).toBe(false);
+  await page.getByRole('button', { name: '상세' }).click();
   await page.getByRole('button', { name: '검토 시작' }).click();
   await expect(page.getByRole('button', { name: '수집 방식 승인' })).toBeVisible();
   await page.getByRole('button', { name: '수집 방식 승인' }).click();
   await expect(page.getByRole('button', { name: 'KOGAS 연결' })).toBeVisible();
   await page.getByRole('button', { name: 'KOGAS 연결' }).click();
-  await expect(page.getByText('연결됨')).toBeVisible();
+  await expect(page.getByText('수집기 연결됨')).toBeVisible();
+  await page.getByRole('button', { name: '수집처 상세 닫기' }).click();
   await page.getByRole('button', { name: '활성화' }).click();
   await expect(page.getByText('활성', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '비활성화' }).click();

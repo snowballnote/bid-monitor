@@ -126,37 +126,55 @@ function DiscoverySummary({ item }) {
   </dl>;
 }
 
+function sourceCapabilities(item) {
+  return {
+    canCheck: item.sourceId != null && !item.executionEnabled
+      && ['PENDING_REVIEW', 'UNDER_REVIEW'].includes(item.registrationStatus),
+    canDiscover: item.sourceId != null && item.checkStatus === 'REACHABLE',
+    canReview: item.sourceId != null && item.siteIdentification === 'SUPPORTED'
+      && item.registrationBindingSupported && item.checkStatus === 'REACHABLE'
+      && ['PENDING_REVIEW', 'UNDER_REVIEW'].includes(item.registrationStatus),
+    canBind: item.sourceId != null && item.registrationStatus === 'APPROVED'
+      && item.registrationBindingSupported && !item.sourceCode && item.matchedSourceCode,
+    canActivate: item.sourceId != null && item.registrationStatus === 'APPROVED'
+      && item.registrationBindingSupported && item.sourceCode,
+  };
+}
+
+function latestResult(item) {
+  const successAt = item.lastSuccessAt ? new Date(item.lastSuccessAt).getTime() : Number.NaN;
+  const failureAt = item.lastFailureAt ? new Date(item.lastFailureAt).getTime() : Number.NaN;
+  if (Number.isFinite(failureAt) && (!Number.isFinite(successAt) || failureAt > successAt)) {
+    return { label: '최근 실패', value: item.lastFailureAt, tone: 'failure' };
+  }
+  if (Number.isFinite(successAt)) {
+    return { label: '최근 성공', value: item.lastSuccessAt, tone: 'success' };
+  }
+  return { label: '실행 기록 없음', value: null, tone: 'empty' };
+}
+
 function CatalogRow({
-  item, operation, onCheck, onDiscover, onReview, onBind, onActivation, onEdit, onDelete,
+  item, operation, onActivation, onEdit, onDelete, onDetail,
 }) {
-  const statusClass = item.registrationStatus?.toLowerCase() || 'not_applicable';
-  const checkLoading = operation?.check === 'loading';
-  const discoveryLoading = operation?.discovery === 'loading';
-  const workflowLoading = operation?.workflow === 'loading';
   const activationLoading = operation?.activation === 'loading';
   const configurationLoading = operation?.configuration === 'loading';
-  const canCheck = item.sourceId != null && !item.executionEnabled
-    && ['PENDING_REVIEW', 'UNDER_REVIEW'].includes(item.registrationStatus);
-  const canDiscover = item.sourceId != null && item.checkStatus === 'REACHABLE';
-  const canReview = item.sourceId != null && item.siteIdentification === 'SUPPORTED'
-    && item.registrationBindingSupported && item.checkStatus === 'REACHABLE'
-    && ['PENDING_REVIEW', 'UNDER_REVIEW'].includes(item.registrationStatus);
-  const canBind = item.sourceId != null && item.registrationStatus === 'APPROVED'
-    && item.registrationBindingSupported && !item.sourceCode && item.matchedSourceCode;
-  const canActivate = item.sourceId != null && item.registrationStatus === 'APPROVED'
-    && item.registrationBindingSupported && item.sourceCode;
+  const { canActivate } = sourceCapabilities(item);
+  const result = latestResult(item);
   return <tr>
-    <td data-label="수집처 이름"><strong>{item.sourceName}</strong>
-      {item.sourceCode && <small className="bid-source-code">{item.sourceCode}</small>}</td>
-    <td data-label="유형"><span className={`source-type source-type-${item.sourceType.toLowerCase()}`}>
-      {item.sourceType === 'FIXED' ? '기본' : '등록'}
-    </span></td>
-    <td data-label="사이트 URL" className="bid-source-url">{item.siteUrl}</td>
-    <td data-label="검토 상태"><span className={`registration-status registration-status-${statusClass}`}>
-      {reviewStatus(item)}
-    </span></td>
-    <td data-label="수집 방식">{METHOD_NAMES[item.collectionMethod] || '해당 없음'}</td>
-    <td data-label="자동수집" className="bid-source-action-cell">
+    <td data-label="수집처" className="bid-source-name-cell">
+      <button type="button" className="bid-source-name-button" onClick={() => onDetail(item)}>
+        <strong>{item.sourceName}</strong>
+        <small>{item.sourceCode || '코드 미할당'}</small>
+      </button>
+    </td>
+    <td data-label="연결 상태" className="bid-source-connection-cell">
+      <span className={`site-identification site-identification-${(item.siteIdentification || item.sourceType).toLowerCase()}`}>
+        {identificationLabel(item)}
+      </span>
+      <small>{item.sourceCode && item.registrationStatus === 'APPROVED'
+        ? '수집기 연결됨' : reviewStatus(item)}</small>
+    </td>
+    <td data-label="수집 상태" className="bid-source-action-cell bid-source-activation-cell">
       <span className={item.executionEnabled ? 'collection-enabled' : 'collection-disabled'}>
         {item.executionEnabled ? '활성' : '비활성'}
       </span>
@@ -165,40 +183,12 @@ function CatalogRow({
           : item.executionEnabled ? '비활성화' : '활성화'}</button>}
       {operation?.activation === 'error' && <small role="alert">활성 상태 변경에 실패했습니다.</small>}
     </td>
-    <td data-label="최근 성공">{formatDateTime(item.lastSuccessAt)}</td>
-    <td data-label="최근 실패">{formatDateTime(item.lastFailureAt)}</td>
-    <td data-label="지원 식별"><span className={`site-identification site-identification-${(item.siteIdentification || item.sourceType).toLowerCase()}`}>
-      {identificationLabel(item)}
-    </span></td>
-    <td data-label="사이트 점검" className="bid-source-action-cell">
-      <span className={`source-check-status source-check-status-${(item.checkStatus || 'not_checked').toLowerCase()}`}>
-        {CHECK_STATUS_NAMES[item.checkStatus] || (item.sourceId == null ? '등록 필요' : '미점검')}
-      </span>
-      {canCheck && <button type="button" disabled={checkLoading}
-        onClick={() => onCheck(item.sourceId)}>{checkLoading ? '점검 중…' : '사이트 점검'}</button>}
-      {operation?.check === 'error' && <small role="alert">점검 요청에 실패했습니다.</small>}
+    <td data-label="최근 결과" className={`bid-source-last-result result-${result.tone}`}>
+      <strong>{result.label}</strong><small>{formatDateTime(result.value)}</small>
       {item.safeFailureCode && <small>{item.safeFailureCode}</small>}
     </td>
-    <td data-label="구조 분석" className="bid-source-action-cell bid-source-discovery-cell">
-      <span>{DISCOVERY_STATUS_NAMES[item.discoveryStatus] || '미분석'}</span>
-      {canDiscover && <button type="button" disabled={discoveryLoading}
-        onClick={() => onDiscover(item.sourceId)}>{discoveryLoading ? '분석 중…' : '구조 분석'}</button>}
-      {operation?.discovery === 'error' && <small role="alert">구조 분석 요청에 실패했습니다.</small>}
-      <DiscoverySummary item={item} />
-    </td>
-    <td data-label="연결 관리" className="bid-source-action-cell">
-      {canReview && <button type="button" disabled={workflowLoading}
-        onClick={() => onReview(item)}>{workflowLoading ? '처리 중…'
-          : item.registrationStatus === 'PENDING_REVIEW' ? '검토 시작' : '수집 방식 승인'}</button>}
-      {canBind && <button type="button" disabled={workflowLoading}
-        onClick={() => onBind(item)}>{workflowLoading ? '처리 중…' : `${item.matchedSourceCode} 연결`}</button>}
-      {item.siteIdentification === 'SUPPORTED' && !item.registrationBindingSupported
-        && <span className="bid-source-detail-muted">URL 식별만 지원</span>}
-      {item.sourceCode && item.registrationStatus === 'APPROVED'
-        && <span className="collection-enabled">연결됨</span>}
-      {operation?.workflow === 'error' && <small role="alert">검토 또는 연결 요청에 실패했습니다.</small>}
-    </td>
-    <td data-label="설정" className="bid-source-action-cell bid-source-configuration-cell">
+    <td data-label="관리" className="bid-source-action-cell bid-source-configuration-cell">
+      <button type="button" onClick={() => onDetail(item)}>상세</button>
       {item.sourceId != null && <>
         <button type="button" disabled={configurationLoading} onClick={() => onEdit(item)}>수정</button>
         <button type="button" className="danger" disabled={configurationLoading}
@@ -210,6 +200,78 @@ function CatalogRow({
   </tr>;
 }
 
+function SourceDetailModal({
+  item, operation, onClose, onCheck, onDiscover, onReview, onBind, onEdit,
+}) {
+  const { canCheck, canDiscover, canReview, canBind } = sourceCapabilities(item);
+  const checkLoading = operation?.check === 'loading';
+  const discoveryLoading = operation?.discovery === 'loading';
+  const workflowLoading = operation?.workflow === 'loading';
+
+  useEffect(() => {
+    const closeOnEscape = event => { if (event.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [onClose]);
+
+  return <div className="bid-source-modal-overlay" role="presentation"
+    onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="bid-source-modal" role="dialog" aria-modal="true" aria-labelledby="bid-source-detail-title">
+      <header className="bid-source-modal-header">
+        <div><span className="page-eyebrow">SOURCE DETAILS</span>
+          <h2 id="bid-source-detail-title">{item.sourceName}</h2>
+          <p>{item.sourceCode || '수집처 코드 미할당'}</p></div>
+        <button type="button" className="bid-source-modal-close" onClick={onClose} autoFocus
+          aria-label="수집처 상세 닫기">×</button>
+      </header>
+
+      <div className="bid-source-modal-body">
+        <section><h3>기본 정보</h3><dl className="bid-source-detail-grid">
+          <div><dt>사이트 URL</dt><dd className="bid-source-url">{item.siteUrl}</dd></div>
+          <div><dt>지원 구분</dt><dd>{identificationLabel(item)}</dd></div>
+          <div><dt>검토 상태</dt><dd>{reviewStatus(item)}</dd></div>
+          <div><dt>수집 방식</dt><dd>{METHOD_NAMES[item.collectionMethod] || '미확정'}</dd></div>
+          <div><dt>자동 수집</dt><dd>{item.executionEnabled ? '활성' : '비활성'}</dd></div>
+          <div><dt>유형</dt><dd>{item.sourceType === 'FIXED' ? '기본 지원 수집처' : '사용자 등록 수집처'}</dd></div>
+        </dl></section>
+
+        <section><h3>운영 상태</h3><dl className="bid-source-detail-grid">
+          <div><dt>최근 성공</dt><dd>{formatDateTime(item.lastSuccessAt)}</dd></div>
+          <div><dt>최근 실패</dt><dd>{formatDateTime(item.lastFailureAt)}</dd></div>
+          <div><dt>사이트 점검</dt><dd>{CHECK_STATUS_NAMES[item.checkStatus]
+            || (item.sourceId == null ? '등록 필요' : '미점검')}</dd></div>
+          <div><dt>점검 시각</dt><dd>{formatDateTime(item.checkedAt)}</dd></div>
+          <div><dt>HTTP 상태</dt><dd>{item.httpStatus || '—'}</dd></div>
+          <div><dt>오류 코드</dt><dd>{item.safeFailureCode || '—'}</dd></div>
+        </dl></section>
+
+        <section><h3>구조 분석</h3>
+          <p className="bid-source-analysis-status">{DISCOVERY_STATUS_NAMES[item.discoveryStatus] || '미분석'}</p>
+          <DiscoverySummary item={item} />
+        </section>
+      </div>
+
+      <footer className="bid-source-modal-actions">
+        {canCheck && <button type="button" disabled={checkLoading} onClick={() => onCheck(item.sourceId)}>
+          {checkLoading ? '점검 중…' : '사이트 점검'}</button>}
+        {canDiscover && <button type="button" disabled={discoveryLoading} onClick={() => onDiscover(item.sourceId)}>
+          {discoveryLoading ? '분석 중…' : '구조 분석'}</button>}
+        {canReview && <button type="button" disabled={workflowLoading} onClick={() => onReview(item)}>
+          {workflowLoading ? '처리 중…'
+            : item.registrationStatus === 'PENDING_REVIEW' ? '검토 시작' : '수집 방식 승인'}</button>}
+        {canBind && <button type="button" disabled={workflowLoading} onClick={() => onBind(item)}>
+          {workflowLoading ? '처리 중…' : `${item.matchedSourceCode} 연결`}</button>}
+        {item.sourceId != null && <button type="button" className="secondary" onClick={() => onEdit(item)}>
+          정보 수정</button>}
+        <button type="button" className="secondary" onClick={onClose}>닫기</button>
+        {operation?.check === 'error' && <small role="alert">사이트 점검에 실패했습니다.</small>}
+        {operation?.discovery === 'error' && <small role="alert">구조 분석에 실패했습니다.</small>}
+        {operation?.workflow === 'error' && <small role="alert">연결 상태 변경에 실패했습니다.</small>}
+      </footer>
+    </section>
+  </div>;
+}
+
 export default function BidSources() {
   const [form, setForm] = useState({ sourceName: '', siteUrl: '' });
   const [editingSourceId, setEditingSourceId] = useState(null);
@@ -217,6 +279,7 @@ export default function BidSources() {
   const [submission, setSubmission] = useState({ status: 'idle', message: '' });
   const [operations, setOperations] = useState({});
   const [reloadVersion, setReloadVersion] = useState(0);
+  const [detailSourceId, setDetailSourceId] = useState(null);
   const submittingRef = useRef(false);
   const registrationControllerRef = useRef(null);
 
@@ -344,6 +407,7 @@ export default function BidSources() {
   }
 
   function startEdit(item) {
+    setDetailSourceId(null);
     setEditingSourceId(item.sourceId);
     setForm({ sourceName: item.sourceName, siteUrl: item.siteUrl });
     setSubmission({ status: 'idle', message: '' });
@@ -361,6 +425,7 @@ export default function BidSources() {
     setOperation(item.sourceId, 'configuration', 'loading');
     try {
       await deleteBidSource(item.sourceId);
+      setDetailSourceId(null);
       if (editingSourceId === item.sourceId) cancelEdit();
       setSubmission({ status: 'success', message: '수집처를 삭제했습니다.' });
       setReloadVersion(current => current + 1);
@@ -368,6 +433,10 @@ export default function BidSources() {
       setOperation(item.sourceId, 'configuration', 'error');
     }
   }
+
+  const detailItem = resource.data.find(item => item.sourceId != null
+    ? item.sourceId === detailSourceId
+    : item.sourceCode === detailSourceId);
 
   async function submit(event) {
     event.preventDefault();
@@ -454,17 +523,18 @@ export default function BidSources() {
           && <div className="bid-source-list-state">표시할 수집처가 없습니다.</div>}
         {resource.status === 'success' && resource.data.length > 0 && <div className="bid-source-table-wrap">
           <table className="bid-source-table">
-            <thead><tr><th>수집처 이름</th><th>유형</th><th>사이트 URL</th><th>검토 상태</th>
-              <th>수집 방식</th><th>자동수집</th><th>최근 성공</th><th>최근 실패</th><th>지원 식별</th>
-              <th>사이트 점검</th><th>구조 분석</th><th>연결 관리</th><th>설정</th></tr></thead>
+            <thead><tr><th>수집처</th><th>연결 상태</th><th>수집 상태</th><th>최근 결과</th><th>관리</th></tr></thead>
             <tbody>{resource.data.map(item => <CatalogRow item={item}
-              operation={operations[item.sourceId]} onCheck={checkSource} onDiscover={discoverSource}
-              onReview={reviewSource} onBind={bindSource}
+              operation={operations[item.sourceId]}
               onActivation={changeActivation} onEdit={startEdit} onDelete={removeSource}
+              onDetail={source => setDetailSourceId(source.sourceId ?? source.sourceCode)}
               key={item.sourceCode || `registration-${item.sourceId}`} />)}</tbody>
           </table>
         </div>}
       </section>
     </div>
+    {detailItem && <SourceDetailModal item={detailItem} operation={operations[detailItem.sourceId]}
+      onClose={() => setDetailSourceId(null)} onCheck={checkSource} onDiscover={discoverSource}
+      onReview={reviewSource} onBind={bindSource} onEdit={startEdit} />}
   </main>;
 }
