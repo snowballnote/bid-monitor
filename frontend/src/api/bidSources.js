@@ -103,6 +103,24 @@ export async function registerBidSource({ sourceName, siteUrl }, signal) {
   }, isRegistration);
 }
 
+export async function updateBidSource(sourceId, { sourceName, siteUrl }, signal) {
+  return requestJson(`${BASE_URL}/${sourceId}`, {
+    method: 'PATCH',
+    signal,
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceName, siteUrl }),
+  }, isRegistration);
+}
+
+export async function deleteBidSource(sourceId, signal) {
+  const response = await fetch(`${BASE_URL}/${sourceId}`, {
+    method: 'DELETE',
+    signal,
+    headers: { Accept: 'application/json' },
+  });
+  if (!response.ok) throw new BidSourceRegistrationRequestError(response.status);
+}
+
 export async function getBidSourceRegistrations(signal) {
   return requestJson(BASE_URL, {
     signal,

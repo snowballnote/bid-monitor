@@ -159,7 +159,7 @@ test('renders the unified fixed catalog and registers only name and URL before r
   await page.getByLabel('사이트 URL').fill('https://bids.example.go.kr/notices');
   await page.getByRole('button', { name: '수집처 등록' }).click();
 
-  await expect(page.locator('.bid-source-form-message.success')).toContainText('새 수집처로 등록되었습니다.');
+  await expect(page.locator('.bid-source-form-message.success')).toContainText('미지원 사이트로 등록했습니다.');
   await expect(page.locator('.bid-source-table tbody tr')).toHaveCount(6);
   await expect(page.locator('.bid-source-table')).toContainText('검토 대기');
   await expect(page.locator('.bid-source-table')).toContainText('검토 중');
@@ -167,7 +167,7 @@ test('renders the unified fixed catalog and registers only name and URL before r
   await expect(page.locator('.bid-source-table')).toContainText('공개 페이지');
   await expect(page.locator('.bid-source-table')).toContainText('비활성');
   await expect(page.locator('.bid-source-url a')).toHaveCount(0);
-  await expect(page.getByText('등록한 사이트는 수집 가능 여부 검토 후 수집 대상으로 연결됩니다.')).toBeVisible();
+  await expect(page.getByText('기존 지원 사이트는 등록 즉시 해당 수집기에 연결됩니다.')).toBeVisible();
 
   const post = requests.find(request => request.method === 'POST');
   expect(post.body).toEqual({
@@ -229,12 +229,12 @@ test('prevents duplicate registration posts while a request is pending', async (
   await page.getByLabel('수집처 이름').fill('중복 방지 수집처');
   await page.getByLabel('사이트 URL').fill('https://once.example/bids');
   await page.getByRole('button', { name: '수집처 등록' }).click();
-  const pendingButton = page.getByRole('button', { name: '등록 중…' });
+  const pendingButton = page.getByRole('button', { name: '저장 중…' });
   await expect(pendingButton).toBeDisabled();
   await pendingButton.evaluate(button => button.dispatchEvent(new MouseEvent('click', { bubbles: true })));
   expect(postCount).toBe(1);
   releasePost();
-  await expect(page.locator('.bid-source-form-message.success')).toContainText('새 수집처로 등록되었습니다.');
+  await expect(page.locator('.bid-source-form-message.success')).toContainText('미지원 사이트로 등록했습니다.');
 });
 
 test('runs availability check and structure discovery only after explicit button clicks', async ({ page }) => {
@@ -310,14 +310,20 @@ test('runs availability check and structure discovery only after explicit button
   expect(requests.some(request => request.path.endsWith('/discovery') && request.method === 'GET')).toBe(true);
 });
 
-test('shows supported-site identification after registration without checking or binding it', async ({ page }) => {
+test('shows the automatic collector connection returned for a supported site', async ({ page }) => {
   const requests = [];
   const supportedRegistration = {
     ...pendingRegistration,
     sourceName: '나라장터 등록',
     siteUrl: 'https://www.g2b.go.kr/',
+    sourceCode: 'G2B',
+    registrationStatus: 'APPROVED',
+    collectionMethod: 'OFFICIAL_API',
+    detectedCollectionMethod: 'OFFICIAL_API',
+    executionEnabled: true,
     siteIdentification: 'SUPPORTED',
     matchedSourceCode: 'G2B',
+    registrationBindingSupported: true,
   };
   await page.route('**/api/**', route => {
     const request = route.request();
@@ -338,9 +344,65 @@ test('shows supported-site identification after registration without checking or
   await page.getByLabel('사이트 URL').fill('https://www.g2b.go.kr/');
   await page.getByRole('button', { name: '수집처 등록' }).click();
   await expect(page.locator('.bid-source-form-message.success')).toContainText('기존 지원 사이트(G2B)');
+  await expect(page.locator('.bid-source-form-message.success')).toContainText('수집은 활성 상태');
   expect(requests.some(request => request.path.endsWith('/check'))).toBe(false);
   expect(requests.some(request => request.path.endsWith('/binding'))).toBe(false);
   expect(requests.some(request => request.path.endsWith('/activation'))).toBe(false);
+});
+
+test('edits and deletes a registered source only after explicit actions', async ({ page }) => {
+  const requests = [];
+  let registration = { ...pendingRegistration };
+  let deleted = false;
+  await page.route('**/api/**', route => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    const body = request.postDataJSON?.();
+    requests.push({ path, method: request.method(), body });
+    if (path === '/api/bid-sources/catalog') {
+      return route.fulfill({ json: deleted ? [] : [catalogItem({
+        sourceId: registration.sourceId,
+        sourceName: registration.sourceName,
+        siteUrl: registration.siteUrl,
+        collectionMethod: registration.collectionMethod,
+        executionEnabled: registration.executionEnabled,
+        registrationStatus: registration.registrationStatus,
+        checkStatus: registration.checkStatus,
+      })] });
+    }
+    if (path === '/api/bid-source-registrations' && request.method() === 'GET') {
+      return route.fulfill({ json: deleted ? [] : [registration] });
+    }
+    if (path === '/api/bid-source-registrations/1' && request.method() === 'PATCH') {
+      registration = { ...registration, ...body, updatedAt: '2026-10-22T02:00:00Z' };
+      return route.fulfill({ json: registration });
+    }
+    if (path === '/api/bid-source-registrations/1' && request.method() === 'DELETE') {
+      deleted = true;
+      return route.fulfill({ status: 204, body: '' });
+    }
+    return route.fulfill({ status: 404, json: {} });
+  });
+
+  await page.goto('/react/index.html#/bid-sources');
+  await page.getByRole('button', { name: '수정' }).click();
+  await expect(page.getByRole('heading', { name: '수집처 수정' })).toBeVisible();
+  await expect(page.getByLabel('수집처 이름')).toHaveValue('지역 공공기관 입찰정보');
+  await page.getByLabel('수집처 이름').fill('수정된 공공기관');
+  await page.getByLabel('사이트 URL').fill('https://updated.example/bids');
+  await page.getByRole('button', { name: '수정 저장' }).click();
+  await expect(page.locator('.bid-source-form-message.success')).toHaveText('수집처 정보를 수정했습니다.');
+  await expect(page.locator('.bid-source-table')).toContainText('수정된 공공기관');
+
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: '삭제' }).click();
+  await expect(page.locator('.bid-source-form-message.success')).toHaveText('수집처를 삭제했습니다.');
+  await expect(page.locator('.bid-source-table tbody tr')).toHaveCount(0);
+
+  expect(requests.find(request => request.method === 'PATCH').body).toEqual({
+    sourceName: '수정된 공공기관', siteUrl: 'https://updated.example/bids',
+  });
+  expect(requests.filter(request => request.method === 'DELETE')).toHaveLength(1);
 });
 
 test('reviews and binds a supported collector only after explicit actions', async ({ page }) => {

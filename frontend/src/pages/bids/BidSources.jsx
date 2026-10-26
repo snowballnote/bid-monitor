@@ -4,12 +4,14 @@ import {
   activateBidSource,
   bindBidSource,
   checkBidSource,
+  deleteBidSource,
   discoverBidSource,
   getBidSourceCatalog,
   getBidSourceDiscovery,
   getBidSourceRegistrations,
   registerBidSource,
   reviewBidSource,
+  updateBidSource,
 } from '../../api/bidSources';
 import './bid-sources.css';
 
@@ -87,15 +89,12 @@ function mergeCatalogAndRegistrations(catalog, registrations) {
     if (!registration) return item;
     return {
       ...item,
-      checkStatus: registration.checkStatus,
-      detectedCollectionMethod: registration.detectedCollectionMethod,
-      httpStatus: registration.httpStatus,
-      contentType: registration.contentType,
-      checkedAt: registration.checkedAt,
-      safeFailureCode: registration.safeFailureCode,
-      siteIdentification: registration.siteIdentification,
-      matchedSourceCode: registration.matchedSourceCode,
-      registrationBindingSupported: registration.registrationBindingSupported,
+      ...registration,
+      sourceType: item.sourceType,
+      discoveryStatus: item.discoveryStatus,
+      reviewStatus: item.reviewStatus,
+      lastSuccessAt: item.lastSuccessAt,
+      lastFailureAt: item.lastFailureAt,
     };
   });
 }
@@ -127,12 +126,17 @@ function DiscoverySummary({ item }) {
   </dl>;
 }
 
-function CatalogRow({ item, operation, onCheck, onDiscover, onReview, onBind, onActivation }) {
+function CatalogRow({
+  item, operation, onCheck, onDiscover, onReview, onBind, onActivation, onEdit, onDelete,
+}) {
   const statusClass = item.registrationStatus?.toLowerCase() || 'not_applicable';
   const checkLoading = operation?.check === 'loading';
   const discoveryLoading = operation?.discovery === 'loading';
   const workflowLoading = operation?.workflow === 'loading';
   const activationLoading = operation?.activation === 'loading';
+  const configurationLoading = operation?.configuration === 'loading';
+  const canCheck = item.sourceId != null && !item.executionEnabled
+    && ['PENDING_REVIEW', 'UNDER_REVIEW'].includes(item.registrationStatus);
   const canDiscover = item.sourceId != null && item.checkStatus === 'REACHABLE';
   const canReview = item.sourceId != null && item.siteIdentification === 'SUPPORTED'
     && item.registrationBindingSupported && item.checkStatus === 'REACHABLE'
@@ -170,7 +174,7 @@ function CatalogRow({ item, operation, onCheck, onDiscover, onReview, onBind, on
       <span className={`source-check-status source-check-status-${(item.checkStatus || 'not_checked').toLowerCase()}`}>
         {CHECK_STATUS_NAMES[item.checkStatus] || (item.sourceId == null ? '등록 필요' : '미점검')}
       </span>
-      {item.sourceId != null && <button type="button" disabled={checkLoading}
+      {canCheck && <button type="button" disabled={checkLoading}
         onClick={() => onCheck(item.sourceId)}>{checkLoading ? '점검 중…' : '사이트 점검'}</button>}
       {operation?.check === 'error' && <small role="alert">점검 요청에 실패했습니다.</small>}
       {item.safeFailureCode && <small>{item.safeFailureCode}</small>}
@@ -194,11 +198,21 @@ function CatalogRow({ item, operation, onCheck, onDiscover, onReview, onBind, on
         && <span className="collection-enabled">연결됨</span>}
       {operation?.workflow === 'error' && <small role="alert">검토 또는 연결 요청에 실패했습니다.</small>}
     </td>
+    <td data-label="설정" className="bid-source-action-cell bid-source-configuration-cell">
+      {item.sourceId != null && <>
+        <button type="button" disabled={configurationLoading} onClick={() => onEdit(item)}>수정</button>
+        <button type="button" className="danger" disabled={configurationLoading}
+          onClick={() => onDelete(item)}>{configurationLoading ? '처리 중…' : '삭제'}</button>
+      </>}
+      {item.sourceId == null && <span className="bid-source-detail-muted">등록 후 설정 가능</span>}
+      {operation?.configuration === 'error' && <small role="alert">수집처 설정을 변경하지 못했습니다.</small>}
+    </td>
   </tr>;
 }
 
 export default function BidSources() {
   const [form, setForm] = useState({ sourceName: '', siteUrl: '' });
+  const [editingSourceId, setEditingSourceId] = useState(null);
   const [resource, setResource] = useState({ status: 'loading', data: [] });
   const [submission, setSubmission] = useState({ status: 'idle', message: '' });
   const [operations, setOperations] = useState({});
@@ -329,6 +343,32 @@ export default function BidSources() {
     }
   }
 
+  function startEdit(item) {
+    setEditingSourceId(item.sourceId);
+    setForm({ sourceName: item.sourceName, siteUrl: item.siteUrl });
+    setSubmission({ status: 'idle', message: '' });
+  }
+
+  function cancelEdit() {
+    setEditingSourceId(null);
+    setForm({ sourceName: '', siteUrl: '' });
+    setSubmission({ status: 'idle', message: '' });
+  }
+
+  async function removeSource(item) {
+    if (operations[item.sourceId]?.configuration === 'loading') return;
+    if (!window.confirm(`'${item.sourceName}' 수집처를 삭제할까요?`)) return;
+    setOperation(item.sourceId, 'configuration', 'loading');
+    try {
+      await deleteBidSource(item.sourceId);
+      if (editingSourceId === item.sourceId) cancelEdit();
+      setSubmission({ status: 'success', message: '수집처를 삭제했습니다.' });
+      setReloadVersion(current => current + 1);
+    } catch {
+      setOperation(item.sourceId, 'configuration', 'error');
+    }
+  }
+
   async function submit(event) {
     event.preventDefault();
     if (submittingRef.current) return;
@@ -343,15 +383,19 @@ export default function BidSources() {
     submittingRef.current = true;
     setSubmission({ status: 'loading', message: '' });
     try {
-      const result = await registerBidSource({
-        sourceName: form.sourceName.trim(),
-        siteUrl: form.siteUrl.trim(),
-      }, controller.signal);
+      const values = { sourceName: form.sourceName.trim(), siteUrl: form.siteUrl.trim() };
+      const result = editingSourceId == null
+        ? await registerBidSource(values, controller.signal)
+        : await updateBidSource(editingSourceId, values, controller.signal);
       if (controller.signal.aborted) return;
+      const wasEditing = editingSourceId != null;
+      setEditingSourceId(null);
       setForm({ sourceName: '', siteUrl: '' });
-      const message = result.siteIdentification === 'SUPPORTED'
-        ? `기존 지원 사이트(${result.matchedSourceCode})로 확인되었습니다. 자동 연결이나 활성화는 수행되지 않았습니다.`
-        : '새 수집처로 등록되었습니다. 필요한 경우 사이트 점검을 실행해 주세요.';
+      const message = wasEditing
+        ? '수집처 정보를 수정했습니다.'
+        : result.siteIdentification === 'SUPPORTED'
+          ? `기존 지원 사이트(${result.matchedSourceCode})에 연결했습니다. 수집은 ${result.executionEnabled ? '활성' : '비활성'} 상태입니다.`
+          : '미지원 사이트로 등록했습니다. 수집은 비활성 상태로 유지됩니다.';
       setSubmission({ status: 'success', message });
       setReloadVersion(current => current + 1);
     } catch (error) {
@@ -374,14 +418,15 @@ export default function BidSources() {
     </header>
 
     <aside className="bid-source-review-notice" aria-label="수집처 등록 안내">
-      <strong>등록한 사이트는 수집 가능 여부 검토 후 수집 대상으로 연결됩니다.</strong>
-      <span>URL 등록만으로 공고를 방문하거나 자동수집하지 않습니다.</span>
+      <strong>기존 지원 사이트는 등록 즉시 해당 수집기에 연결됩니다.</strong>
+      <span>미지원 사이트는 비활성 상태로 저장되며 자동으로 수집하지 않습니다.</span>
     </aside>
 
     <div className="bid-sources-layout">
       <section className="surface-card bid-source-form-card" aria-labelledby="bid-source-form-title">
-        <div className="bid-source-section-heading"><h2 id="bid-source-form-title">새 수집처 등록</h2>
-          <p>사이트 이름과 공개 URL만 입력해 주세요.</p></div>
+        <div className="bid-source-section-heading"><h2 id="bid-source-form-title">
+          {editingSourceId == null ? '새 수집처 등록' : '수집처 수정'}
+        </h2><p>사이트 이름과 공개 URL을 입력해 주세요.</p></div>
         <form onSubmit={submit} noValidate>
           <label>수집처 이름<input name="sourceName" value={form.sourceName} maxLength="200"
             onChange={event => setForm(current => ({ ...current, sourceName: event.target.value }))}
@@ -390,8 +435,11 @@ export default function BidSources() {
             onChange={event => setForm(current => ({ ...current, siteUrl: event.target.value }))}
             placeholder="https://example.go.kr/bids" autoComplete="url" /></label>
           <button type="submit" disabled={submission.status === 'loading'}>
-            {submission.status === 'loading' ? '등록 중…' : '수집처 등록'}
+            {submission.status === 'loading' ? '저장 중…'
+              : editingSourceId == null ? '수집처 등록' : '수정 저장'}
           </button>
+          {editingSourceId != null && <button type="button" className="secondary" onClick={cancelEdit}
+            disabled={submission.status === 'loading'}>취소</button>}
         </form>
         {submission.status === 'success' && <p className="bid-source-form-message success" role="status">{submission.message}</p>}
         {submission.status === 'error' && <p className="bid-source-form-message error" role="alert">{submission.message}</p>}
@@ -408,11 +456,11 @@ export default function BidSources() {
           <table className="bid-source-table">
             <thead><tr><th>수집처 이름</th><th>유형</th><th>사이트 URL</th><th>검토 상태</th>
               <th>수집 방식</th><th>자동수집</th><th>최근 성공</th><th>최근 실패</th><th>지원 식별</th>
-              <th>사이트 점검</th><th>구조 분석</th><th>연결 관리</th></tr></thead>
+              <th>사이트 점검</th><th>구조 분석</th><th>연결 관리</th><th>설정</th></tr></thead>
             <tbody>{resource.data.map(item => <CatalogRow item={item}
               operation={operations[item.sourceId]} onCheck={checkSource} onDiscover={discoverSource}
               onReview={reviewSource} onBind={bindSource}
-              onActivation={changeActivation}
+              onActivation={changeActivation} onEdit={startEdit} onDelete={removeSource}
               key={item.sourceCode || `registration-${item.sourceId}`} />)}</tbody>
           </table>
         </div>}
