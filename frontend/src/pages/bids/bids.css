@@ -18,11 +18,18 @@
 .collection-message.error { background: #fef3f2; color: var(--danger, #b42318); }
 .collection-result { margin: 12px 18px 0; padding: 14px; border: 1px solid #abefc6; border-radius: 10px; background: #ecfdf3; }
 .collection-result.partial { border-color: #fedf89; background: #fffaeb; }
+.collection-result-partial_success { border-color: #fedf89; background: #fffaeb; }
+.collection-result-failed { border-color: #fecdca; background: #fef3f2; }
+.collection-result-no_active_sources { border-color: #d0d5dd; background: #f9fafb; }
 .collection-result > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .collection-result > div span { color: var(--muted); font-size: 13px; }
 .collection-result ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin: 12px 0 0; padding: 0; list-style: none; }
 .collection-result li { display: flex; justify-content: space-between; gap: 8px; padding-top: 8px; border-top: 1px solid rgba(15, 23, 42, .1); font-size: 13px; }
 .collection-result li span { color: var(--muted); text-align: right; }
+.collection-result > p { margin: 12px 0 0; color: var(--muted); font-size: 13px; }
+.live-source-summary { display: flex; align-items: baseline; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.live-source-summary strong { font-size: 14px; }
+.live-source-summary span { color: var(--muted); font-size: 13px; }
 .bid-source-statuses { padding: 16px 18px; border-bottom: 1px solid var(--border); }
 .bid-source-status-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .bid-source-status-heading h2 { margin: 0; font-size: 16px; }
@@ -72,7 +79,7 @@
   .saved-bids-heading { align-items: stretch; flex-direction: column; gap: 14px; }
   .saved-bids-heading-actions { align-items: stretch; flex-direction: column; }
   .saved-bids-live-link, .saved-bids-source-link { text-align: center; }
-  .collection-result > div, .collection-result li, .bid-source-status-heading { align-items: flex-start; flex-direction: column; }
+  .collection-result > div, .collection-result li, .bid-source-status-heading, .live-source-summary { align-items: flex-start; flex-direction: column; }
   .collection-result li span { text-align: left; }
   .saved-bids-filters { grid-template-columns: 1fr; padding: 14px; }
   .saved-bids-summary { padding-inline: 14px; }

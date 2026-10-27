@@ -44,11 +44,11 @@ test('dashboard: counts, recent order, saved evidence types and existing links',
     page.on('pageerror', error => errors.push(error.message));
     const requests = await setup(page);
     await expect(page.getByRole('heading', { name: 'Biz Assist', exact: true })).toBeVisible();
-    await expect(page.locator('.app-nav-link')).toHaveCount(7);
+    await expect(page.locator('.app-nav-link')).toHaveCount(8);
     await expect(page.locator('#submission-count')).toHaveText('3건');
     await expect(page.locator('#performance-count')).toHaveText('12건');
     await expect(page.locator('#document-count')).toHaveText('1건');
-    await expect(page.locator('#bid-check-count')).toHaveText('1건');
+    await expect(page.locator('#bid-check-count')).toHaveText('0건');
     await expect(page.locator('#bid-check-count').locator('xpath=ancestor::a')).toHaveAttribute('href', '#/bids');
     await expect(page.locator('#recent-submissions .work-item')).toHaveCount(3);
     const first = page.locator('#recent-submissions .work-item').first();
@@ -70,13 +70,13 @@ test('dashboard: counts, recent order, saved evidence types and existing links',
     await expect(page.locator('.quick-grid a').filter({ hasText: '입찰공고 조회' })).toHaveAttribute('href', '#/bids');
     await expect(page.locator('#recent-notice-list a')).toHaveAttribute('href', '/notices/?noticeId=9');
     expect(requests.every(request => request.method === 'GET')).toBe(true);
-    expect(requests.some(request => request.path === '/api/bids/target/qualification')).toBe(true);
-    expect(requests.some(request => request.path === '/api/bid-notices')).toBe(false);
+    expect(requests.some(request => request.path === '/api/bids/target/qualification')).toBe(false);
+    expect(requests.some(request => request.path === '/api/bid-notices')).toBe(true);
     expect(errors).toEqual([]);
     await page.screenshot({ path: 'test-results/dashboard-desktop.png', fullPage: true });
     await page.locator('#bid-check-count').locator('xpath=ancestor::a').click();
     await expect(page).toHaveURL(/#\/bids$/);
-    await expect(page.getByRole('heading', { name: '저장된 입찰공고' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '실시간 입찰공고' })).toBeVisible();
 });
 
 test('dashboard: empty data does not create sample work', async ({ page }) => {

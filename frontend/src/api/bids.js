@@ -42,7 +42,7 @@ export async function getBidNotices(filters = {}, signal) {
 }
 
 export async function collectBidNotices({ startDate, endDate }, signal) {
-  const response = await fetch('/api/bid-collections', {
+  const response = await fetch('/api/live-bid-notices', {
     method: 'POST',
     signal,
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
@@ -50,8 +50,8 @@ export async function collectBidNotices({ startDate, endDate }, signal) {
   });
   const result = await readJson(response);
   if (!response.ok) throw new BidCollectionRequestError(response.status, result);
-  if (!result || !['SUCCESS', 'PARTIAL_SUCCESS'].includes(result.status)
-      || !Array.isArray(result.sources)) {
+  if (!result || !['SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'NO_ACTIVE_SOURCES'].includes(result.status)
+      || !Array.isArray(result.sources) || !Array.isArray(result.notices)) {
     throw new BidCollectionRequestError(503);
   }
   return result;

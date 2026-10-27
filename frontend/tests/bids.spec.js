@@ -1,35 +1,20 @@
 import { test, expect } from '@playwright/test';
 
 const notices = [{
-  sourceCode: 'G2B', sourceNoticeId: 'g2b-1', revision: '000', noticeNumber: '2026-001',
-  title: '긴 공고명에도 줄바꿈이 적용되는 정보시스템 감리 용역 입찰공고', orderingOrganization: '조달청',
-  publishedAt: '2026-09-22T09:00:00', submissionDeadlineAt: '2026-09-30T18:00:00',
+  sourceCode: 'G2B', sourceNoticeId: 'g2b-1', revision: '000', bidNtceNo: '2026-001',
+  bidNtceNm: '긴 공고명에도 줄바꿈이 적용되는 정보시스템 감리 용역 입찰공고', ntceInsttNm: '조달청',
+  bidNtceDt: '2026-09-22T09:00:00', bidClseDt: '2026-09-30T18:00:00',
   noticeStatus: '공고', detailUrl: 'https://example.test/g2b-1',
 }, {
-  sourceCode: 'KOREA_EXPRESSWAY', sourceNoticeId: 'ex-1', revision: '', noticeNumber: 'EX-2026-1',
-  title: '고속도로 정보시스템 감리', orderingOrganization: '한국도로공사',
-  publishedAt: '2026-09-21T10:00:00', submissionDeadlineAt: '2026-09-29T17:00:00',
-  noticeStatus: '진행중', detailUrl: null,
+  sourceCode: 'KOREA_EXPRESSWAY', sourceNoticeId: 'ex-1', revision: '', bidNtceNo: 'EX-2026-1',
+  bidNtceNm: '고속도로 정보시스템 감리', ntceInsttNm: '한국도로공사',
+  bidNtceDt: '2026-09-21T10:00:00', bidClseDt: '2026-09-29T17:00:00',
+  noticeStatus: '진행중', bidNtceDtlUrl: null,
 }, {
-  sourceCode: 'D2B', sourceNoticeId: 'd2b-1', revision: '1', noticeNumber: 'D2B-1',
-  title: '국방 정보시스템 감리', orderingOrganization: '국방부',
-  publishedAt: '2026-09-20T08:00:00', submissionDeadlineAt: null,
-  noticeStatus: '공고', detailUrl: 'javascript:alert(1)',
-}, {
-  sourceCode: 'KOGAS', sourceNoticeId: 'kogas-1', revision: '1', noticeNumber: 'KOGAS-1',
-  title: '가스공사 정보시스템 감리', orderingOrganization: '한국가스공사',
-  publishedAt: '2026-09-19T08:00:00', submissionDeadlineAt: null,
-  noticeStatus: '공고', detailUrl: null,
-}, {
-  sourceCode: 'CUSTOM_ALPHA', sourceNoticeId: 'custom-1', revision: '1', noticeNumber: 'CUSTOM-1',
-  title: '신규 기관 정보시스템 감리', orderingOrganization: '신규 기관',
-  publishedAt: '2026-09-18T08:00:00', submissionDeadlineAt: null,
-  noticeStatus: '공고', detailUrl: null,
-}, {
-  sourceCode: 'UNKNOWN_LEGACY', sourceNoticeId: 'unknown-1', revision: '1', noticeNumber: 'UNKNOWN-1',
-  title: '과거 출처 공고', orderingOrganization: '과거 기관',
-  publishedAt: '2026-09-17T08:00:00', submissionDeadlineAt: null,
-  noticeStatus: '공고', detailUrl: null,
+  sourceCode: 'CUSTOM_ALPHA', sourceNoticeId: 'custom-1', revision: '1', bidNtceNo: 'CUSTOM-1',
+  bidNtceNm: '신규 기관 정보시스템 감리', ntceInsttNm: '신규 기관',
+  bidNtceDt: '2026-09-18T08:00:00', bidClseDt: null,
+  noticeStatus: null, detailUrl: 'javascript:alert(1)',
 }];
 
 function catalogItem(overrides) {
@@ -42,308 +27,187 @@ function catalogItem(overrides) {
 }
 
 const sourceCatalog = [
-  catalogItem({ sourceCode: 'G2B', sourceName: '나라장터', siteUrl: 'https://www.g2b.go.kr/',
-    sourceType: 'FIXED', collectionMethod: 'OFFICIAL_API', executionEnabled: true,
-    lastSuccessAt: '2026-09-22T01:00:00Z' }),
-  catalogItem({ sourceCode: 'KOREA_EXPRESSWAY', sourceName: '한국도로공사', siteUrl: 'https://ebid.ex.co.kr/',
-    sourceType: 'FIXED', collectionMethod: 'PUBLIC_PAGE', executionEnabled: true,
-    lastFailureAt: '2026-09-21T01:00:00Z' }),
-  catalogItem({ sourceCode: 'KOGAS', sourceName: '한국가스공사', siteUrl: 'https://bid.kogas.or.kr:9443/',
-    sourceType: 'FIXED', collectionMethod: 'PUBLIC_PAGE', executionEnabled: false,
-    safeFailureCode: 'CHECK_FAILED' }),
-  catalogItem({ sourceCode: 'D2B', sourceName: 'D2B', siteUrl: 'https://www.d2b.go.kr/',
-    sourceType: 'FIXED', collectionMethod: 'OFFICIAL_API', executionEnabled: false }),
+  catalogItem({ sourceId: 11, sourceCode: 'G2B', sourceName: '나라장터', siteUrl: 'https://www.g2b.go.kr/',
+    sourceType: 'FIXED', collectionMethod: 'OFFICIAL_API', executionEnabled: true }),
+  catalogItem({ sourceId: 12, sourceCode: 'KOREA_EXPRESSWAY', sourceName: '한국도로공사', siteUrl: 'https://ebid.ex.co.kr/',
+    sourceType: 'FIXED', collectionMethod: 'PUBLIC_PAGE', executionEnabled: true }),
+  catalogItem({ sourceId: 13, sourceCode: 'KOGAS', sourceName: '한국가스공사', siteUrl: 'https://bid.kogas.or.kr:9443/',
+    sourceType: 'FIXED', collectionMethod: 'PUBLIC_PAGE', executionEnabled: false }),
+  catalogItem({ sourceCode: 'LH', sourceName: '한국토지주택공사', siteUrl: 'https://ebid.lh.or.kr/',
+    sourceType: 'FIXED', collectionMethod: 'OFFICIAL_API', executionEnabled: true }),
   catalogItem({ sourceId: 41, sourceCode: 'CUSTOM_ALPHA', sourceName: '신규사이트 A',
     siteUrl: 'https://alpha.example/bids', collectionMethod: 'PUBLIC_PAGE', executionEnabled: true,
-    registrationStatus: 'APPROVED', checkStatus: 'REACHABLE', discoveryStatus: 'READY', reviewStatus: 'APPROVED' }),
+    registrationStatus: 'APPROVED', checkStatus: 'REACHABLE' }),
   catalogItem({ sourceId: 42, sourceName: '코드 대기 사이트', siteUrl: 'https://pending.example/bids',
-    collectionMethod: 'UNDETERMINED', registrationStatus: 'PENDING_REVIEW', checkStatus: 'NOT_CHECKED' }),
+    collectionMethod: 'UNDETERMINED', registrationStatus: 'PENDING_REVIEW' }),
 ];
 
-const successfulCollection = {
-  status: 'SUCCESS', startDate: '2026-09-01', endDate: '2026-09-22', skippedSourceCodes: ['D2B'],
-  sources: [{ sourceCode: 'G2B', runId: 41, status: 'SUCCESS', collectedCount: 4,
-    newCount: 2, updatedCount: 1, unchangedCount: 1, failedCount: 0, errorCode: null }],
-};
-
-function pageResponse(url, items = notices) {
-  const page = Number(url.searchParams.get('page') || 0);
-  const size = Number(url.searchParams.get('size') || 20);
-  return { items, page, size, totalCount: items.length, totalPages: items.length ? 2 : 0 };
+function liveResult(overrides = {}) {
+  return {
+    status: 'SUCCESS', startDate: '2026-09-01', endDate: '2026-09-22',
+    sources: [
+      { sourceCode: 'G2B', status: 'SUCCESS', noticeCount: 1, errorCode: null },
+      { sourceCode: 'KOREA_EXPRESSWAY', status: 'SUCCESS', noticeCount: 1, errorCode: null },
+      { sourceCode: 'CUSTOM_ALPHA', status: 'SUCCESS', noticeCount: 1, errorCode: null },
+    ],
+    notices,
+    ...overrides,
+  };
 }
 
-async function mockBidNotices(page, handler = url => pageResponse(url)) {
+async function mockLivePage(page, handler = route => route.fulfill({ json: liveResult() })) {
   const requests = [];
   await page.route('**/api/bid-sources/catalog', route => route.fulfill({ json: sourceCatalog }));
-  await page.route('**/api/bid-notices?*', async route => {
-    const url = new URL(route.request().url());
-    requests.push({ url, method: route.request().method() });
-    const response = await handler(url, route);
-    if (response) await route.fulfill({ status: 200, json: response });
+  await page.route('**/api/live-bid-notices', async route => {
+    requests.push({ method: route.request().method(), body: route.request().postDataJSON() });
+    await handler(route);
   });
   return requests;
 }
 
-test('App Shell bid menu navigates to the saved bids route', async ({ page }) => {
-  await page.route('**/api/**', route => {
-    const url = new URL(route.request().url());
-    return route.fulfill({ json: url.pathname === '/api/bid-notices'
-      ? { items: [], page: 0, size: 20, totalCount: 0, totalPages: 0 }
-      : [] });
-  });
+test('App Shell bid menu navigates to the live bids route', async ({ page }) => {
+  await page.route('**/api/**', route => route.fulfill({ json: [] }));
   await page.goto('/react/index.html#/');
   await page.getByRole('navigation', { name: '주요 메뉴' }).getByRole('link', { name: '입찰공고' }).click();
   await expect(page).toHaveURL(/#\/bids$/);
-  await expect(page.getByRole('heading', { name: '저장된 입찰공고' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '실시간 입찰공고' })).toBeVisible();
 });
 
-test('saved bids route renders stored notices, sources and safe detail links', async ({ page }) => {
-  const requests = await mockBidNotices(page);
+test('does not call external collection until the user starts a live query', async ({ page }) => {
+  const requests = await mockLivePage(page);
   await page.goto('/react/index.html#/bids');
 
-  await expect(page.getByRole('heading', { name: '저장된 입찰공고' })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: '주요 메뉴' }).getByRole('link', { name: '입찰공고' }))
-    .toHaveAttribute('aria-current', 'page');
-  await expect(page.locator('.saved-bids-table tbody tr')).toHaveCount(6);
-  await expect(page.locator('.saved-bids-summary')).toContainText('전체 6건');
-  await expect(page.locator('.saved-bids-table')).toContainText('나라장터');
-  await expect(page.locator('.saved-bids-table')).toContainText('한국도로공사');
-  await expect(page.locator('.saved-bids-table')).toContainText('D2B');
-  await expect(page.locator('.saved-bids-table')).toContainText('한국가스공사');
-  await expect(page.locator('.saved-bids-table')).toContainText('신규사이트 A');
-  await expect(page.locator('.saved-bids-table')).toContainText('UNKNOWN_LEGACY');
-  await expect(page.locator('.saved-bid-title-cell').first()).toContainText('2026-001');
-  await expect(page.getByRole('link', { name: '원문 보기 ↗' })).toHaveCount(1);
-  await expect(page.getByRole('link', { name: '원문 보기 ↗' })).toHaveAttribute('href', 'https://example.test/g2b-1');
-  await expect(page.getByText('원문 링크 없음')).toHaveCount(5);
-  await expect(page.getByRole('link', { name: '실시간 분석 화면 열기 ↗' })).toHaveAttribute('href', '/bids/');
-  await expect(page.getByRole('button', { name: /D2B.*활성/ })).toHaveCount(0);
-  await expect(page.locator('.bid-source-status-card').filter({ hasText: 'D2B' })).toContainText('비활성');
-  expect(requests.every(request => request.method === 'GET')).toBe(true);
+  await expect(page.getByText('기간을 선택하고 실시간 조회를 눌러 주세요.')).toBeVisible();
+  await expect(page.locator('.live-source-summary')).toContainText('수집 대상 3곳');
+  await expect(page.locator('select[name="sourceCode"] option'))
+    .toHaveText(['전체 활성 수집처', '나라장터', '한국도로공사', '신규사이트 A']);
+  expect(requests).toHaveLength(0);
 });
 
-test('manual refresh posts the selected period once, reports counts and reloads stored data and source status', async ({ page }) => {
-  const requests = [];
-  let listRequests = 0;
-  let catalogRequests = 0;
-  let releaseCollection;
-  const collectionGate = new Promise(resolve => { releaseCollection = resolve; });
-  await page.route('**/api/**', async route => {
-    const request = route.request();
+test('posts the selected period once and displays live notices without a saved-list request', async ({ page }) => {
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const requests = await mockLivePage(page, async route => {
+    await gate;
+    await route.fulfill({ json: liveResult() });
+  });
+  const allApiPaths = [];
+  page.on('request', request => {
     const url = new URL(request.url());
-    requests.push({ path: url.pathname, method: request.method(), body: request.postDataJSON?.() });
-    if (url.pathname === '/api/bid-notices') {
-      listRequests += 1;
-      return route.fulfill({ json: pageResponse(url, [notices[0]]) });
-    }
-    if (url.pathname === '/api/bid-sources/catalog') {
-      catalogRequests += 1;
-      return route.fulfill({ json: sourceCatalog });
-    }
-    if (url.pathname === '/api/bid-collections' && request.method() === 'POST') {
-      await collectionGate;
-      return route.fulfill({ json: successfulCollection });
-    }
-    return route.fulfill({ status: 404, json: {} });
+    if (url.pathname.startsWith('/api/')) allApiPaths.push(url.pathname);
   });
   await page.goto('/react/index.html#/bids');
-  await expect(page.locator('.saved-bids-table tbody tr')).toHaveCount(1);
   await page.getByLabel('시작일').fill('2026-09-01');
   await page.getByLabel('종료일').fill('2026-09-22');
-  await page.getByRole('button', { name: '조회' }).click();
-  await expect.poll(() => listRequests).toBe(2);
-  const listRequestsBeforeRefresh = listRequests;
-
-  await page.getByRole('button', { name: '최신 공고 갱신' }).click();
-  await expect(page.getByRole('button', { name: '공고 수집 중…' })).toBeDisabled();
-  await expect.poll(() => requests.filter(entry => entry.path === '/api/bid-collections').length).toBe(1);
-  await page.getByRole('button', { name: '공고 수집 중…' }).evaluate(button =>
+  await page.getByRole('button', { name: '실시간 조회' }).click();
+  await expect(page.getByRole('button', { name: '조회 중…' })).toBeDisabled();
+  await expect.poll(() => requests.length).toBe(1);
+  await page.getByRole('button', { name: '조회 중…' }).evaluate(button =>
     button.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-  expect(requests.filter(entry => entry.path === '/api/bid-collections')).toHaveLength(1);
+  expect(requests).toHaveLength(1);
 
-  releaseCollection();
-  await expect(page.getByRole('region', { name: '공고 갱신 결과' })).toContainText('공고 갱신 완료');
-  await expect(page.getByRole('region', { name: '공고 갱신 결과' })).toContainText('신규 2건 · 변경 1건 · 동일 1건');
-  await expect.poll(() => listRequests).toBe(listRequestsBeforeRefresh + 1);
-  await expect.poll(() => catalogRequests).toBe(2);
-  const post = requests.find(entry => entry.path === '/api/bid-collections');
-  expect(post.method).toBe('POST');
-  expect(post.body).toEqual({ startDate: '2026-09-01', endDate: '2026-09-22' });
+  release();
+  await expect(page.getByRole('region', { name: '실시간 공고 조회 결과' })).toContainText('조회된 공고 3건');
+  await expect(page.locator('.saved-bids-table tbody tr')).toHaveCount(3);
+  await expect(page.locator('.saved-bids-table')).toContainText('2026-001');
+  await expect(page.locator('.saved-bids-table')).toContainText('신규 기관');
+  await expect(page.getByRole('link', { name: '원문 보기 ↗' })).toHaveCount(1);
+  await expect(page.getByText('원문 링크 없음')).toHaveCount(2);
+  expect(requests[0]).toEqual({ method: 'POST', body: { startDate: '2026-09-01', endDate: '2026-09-22' } });
+  expect(allApiPaths).not.toContain('/api/bid-notices');
+  expect(allApiPaths).not.toContain('/api/bid-collections');
 });
 
-test('manual refresh uses today when the list period is unspecified', async ({ page }) => {
-  let postedBody;
+test('uses today as the initial live query period', async ({ page }) => {
   await page.clock.install({ time: new Date('2026-09-23T12:00:00+09:00') });
-  await page.route('**/api/**', route => {
-    const request = route.request();
-    const url = new URL(request.url());
-    if (url.pathname === '/api/bid-notices') return route.fulfill({ json: pageResponse(url, []) });
-    if (url.pathname === '/api/bid-sources/catalog') return route.fulfill({ json: sourceCatalog });
-    if (url.pathname === '/api/bid-collections') {
-      postedBody = request.postDataJSON();
-      return route.fulfill({ json: { ...successfulCollection, startDate: '2026-09-23', endDate: '2026-09-23' } });
-    }
-    return route.fulfill({ status: 404, json: {} });
-  });
+  const requests = await mockLivePage(page, route => route.fulfill({ json: liveResult({
+    startDate: '2026-09-23', endDate: '2026-09-23',
+  }) }));
   await page.goto('/react/index.html#/bids');
-  await page.getByRole('button', { name: '최신 공고 갱신' }).click();
-  await expect(page.getByRole('region', { name: '공고 갱신 결과' })).toBeVisible();
-  expect(postedBody).toEqual({ startDate: '2026-09-23', endDate: '2026-09-23' });
+  await expect(page.getByLabel('시작일')).toHaveValue('2026-09-23');
+  await expect(page.getByLabel('종료일')).toHaveValue('2026-09-23');
+  await page.getByRole('button', { name: '실시간 조회' }).click();
+  await expect(page.getByRole('region', { name: '실시간 공고 조회 결과' })).toBeVisible();
+  expect(requests[0].body).toEqual({ startDate: '2026-09-23', endDate: '2026-09-23' });
 });
 
-test('partial refresh shows per-source success and failure and reloads the list', async ({ page }) => {
-  let listRequests = 0;
-  await page.route('**/api/**', route => {
-    const request = route.request();
-    const url = new URL(request.url());
-    if (url.pathname === '/api/bid-notices') {
-      listRequests += 1;
-      return route.fulfill({ json: pageResponse(url, [notices[0]]) });
-    }
-    if (url.pathname === '/api/bid-sources/catalog') return route.fulfill({ json: sourceCatalog });
-    if (url.pathname === '/api/bid-collections') return route.fulfill({ json: {
-      ...successfulCollection,
-      status: 'PARTIAL_SUCCESS',
-      sources: [successfulCollection.sources[0], { sourceCode: 'KOREA_EXPRESSWAY', runId: 42,
-        status: 'FAILED', collectedCount: 0, newCount: 0, updatedCount: 0, unchangedCount: 0,
-        failedCount: 1, errorCode: 'COLLECTION_FAILED' }],
-    } });
-    return route.fulfill({ status: 404, json: {} });
-  });
+test('shows successful notices and failed sources for a partial result', async ({ page }) => {
+  await mockLivePage(page, route => route.fulfill({ json: liveResult({
+    status: 'PARTIAL_SUCCESS',
+    notices: [notices[0]],
+    sources: [
+      { sourceCode: 'G2B', status: 'SUCCESS', noticeCount: 1, errorCode: null },
+      { sourceCode: 'KOREA_EXPRESSWAY', status: 'FAILED', noticeCount: 0, errorCode: 'COLLECTION_FAILED' },
+    ],
+  }) }));
   await page.goto('/react/index.html#/bids');
-  await expect(page.locator('.saved-bids-table tbody tr')).toHaveCount(1);
-  await page.getByRole('button', { name: '최신 공고 갱신' }).click();
-  const result = page.getByRole('region', { name: '공고 갱신 결과' });
-  await expect(result).toContainText('공고 갱신 부분 성공');
-  await expect(result).toContainText('나라장터');
+  await page.getByRole('button', { name: '실시간 조회' }).click();
+  const result = page.getByRole('region', { name: '실시간 공고 조회 결과' });
+  await expect(result).toContainText('일부 수집처 조회 실패');
   await expect(result).toContainText('한국도로공사');
   await expect(result).toContainText('수집 실패');
-  await expect.poll(() => listRequests).toBe(2);
-});
-
-test('manual refresh maps 400, 409, 429 and 503 safely and preserves the stored list', async ({ page }) => {
-  let failureStatus = 400;
-  let listRequests = 0;
-  await page.route('**/api/**', route => {
-    const request = route.request();
-    const url = new URL(request.url());
-    if (url.pathname === '/api/bid-notices') {
-      listRequests += 1;
-      return route.fulfill({ json: pageResponse(url, [notices[0]]) });
-    }
-    if (url.pathname === '/api/bid-sources/catalog') return route.fulfill({ json: sourceCatalog });
-    if (url.pathname === '/api/bid-collections') return route.fulfill({ status: failureStatus,
-      json: failureStatus === 503
-        ? { status: 'FAILED', sources: [{ sourceCode: 'G2B', status: 'FAILED', errorCode: 'COLLECTION_FAILED' }] }
-        : { message: 'internal-uri-and-exception-must-not-render' } });
-    return route.fulfill({ status: 404, json: {} });
-  });
-  await page.goto('/react/index.html#/bids');
   await expect(page.locator('.saved-bids-table tbody tr')).toHaveCount(1);
-  const expected = new Map([
-    [400, '조회 기간 등 갱신 조건을 확인해 주세요.'],
-    [409, '이미 공고 수집이 진행 중입니다.'],
-    [429, '공고 수집 호출량 제한에 도달했습니다.'],
-    [503, '전체 공고 수집에 실패했습니다.'],
-  ]);
-  for (const [status, message] of expected) {
-    failureStatus = status;
-    await page.getByRole('button', { name: '최신 공고 갱신' }).click();
-    await expect(page.locator('.collection-message.error')).toContainText(message);
-    await expect(page.locator('.saved-bids-table tbody tr')).toHaveCount(1);
-    await expect(page.locator('body')).not.toContainText('internal-uri-and-exception-must-not-render');
-  }
-  await expect(page.locator('.collection-message.error')).toContainText('실패 출처: 나라장터');
-  expect(listRequests).toBe(1);
 });
 
-test('catalog renders fixed and discovered status cards and dynamic source options', async ({ page }) => {
-  await mockBidNotices(page);
+test('shows no-active-source and complete-failure results safely', async ({ page }) => {
+  let response = liveResult({ status: 'NO_ACTIVE_SOURCES', sources: [], notices: [] });
+  await mockLivePage(page, route => route.fulfill({ json: response }));
   await page.goto('/react/index.html#/bids');
-  await expect(page.locator('.bid-source-status-card')).toHaveCount(6);
-  await expect(page.locator('.bid-source-status-card').filter({ hasText: '나라장터' })).toContainText('활성');
-  await expect(page.locator('.bid-source-status-card').filter({ hasText: '한국도로공사' }))
-    .toContainText('2026-09-21 01:00');
-  const kogas = page.locator('.bid-source-status-card').filter({ hasText: '한국가스공사' });
-  await expect(kogas).toContainText('비활성');
-  await expect(kogas).toContainText('KOGAS');
-  await expect(kogas).toContainText('CHECK_FAILED');
-  await expect(page.locator('.bid-source-status-card').filter({ hasText: '신규사이트 A' })).toContainText('활성');
-  await expect(page.locator('.bid-source-status-card').filter({ hasText: '코드 대기 사이트' }))
-    .toContainText('코드 미할당');
-  const d2b = page.locator('.bid-source-status-card').filter({ hasText: 'D2B' });
-  await expect(d2b).toContainText('비활성');
-  await expect(d2b.getByRole('button')).toHaveCount(0);
-  const options = page.locator('select[name="sourceCode"] option');
-  await expect(options).toHaveCount(6);
-  await expect(options).toHaveText(['전체 출처', '나라장터', '한국도로공사', '한국가스공사', 'D2B', '신규사이트 A']);
-  await expect(page.locator('select[name="sourceCode"] option', { hasText: '코드 대기 사이트' })).toHaveCount(0);
+  await page.getByRole('button', { name: '실시간 조회' }).click();
+  await expect(page.getByRole('region', { name: '실시간 공고 조회 결과' }))
+    .toContainText('수집처 관리에서 사용할 사이트를 활성화해 주세요.');
+
+  response = liveResult({ status: 'FAILED', notices: [], sources: [
+    { sourceCode: 'G2B', status: 'FAILED', noticeCount: 0, errorCode: 'COLLECTION_FAILED' },
+  ] });
+  await page.getByRole('button', { name: '실시간 조회' }).click();
+  await expect(page.getByRole('region', { name: '실시간 공고 조회 결과' })).toContainText('수집처 조회 실패');
+  await expect(page.locator('body')).not.toContainText('sensitive upstream response');
 });
 
-test('saved bids send date, source and server pagination parameters and reset page', async ({ page }) => {
-  const requests = await mockBidNotices(page, url => {
-    const response = pageResponse(url, [notices[0]]);
-    response.totalCount = 3;
-    response.totalPages = 2;
-    return response;
-  });
+test('rejects an invalid date range before calling the live API', async ({ page }) => {
+  const requests = await mockLivePage(page);
   await page.goto('/react/index.html#/bids');
-  await expect(page.locator('.saved-bids-table tbody tr')).toHaveCount(1);
-
-  await page.getByRole('button', { name: '다음' }).click();
-  await expect.poll(() => requests.at(-1).url.searchParams.get('page')).toBe('1');
-
-  await page.locator('select[name="sourceCode"]').selectOption('D2B');
-  await expect.poll(() => requests.at(-1).url.searchParams.toString()).toContain('sourceCode=D2B');
-  expect(requests.at(-1).url.searchParams.get('page')).toBe('0');
-
-  await page.getByLabel('시작일').fill('2026-09-01');
+  await page.getByLabel('시작일').fill('2026-09-23');
   await page.getByLabel('종료일').fill('2026-09-22');
-  await page.getByRole('button', { name: '조회' }).click();
-  await expect.poll(() => requests.at(-1).url.searchParams.get('startDate')).toBe('2026-09-01');
-  expect(requests.at(-1).url.searchParams.get('endDate')).toBe('2026-09-22');
-  expect(requests.at(-1).url.searchParams.get('sourceCode')).toBe('D2B');
-  expect(requests.at(-1).url.searchParams.get('page')).toBe('0');
-
-  await page.getByLabel('페이지 크기').selectOption('100');
-  await expect.poll(() => requests.at(-1).url.searchParams.get('size')).toBe('100');
-  expect(requests.at(-1).url.searchParams.get('page')).toBe('0');
+  await page.getByRole('button', { name: '실시간 조회' }).click();
+  await expect(page.getByRole('alert')).toHaveText('시작일은 종료일보다 늦을 수 없습니다.');
+  expect(requests).toHaveLength(0);
 });
 
-test('saved bids show the explicit empty database state without fallback calls', async ({ page }) => {
-  const apiRequests = [];
-  await page.route('**/api/**', route => {
-    const url = new URL(route.request().url());
-    apiRequests.push(url.pathname);
-    return route.fulfill({ json: url.pathname === '/api/bid-sources/catalog' ? []
-      : { items: [], page: 0, size: 20, totalCount: 0, totalPages: 0 } });
-  });
+test('maps live API errors without exposing the server response', async ({ page }) => {
+  await mockLivePage(page, route => route.fulfill({ status: 503,
+    json: { message: 'internal-uri-and-exception-must-not-render' } }));
   await page.goto('/react/index.html#/bids');
-  await expect(page.getByText('아직 저장된 공고가 없습니다.')).toBeVisible();
-  await expect(page.locator('.saved-bids-summary')).toContainText('전체 0건');
-  expect(apiRequests.sort()).toEqual(['/api/bid-notices', '/api/bid-sources/catalog']);
+  await page.getByRole('button', { name: '실시간 조회' }).click();
+  await expect(page.getByRole('alert')).toHaveText('실시간 공고 조회에 실패했습니다.');
+  await expect(page.locator('body')).not.toContainText('internal-uri-and-exception-must-not-render');
 });
 
-test('saved bids expose loading and API error states', async ({ page }) => {
-  let pendingRequest;
-  await page.route('**/api/bid-sources/catalog', route => route.fulfill({ json: sourceCatalog }));
-  await page.route('**/api/bid-notices?*', route => { pendingRequest = route; });
+test('filters and paginates the current in-memory result without another collection call', async ({ page }) => {
+  const many = Array.from({ length: 21 }, (_, index) => ({
+    ...notices[index % notices.length],
+    sourceNoticeId: `notice-${index}`,
+    bidNtceNo: `NOTICE-${index}`,
+  }));
+  const requests = await mockLivePage(page, route => route.fulfill({ json: liveResult({ notices: many }) }));
   await page.goto('/react/index.html#/bids');
-  await expect(page.getByRole('status')).toHaveText('저장된 공고를 불러오는 중입니다.');
-
-  await pendingRequest.abort();
-  await page.unroute('**/api/bid-notices?*');
-  await page.route('**/api/bid-notices?*', route => route.fulfill({ status: 503, json: {} }));
-  await page.reload();
-  await expect(page.getByRole('alert')).toHaveText('저장된 공고를 불러오지 못했습니다.');
+  await page.getByRole('button', { name: '실시간 조회' }).click();
+  await expect(page.locator('.saved-bids-table tbody tr')).toHaveCount(20);
+  await page.getByRole('button', { name: '다음' }).click();
+  await expect(page.locator('.saved-bids-table tbody tr')).toHaveCount(1);
+  await page.locator('select[name="sourceCode"]').selectOption('CUSTOM_ALPHA');
+  await expect(page.locator('.saved-bids-table tbody tr')).toHaveCount(7);
+  await expect(page.locator('.saved-bids-summary')).toContainText('전체 7건');
+  expect(requests).toHaveLength(1);
 });
 
-test('saved bids mobile layout stays inside the viewport', async ({ page }) => {
+test('live bids mobile layout stays inside the viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await mockBidNotices(page);
+  await mockLivePage(page);
   await page.goto('/react/index.html#/bids');
-  await expect(page.locator('.saved-bids-table tbody tr')).toHaveCount(6);
+  await page.getByRole('button', { name: '실시간 조회' }).click();
+  await expect(page.locator('.saved-bids-table tbody tr')).toHaveCount(3);
   await expect(page.locator('.saved-bids-table thead')).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: 'test-results/saved-bids-mobile.png', fullPage: true });
 });
