@@ -77,6 +77,12 @@ public class BidQualificationDto {
     // 제한그룹번호와 제한순번을 유지한 구조화된 면허 조건 목록
     private List<LicenseRequirementGroup> licenseGroups;
 
+    // Codes from the current allowed-industry snapshot that are confirmed in the notice details.
+    private List<String> matchedIndustryCodes = new ArrayList<>();
+
+    // INDUSTRY_CODE when a configured code is confirmed, otherwise SUPPLEMENTAL.
+    private String matchType = "SUPPLEMENTAL";
+
     // 참가가능지역
     private String participationRegion;
 

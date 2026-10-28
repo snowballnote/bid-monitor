@@ -3,6 +3,9 @@ package com.comhu.bidmonitor.bid.collection;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistrationRepository;
 import com.comhu.bidmonitor.bid.settings.AllowedIndustryCodeProvider;
+import com.comhu.bidmonitor.dto.BidQualificationDto;
+import com.comhu.bidmonitor.dto.LicenseRequirement;
+import com.comhu.bidmonitor.dto.LicenseRequirementGroup;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -12,6 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 /** Collects filtered notices from active registered sources without persisting notice data. */
 @Service
@@ -51,6 +55,7 @@ public class LiveBidCollectionService {
                 ManualBidCollectionSource.CollectionBatch batch = source.collect(
                         startDate, endDate, allowedIndustryCodes
                 );
+                batch.candidates().forEach(candidate -> applyIndustryMatch(candidate, allowedIndustryCodes));
                 results.add(LiveBidCollectionResult.SourceResult.success(sourceCode, batch.candidates()));
             } catch (RuntimeException exception) {
                 results.add(LiveBidCollectionResult.SourceResult.failure(sourceCode, COLLECTION_FAILED));
@@ -58,8 +63,31 @@ public class LiveBidCollectionService {
         }
 
         return new LiveBidCollectionResult(
-                status(results), startDate, endDate, results
+                status(results), startDate, endDate, allowedIndustryCodes, results
         );
+    }
+
+    private void applyIndustryMatch(BidQualificationDto candidate, Set<String> allowedIndustryCodes) {
+        if (candidate == null) {
+            return;
+        }
+        Set<String> matches = new TreeSet<>();
+        List<LicenseRequirementGroup> groups = candidate.getLicenseGroups() == null
+                ? List.of()
+                : candidate.getLicenseGroups();
+        for (LicenseRequirementGroup group : groups) {
+            List<LicenseRequirement> requirements = group == null || group.getRequirements() == null
+                    ? List.of()
+                    : group.getRequirements();
+            for (LicenseRequirement requirement : requirements) {
+                String code = requirement == null ? null : requirement.getLicenseCode();
+                if (code != null && allowedIndustryCodes.contains(code.trim())) {
+                    matches.add(code.trim());
+                }
+            }
+        }
+        candidate.setMatchedIndustryCodes(List.copyOf(matches));
+        candidate.setMatchType(matches.isEmpty() ? "SUPPLEMENTAL" : "INDUSTRY_CODE");
     }
 
     private List<BidSourceRegistration> activeRegistrations() {

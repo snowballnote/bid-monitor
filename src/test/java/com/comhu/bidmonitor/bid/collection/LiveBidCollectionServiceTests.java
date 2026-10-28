@@ -4,6 +4,8 @@ import com.comhu.bidmonitor.bid.persistence.BidSourceRegistration;
 import com.comhu.bidmonitor.bid.persistence.BidSourceRegistrationRepository;
 import com.comhu.bidmonitor.bid.settings.AllowedIndustryCodeProvider;
 import com.comhu.bidmonitor.dto.BidQualificationDto;
+import com.comhu.bidmonitor.dto.LicenseRequirement;
+import com.comhu.bidmonitor.dto.LicenseRequirementGroup;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -58,6 +60,10 @@ class LiveBidCollectionServiceTests {
         notice.setSourceCode("KOGAS");
         notice.setSourceNoticeId("2026-001");
         notice.setBidNtceNm("정보시스템 감리 용역");
+        notice.setLicenseGroups(List.of(new LicenseRequirementGroup("1", List.of(
+                new LicenseRequirement("1", "6146", "정보시스템 감리법인", "감리법인/6146"),
+                new LicenseRequirement("2", "9999", "기타", "기타/9999")
+        ))));
         when(activeSource.sourceCode()).thenReturn("KOGAS");
         when(activeSource.executionEnabled()).thenReturn(true);
         when(activeSource.collect(START, END, Set.of("6146", "6525")))
@@ -72,7 +78,10 @@ class LiveBidCollectionServiceTests {
         LiveBidCollectionResult result = service.collect(START, END);
 
         assertThat(result.status()).isEqualTo(LiveBidCollectionResult.Status.SUCCESS);
+        assertThat(result.allowedIndustryCodes()).containsExactlyInAnyOrder("6146", "6525");
         assertThat(result.notices()).containsExactly(notice);
+        assertThat(notice.getMatchedIndustryCodes()).containsExactly("6146");
+        assertThat(notice.getMatchType()).isEqualTo("INDUSTRY_CODE");
         assertThat(result.sources()).singleElement().satisfies(source -> {
             assertThat(source.sourceCode()).isEqualTo("KOGAS");
             assertThat(source.status()).isEqualTo(LiveBidCollectionResult.SourceStatus.SUCCESS);
@@ -93,7 +102,30 @@ class LiveBidCollectionServiceTests {
         assertThat(result.status()).isEqualTo(LiveBidCollectionResult.Status.NO_ACTIVE_SOURCES);
         assertThat(result.sources()).isEmpty();
         assertThat(result.notices()).isEmpty();
+        assertThat(result.allowedIndustryCodes()).containsExactlyInAnyOrder("6146", "6525");
         verify(activeSource, never()).collect(START, END, Set.of("6146", "6525"));
+    }
+
+    @Test
+    void marksCandidatesWithoutConfirmedAllowedCodesAsSupplementalWithoutDroppingThem() {
+        BidQualificationDto notice = new BidQualificationDto();
+        notice.setSourceCode("G2B");
+        notice.setSourceNoticeId("keyword-only");
+        notice.setLicenseGroups(List.of(new LicenseRequirementGroup("1", List.of(
+                new LicenseRequirement("1", "0036", "정보통신공사업", "정보통신공사업/0036")
+        ))));
+        when(activeSource.sourceCode()).thenReturn("G2B");
+        when(activeSource.executionEnabled()).thenReturn(true);
+        when(activeSource.collect(START, END, Set.of("6146", "6525")))
+                .thenReturn(ManualBidCollectionSource.CollectionBatch.unmeasured(List.of(notice)));
+        when(sourceRegistry.sources()).thenReturn(List.of(activeSource));
+        when(registrationRepository.findAllLatestFirst()).thenReturn(List.of(registration("G2B", true)));
+
+        LiveBidCollectionResult result = service.collect(START, END);
+
+        assertThat(result.notices()).containsExactly(notice);
+        assertThat(notice.getMatchedIndustryCodes()).isEmpty();
+        assertThat(notice.getMatchType()).isEqualTo("SUPPLEMENTAL");
     }
 
     @Test

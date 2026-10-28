@@ -31,6 +31,11 @@ function sourceName(sourceCode, sourceNames) {
   return sourceNames.get(sourceCode.trim().toUpperCase()) || sourceCode;
 }
 
+function matchedIndustryCodes(notice) {
+  if (!Array.isArray(notice?.matchedIndustryCodes)) return [];
+  return notice.matchedIndustryCodes.filter(code => /^\d{4}$/.test(code));
+}
+
 function collectionErrorMessage(error) {
   if (!(error instanceof BidCollectionRequestError)) return '실시간 공고 조회를 완료하지 못했습니다.';
   return {
@@ -80,6 +85,7 @@ function ActiveSourceSummary({ resource }) {
 
 function BidRow({ notice, sourceNames }) {
   const detailUrl = safeExternalUrl(notice.detailUrl || notice.bidNtceDtlUrl);
+  const industryCodes = matchedIndustryCodes(notice);
   return <tr>
     <td data-label="출처"><span className={`bid-source bid-source-${notice.sourceCode?.toLowerCase()}`}>
       {sourceName(notice.sourceCode, sourceNames)}
@@ -94,6 +100,9 @@ function BidRow({ notice, sourceNames }) {
     <td data-label="입찰마감"><time dateTime={notice.bidClseDt || undefined}>
       {formatDateTime(notice.bidClseDt)}</time></td>
     <td data-label="상태">{notice.noticeStatus || '미확인'}</td>
+    <td data-label="업종 일치">{industryCodes.length
+      ? <span className="bid-industry-match">{industryCodes.join(', ')}</span>
+      : <span className="bid-industry-supplemental">키워드 보완</span>}</td>
     <td data-label="원문">{detailUrl
       ? <a className="saved-bid-detail-link" href={detailUrl} target="_blank"
         rel="noreferrer noopener">원문 보기 ↗</a>
@@ -104,7 +113,9 @@ function BidRow({ notice, sourceNames }) {
 export default function BidNotices() {
   const today = localDateString();
   const [dates, setDates] = useState({ startDate: today, endDate: today });
-  const [filters, setFilters] = useState({ sourceCode: '', size: 20 });
+  const [filters, setFilters] = useState({
+    sourceCode: '', industryCode: '', includeSupplemental: true, size: 20,
+  });
   const [page, setPage] = useState(0);
   const [validation, setValidation] = useState('');
   const [sourceCatalog, setSourceCatalog] = useState({ status: 'loading', data: [] });
@@ -159,9 +170,19 @@ export default function BidNotices() {
   const activeSources = sourceCatalog.data.filter(source => source.sourceId != null
     && source.executionEnabled && source.sourceCode);
   const notices = collection.result?.notices || [];
-  const filteredNotices = filters.sourceCode
-    ? notices.filter(notice => notice.sourceCode?.toUpperCase() === filters.sourceCode.toUpperCase())
-    : notices;
+  const allowedIndustryCodes = [...(collection.result?.allowedIndustryCodes || [])]
+    .filter(code => /^\d{4}$/.test(code))
+    .sort();
+  const filteredNotices = notices.filter(notice => {
+    if (filters.sourceCode
+        && notice.sourceCode?.toUpperCase() !== filters.sourceCode.toUpperCase()) return false;
+    const matches = matchedIndustryCodes(notice);
+    const supplemental = matches.length === 0;
+    if (filters.industryCode) {
+      return matches.includes(filters.industryCode) || (filters.includeSupplemental && supplemental);
+    }
+    return filters.includeSupplemental || !supplemental;
+  });
   const totalPages = filteredNotices.length ? Math.ceil(filteredNotices.length / filters.size) : 0;
   const visibleNotices = filteredNotices.slice(page * filters.size, (page + 1) * filters.size);
 
@@ -192,6 +213,16 @@ export default function BidNotices() {
             {source.sourceName}
           </option>)}
         </select></label>
+        <label>업종코드<select name="industryCode" value={filters.industryCode}
+          onChange={event => changeFilter('industryCode', event.target.value)}>
+          <option value="">전체 허용 코드</option>
+          {allowedIndustryCodes.map(code => <option value={code} key={code}>{code}</option>)}
+        </select></label>
+        <label className="saved-bids-supplemental-filter">
+          <input type="checkbox" name="includeSupplemental" checked={filters.includeSupplemental}
+            onChange={event => changeFilter('includeSupplemental', event.target.checked)} />
+          키워드 보완 후보 포함
+        </label>
         <label>페이지 크기<select name="size" value={filters.size}
           onChange={event => changeFilter('size', event.target.value)}>
           {[10, 20, 50, 100].map(size => <option value={size} key={size}>{size}건</option>)}
@@ -222,7 +253,7 @@ export default function BidNotices() {
         <div className="saved-bids-table-wrap">
           <table className="saved-bids-table">
             <thead><tr><th>출처</th><th>공고명 / 공고번호</th><th>발주기관</th><th>공고일</th>
-              <th>입찰마감</th><th>상태</th><th>원문</th></tr></thead>
+              <th>입찰마감</th><th>상태</th><th>업종 일치</th><th>원문</th></tr></thead>
             <tbody>{visibleNotices.map((notice, index) => <BidRow notice={notice} sourceNames={sourceNames}
               key={`${notice.sourceCode}:${notice.sourceNoticeId}:${notice.revision}:${index}`} />)}</tbody>
           </table>

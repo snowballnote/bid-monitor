@@ -5,16 +5,19 @@ const notices = [{
   bidNtceNm: '긴 공고명에도 줄바꿈이 적용되는 정보시스템 감리 용역 입찰공고', ntceInsttNm: '조달청',
   bidNtceDt: '2026-09-22T09:00:00', bidClseDt: '2026-09-30T18:00:00',
   noticeStatus: '공고', detailUrl: 'https://example.test/g2b-1',
+  matchedIndustryCodes: ['6146'], matchType: 'INDUSTRY_CODE',
 }, {
   sourceCode: 'KOREA_EXPRESSWAY', sourceNoticeId: 'ex-1', revision: '', bidNtceNo: 'EX-2026-1',
   bidNtceNm: '고속도로 정보시스템 감리', ntceInsttNm: '한국도로공사',
   bidNtceDt: '2026-09-21T10:00:00', bidClseDt: '2026-09-29T17:00:00',
   noticeStatus: '진행중', bidNtceDtlUrl: null,
+  matchedIndustryCodes: ['1468'], matchType: 'INDUSTRY_CODE',
 }, {
   sourceCode: 'CUSTOM_ALPHA', sourceNoticeId: 'custom-1', revision: '1', bidNtceNo: 'CUSTOM-1',
   bidNtceNm: '신규 기관 정보시스템 감리', ntceInsttNm: '신규 기관',
   bidNtceDt: '2026-09-18T08:00:00', bidClseDt: null,
   noticeStatus: null, detailUrl: 'javascript:alert(1)',
+  matchedIndustryCodes: [], matchType: 'SUPPLEMENTAL',
 }];
 
 function catalogItem(overrides) {
@@ -45,6 +48,7 @@ const sourceCatalog = [
 function liveResult(overrides = {}) {
   return {
     status: 'SUCCESS', startDate: '2026-09-01', endDate: '2026-09-22',
+    allowedIndustryCodes: ['1468', '6146'],
     sources: [
       { sourceCode: 'G2B', status: 'SUCCESS', noticeCount: 1, errorCode: null },
       { sourceCode: 'KOREA_EXPRESSWAY', status: 'SUCCESS', noticeCount: 1, errorCode: null },
@@ -199,6 +203,25 @@ test('filters and paginates the current in-memory result without another collect
   await page.locator('select[name="sourceCode"]').selectOption('CUSTOM_ALPHA');
   await expect(page.locator('.saved-bids-table tbody tr')).toHaveCount(7);
   await expect(page.locator('.saved-bids-summary')).toContainText('전체 7건');
+  expect(requests).toHaveLength(1);
+});
+
+test('filters by configured industry code while preserving optional supplemental candidates', async ({ page }) => {
+  const requests = await mockLivePage(page);
+  await page.goto('/react/index.html#/bids');
+  await page.getByRole('button', { name: '실시간 조회' }).click();
+
+  await expect(page.locator('select[name="industryCode"] option'))
+    .toHaveText(['전체 허용 코드', '1468', '6146']);
+  await page.locator('select[name="industryCode"]').selectOption('6146');
+  await expect(page.locator('.saved-bids-table tbody tr')).toHaveCount(2);
+  await expect(page.locator('.saved-bids-table')).toContainText('6146');
+  await expect(page.locator('.saved-bids-table')).toContainText('키워드 보완');
+
+  await page.getByLabel('키워드 보완 후보 포함').uncheck();
+  await expect(page.locator('.saved-bids-table tbody tr')).toHaveCount(1);
+  await expect(page.locator('.saved-bids-table')).toContainText('2026-001');
+  await expect(page.locator('.saved-bids-table')).not.toContainText('CUSTOM-1');
   expect(requests).toHaveLength(1);
 });
 

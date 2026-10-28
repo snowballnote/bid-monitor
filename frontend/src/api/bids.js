@@ -51,6 +51,7 @@ export async function collectBidNotices({ startDate, endDate }, signal) {
   const result = await readJson(response);
   if (!response.ok) throw new BidCollectionRequestError(response.status, result);
   if (!result || !['SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'NO_ACTIVE_SOURCES'].includes(result.status)
+      || !Array.isArray(result.allowedIndustryCodes)
       || !Array.isArray(result.sources) || !Array.isArray(result.notices)) {
     throw new BidCollectionRequestError(503);
   }

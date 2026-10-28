@@ -11,6 +11,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -40,10 +41,13 @@ class LiveBidNoticeControllerTests {
         notice.setSourceNoticeId("2026-001");
         notice.setBidNtceNo("2026-001");
         notice.setBidNtceNm("정보시스템 감리 용역");
+        notice.setMatchedIndustryCodes(List.of("6146"));
+        notice.setMatchType("INDUSTRY_CODE");
         when(service.collect(date, date)).thenReturn(new LiveBidCollectionResult(
                 LiveBidCollectionResult.Status.SUCCESS,
                 date,
                 date,
+                Set.of("6146", "1468"),
                 List.of(LiveBidCollectionResult.SourceResult.success("KOGAS", List.of(notice)))
         ));
 
@@ -52,10 +56,13 @@ class LiveBidNoticeControllerTests {
                         .content("{\"startDate\":\"2026-10-22\",\"endDate\":\"2026-10-22\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SUCCESS"))
+                .andExpect(jsonPath("$.allowedIndustryCodes.length()").value(2))
                 .andExpect(jsonPath("$.sources[0].sourceCode").value("KOGAS"))
                 .andExpect(jsonPath("$.sources[0].noticeCount").value(1))
                 .andExpect(jsonPath("$.notices[0].sourceNoticeId").value("2026-001"))
-                .andExpect(jsonPath("$.notices[0].bidNtceNm").value("정보시스템 감리 용역"));
+                .andExpect(jsonPath("$.notices[0].bidNtceNm").value("정보시스템 감리 용역"))
+                .andExpect(jsonPath("$.notices[0].matchedIndustryCodes[0]").value("6146"))
+                .andExpect(jsonPath("$.notices[0].matchType").value("INDUSTRY_CODE"));
 
         verify(service).collect(date, date);
     }

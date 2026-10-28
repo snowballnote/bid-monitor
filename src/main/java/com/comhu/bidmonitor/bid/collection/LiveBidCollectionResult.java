@@ -4,12 +4,14 @@ import com.comhu.bidmonitor.dto.BidQualificationDto;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 
 /** In-memory collection result returned directly to the live notice screen. */
 public record LiveBidCollectionResult(
         Status status,
         LocalDate startDate,
         LocalDate endDate,
+        Set<String> allowedIndustryCodes,
         List<SourceResult> sources
 ) {
 
@@ -17,6 +19,7 @@ public record LiveBidCollectionResult(
         if (status == null || startDate == null || endDate == null) {
             throw new IllegalArgumentException("Live collection result fields are required.");
         }
+        allowedIndustryCodes = allowedIndustryCodes == null ? Set.of() : Set.copyOf(allowedIndustryCodes);
         sources = sources == null ? List.of() : List.copyOf(sources);
     }
 

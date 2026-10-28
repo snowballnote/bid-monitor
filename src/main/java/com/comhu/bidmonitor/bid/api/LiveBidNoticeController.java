@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/live-bid-notices")
@@ -41,6 +42,7 @@ public class LiveBidNoticeController {
             String status,
             LocalDate startDate,
             LocalDate endDate,
+            Set<String> allowedIndustryCodes,
             List<SourceResponse> sources,
             List<BidQualificationDto> notices
     ) {
@@ -50,6 +52,7 @@ public class LiveBidNoticeController {
                     result.status().name(),
                     result.startDate(),
                     result.endDate(),
+                    result.allowedIndustryCodes(),
                     result.sources().stream().map(SourceResponse::from).toList(),
                     result.notices()
             );
